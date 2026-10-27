@@ -20,7 +20,7 @@ function envelope(request, withScreen = true) {
 }
 const lookup = (value) => ({
   type: 'IntentRequest',
-  intent: { name: 'LookupIntent', confirmationStatus: 'NONE', slots: { last4: { name: 'last4', value } } },
+  intent: { name: 'LookupIntent', confirmationStatus: 'NONE', slots: { lastFour: { name: 'lastFour', value } } },
 });
 const run = (req, read = async () => ({ receipts, pickups }), screen = true) => buildSkill(read).create().invoke(envelope(req, screen));
 
@@ -78,7 +78,8 @@ test('interaction model and APL are valid JSON with the right names', () => {
   assert.strictEqual(m.invocationName, 'tailor shop');
   const intent = m.intents.find((i) => i.name === 'LookupIntent');
   assert.strictEqual(intent.slots[0].type, 'AMAZON.FOUR_DIGIT_NUMBER');
-  assert.ok(intent.samples.every((s) => s.includes('{last4}')));
+  assert.doesNotMatch(intent.slots[0].name, /\d/, 'Amazon rejects digits in slot names');
+  assert.ok(intent.samples.every((s) => s.includes('{lastFour}')));
   const apl = require('../lambda/apl.json');
   assert.strictEqual(apl.type, 'APL');
 });

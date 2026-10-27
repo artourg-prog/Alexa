@@ -5,20 +5,20 @@
       "intents": [
         {
           "name": "LookupIntent",
-          "slots": [{ "name": "last4", "type": "AMAZON.FOUR_DIGIT_NUMBER" }],
+          "slots": [{ "name": "lastFour", "type": "AMAZON.FOUR_DIGIT_NUMBER" }],
           "samples": [
-            "{last4}",
-            "for {last4}",
-            "phone {last4}",
-            "number {last4}",
-            "check {last4}",
-            "look up {last4}",
-            "lookup {last4}",
-            "find {last4}",
-            "receipt for {last4}",
-            "receipts for {last4}",
-            "customer {last4}",
-            "client {last4}"
+            "{lastFour}",
+            "for {lastFour}",
+            "phone {lastFour}",
+            "number {lastFour}",
+            "check {lastFour}",
+            "look up {lastFour}",
+            "lookup {lastFour}",
+            "find {lastFour}",
+            "receipt for {lastFour}",
+            "receipts for {lastFour}",
+            "customer {lastFour}",
+            "client {lastFour}"
           ]
         },
         { "name": "AMAZON.CancelIntent", "samples": [] },

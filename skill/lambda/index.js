@@ -34,7 +34,7 @@ function makeLookupHandler(read = readSheet) {
       );
     },
     async handle(handlerInput) {
-      const last4 = normalizeLast4(Alexa.getSlotValue(handlerInput.requestEnvelope, 'last4'));
+      const last4 = normalizeLast4(Alexa.getSlotValue(handlerInput.requestEnvelope, 'lastFour'));
       const rb = handlerInput.responseBuilder;
       if (!last4) return rb.speak(ASK).reprompt(ASK).getResponse();
 
