@@ -1,0 +1,6 @@
+# Google key files must never be committed
+*.json.key
+*service-account*.json
+*-reader.json
+secrets/
+node_modules/
