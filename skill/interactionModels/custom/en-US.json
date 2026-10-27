@@ -1,0 +1,33 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "tailor shop",
+      "intents": [
+        {
+          "name": "LookupIntent",
+          "slots": [{ "name": "last4", "type": "AMAZON.FOUR_DIGIT_NUMBER" }],
+          "samples": [
+            "{last4}",
+            "for {last4}",
+            "phone {last4}",
+            "number {last4}",
+            "check {last4}",
+            "look up {last4}",
+            "lookup {last4}",
+            "find {last4}",
+            "receipt for {last4}",
+            "receipts for {last4}",
+            "customer {last4}",
+            "client {last4}"
+          ]
+        },
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] }
+      ],
+      "types": []
+    }
+  }
+}
