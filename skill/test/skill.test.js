@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert');
 const { buildSkill } = require('../lambda/index');
-const { receipts, pickups } = require('./fixtures');
+const { orders } = require('./fixtures');
 
 function envelope(request, withScreen = true) {
   return {
@@ -22,31 +22,38 @@ const lookup = (value) => ({
   type: 'IntentRequest',
   intent: { name: 'LookupIntent', confirmationStatus: 'NONE', slots: { lastFour: { name: 'lastFour', value } } },
 });
-const run = (req, read = async () => ({ receipts, pickups }), screen = true) => buildSkill(read).create().invoke(envelope(req, screen));
+const run = (req, read = async () => orders, screen = true) => buildSkill(read).create().invoke(envelope(req, screen));
 
-test('"ask Tailor Shop 4417" → screen with both receipts', async () => {
+test('"ask Tailor Shop 4417" → screen with both orders, voice says only the count', async () => {
   const res = await run(lookup('4417'));
-  assert.match(res.response.outputSpeech.ssml, /2 receipts/);
+  assert.match(res.response.outputSpeech.ssml, /2 orders for 4 4 1 7/);
+  assert.doesNotMatch(res.response.outputSpeech.ssml, /33520|Sam/);
   assert.strictEqual(res.response.shouldEndSession, true);
   const d = res.response.directives[0];
   assert.strictEqual(d.type, 'Alexa.Presentation.APL.RenderDocument');
   const props = d.datasources.data.properties;
-  assert.deepStrictEqual(props.cards.map((c) => [c.receipt, c.customer, c.ready, c.paid]), [
-    ['26135', 'Sam Roe', 'PICKED UP', ''],
-    ['26126', 'Pat Lee', 'NOT READY', 'PAID'],
+  assert.deepStrictEqual(props.cards.map((c) => [c.receipt, c.customer, c.detail, c.paid, c.sms]), [
+    ['33520', 'Sam Roe', '(702) 555-4417  ·  Promised 10-14-26 5 PM', 'PART PAID', 'TEXT SENT'],
+    ['33515', 'Pat Lee', '(702) 555-4417  ·  Promised 10-09-26 1:30 PM', 'PAID', 'NOT TEXTED'],
   ]);
   assert.strictEqual(props.message, '');
+  assert.doesNotMatch(JSON.stringify(res), /SECRET WORKER|READY/);
 });
 
-test('no screen → voice only, no APL directive', async () => {
-  const res = await run(lookup('4444'), undefined, false);
-  assert.match(res.response.outputSpeech.ssml, /Receipt 26266, ready, paid/);
+test('no screen → count only, no APL directive', async () => {
+  const res = await run(lookup('2222'), undefined, false);
+  assert.match(res.response.outputSpeech.ssml, /1 order for 2 2 2 2\. Look on the Echo Show/);
   assert.ok(!res.response.directives);
 });
 
-test('no match → "No receipts" on screen', async () => {
+test('no match → "No orders" on screen', async () => {
   const res = await run(lookup('9999'));
-  assert.strictEqual(res.response.directives[0].datasources.data.properties.message, 'No receipts');
+  assert.strictEqual(res.response.directives[0].datasources.data.properties.message, 'No orders');
+});
+
+test('sheet header changed → says so', async () => {
+  const res = await run(lookup('4417'), async () => [['foo'], ['1']]);
+  assert.strictEqual(res.response.directives[0].datasources.data.properties.message, 'Sheet layout changed');
 });
 
 test('missing digits → asks again', async () => {

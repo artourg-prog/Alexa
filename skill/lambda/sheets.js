@@ -8,8 +8,10 @@
 const crypto = require('crypto');
 const https = require('https');
 
-const SPREADSHEET_ID = '1-LVtZR-ycBMipCROolHWmIC8hcnphw7co6U11r6ZE68';
-const RANGES = ["'All Receipts'!A2:J", "'Pickup Texts'!A2:C"];
+// "Order Ready For Pickup" (synced from the Pickups tablet) — not the master receipts sheet.
+const SPREADSHEET_ID = '14NLtaKEBKPLU-lM6SSpXuJx-Wog-qmXltMIjsimh0as';
+// Header row included: lookup.js finds columns by name.
+const RANGES = ["'Active Orders'!A1:Z"];
 const SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const TIMEOUT_MS = 5000; // Alexa gives the skill 8 s in total
@@ -83,14 +85,14 @@ async function accessToken(http, getKey) {
   return cachedToken.value;
 }
 
-// Returns { receipts: [[...A:J]], pickups: [[...A:C]] }.
+// Returns the Active Orders rows, header first.
 async function readSheet(http = request, getKey = loadKey) {
   const token = await accessToken(http, getKey);
   const qs = RANGES.map((r) => `ranges=${encodeURIComponent(r)}`).join('&');
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${qs}`;
   const res = await http('GET', url, null, { Authorization: `Bearer ${token}` });
-  const [receipts, pickups] = res.valueRanges || [];
-  return { receipts: (receipts && receipts.values) || [], pickups: (pickups && pickups.values) || [] };
+  const [orders] = res.valueRanges || [];
+  return (orders && orders.values) || [];
 }
 
 function _resetTokenCache() {

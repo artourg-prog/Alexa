@@ -3,7 +3,9 @@
   "version": "2023.3",
   "theme": "dark",
   "mainTemplate": {
-    "parameters": ["payload"],
+    "parameters": [
+      "payload"
+    ],
     "item": {
       "type": "Container",
       "width": "100vw",
@@ -67,6 +69,14 @@
                       "fontSize": "${payload.data.properties.size.name}",
                       "color": "#CCCCCC",
                       "maxLines": 1
+                    },
+                    {
+                      "type": "Text",
+                      "when": "${data.detail != ''}",
+                      "text": "${data.detail}",
+                      "fontSize": "${payload.data.properties.size.detail}",
+                      "color": "#999999",
+                      "maxLines": 1
                     }
                   ]
                 },
@@ -76,20 +86,20 @@
                   "items": [
                     {
                       "type": "Text",
-                      "when": "${data.ready != ''}",
-                      "text": "${data.ready}",
-                      "fontSize": "${payload.data.properties.size.badge}",
-                      "fontWeight": "bold",
-                      "color": "${data.readyColor}",
-                      "textAlign": "right"
-                    },
-                    {
-                      "type": "Text",
                       "when": "${data.paid != ''}",
                       "text": "${data.paid}",
                       "fontSize": "${payload.data.properties.size.badge}",
                       "fontWeight": "bold",
                       "color": "${data.paidColor}",
+                      "textAlign": "right"
+                    },
+                    {
+                      "type": "Text",
+                      "when": "${data.sms != ''}",
+                      "text": "${data.sms}",
+                      "fontSize": "${payload.data.properties.size.detail}",
+                      "fontWeight": "bold",
+                      "color": "${data.smsColor}",
                       "textAlign": "right"
                     }
                   ]

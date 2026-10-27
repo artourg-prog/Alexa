@@ -1,11 +1,11 @@
 'use strict';
 
 // Tailor Shop — "Alexa, ask Tailor Shop 4417".
-// Reads the receipts sheet (read-only) and shows the matching receipts on the Echo Show.
+// Reads "Order Ready For Pickup" (read-only) and shows the matching orders on the Echo Show.
 
 const Alexa = require('ask-sdk-core');
 const { readSheet } = require('./sheets');
-const { normalizeLast4, findReceipts, speech } = require('./lookup');
+const { normalizeLast4, findOrders, speech } = require('./lookup');
 const { datasource } = require('./screen');
 const apl = require('./apl.json');
 
@@ -38,9 +38,9 @@ function makeLookupHandler(read = readSheet) {
       const rb = handlerInput.responseBuilder;
       if (!last4) return rb.speak(ASK).reprompt(ASK).getResponse();
 
-      let sheet;
+      let rows;
       try {
-        sheet = await read();
+        rows = await read();
       } catch (e) {
         console.log('Sheet read failed:', e.message);
         const msg = e.message === 'KEY_MISSING' ? 'Sheet key not set up yet' : "Can't reach the sheet";
@@ -48,9 +48,16 @@ function makeLookupHandler(read = readSheet) {
         return rb.speak(`${msg}. Try again in a minute.`).getResponse();
       }
 
-      const result = findReceipts(last4, sheet.receipts, sheet.pickups);
+      let result;
+      try {
+        result = findOrders(last4, rows);
+      } catch (e) {
+        console.log('Sheet layout changed:', e.message);
+        show(handlerInput, last4, null, 'Sheet layout changed');
+        return rb.speak('The sheet layout changed. Ask the builder to check it.').getResponse();
+      }
       show(handlerInput, last4, result);
-      return rb.speak(speech(last4, result)).withShouldEndSession(true).getResponse();
+      return rb.speak(speech(last4, result, hasScreen(handlerInput))).withShouldEndSession(true).getResponse();
     },
   };
 }
