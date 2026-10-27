@@ -8,8 +8,12 @@
 const crypto = require('crypto');
 const https = require('https');
 
-const SPREADSHEET_ID = '1-LVtZR-ycBMipCROolHWmIC8hcnphw7co6U11r6ZE68';
-const RANGES = ["'All Receipts'!A2:J", "'Pickup Texts'!A2:C"];
+// "Order Ready For Pickup": the Pickups tablet's mirror of orders NOT yet picked up (never the master sheet).
+// All Receipts has the master's A:J layout. Active Orders B:I = receipt_number … sms_state (the ready text).
+const SPREADSHEET_ID = '14NLtaKEBKPLU-lM6SSpXuJx-Wog-qmXltMIjsimh0as';
+const RANGES = ["'All Receipts'!A2:J", "'Active Orders'!B2:I"];
+// The ready text went out (accepted by the texting service) — the mirror's equivalent of Pickup Texts "SENT".
+const TEXT_SENT = 'Accepted / sent via service';
 const SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const TIMEOUT_MS = 5000; // Alexa gives the skill 8 s in total
@@ -83,18 +87,24 @@ async function accessToken(http, getKey) {
   return cachedToken.value;
 }
 
-// Returns { receipts: [[...A:J]], pickups: [[...A:C]] }.
+// Returns { receipts: [[...A:J]], pickups: [[receipt, '', state]] }.
 async function readSheet(http = request, getKey = loadKey) {
   const token = await accessToken(http, getKey);
   const qs = RANGES.map((r) => `ranges=${encodeURIComponent(r)}`).join('&');
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${qs}`;
   const res = await http('GET', url, null, { Authorization: `Bearer ${token}` });
-  const [receipts, pickups] = res.valueRanges || [];
-  return { receipts: (receipts && receipts.values) || [], pickups: (pickups && pickups.values) || [] };
+  const [receipts, active] = res.valueRanges || [];
+  // Active Orders row B:I → [receipt #, '', state], the shape lookup.js reads (0 receipt, 2 state).
+  const pickups = ((active && active.values) || []).map((r) => [
+    r[0] == null ? '' : String(r[0]),
+    '',
+    String(r[7] || '').trim() === TEXT_SENT ? 'SENT' : String(r[7] || ''),
+  ]);
+  return { receipts: (receipts && receipts.values) || [], pickups };
 }
 
 function _resetTokenCache() {
   cachedToken = null;
 }
 
-module.exports = { SPREADSHEET_ID, RANGES, SCOPE, signedJwt, checkKey, readSheet, _resetTokenCache };
+module.exports = { SPREADSHEET_ID, RANGES, TEXT_SENT, SCOPE, signedJwt, checkKey, readSheet, _resetTokenCache };

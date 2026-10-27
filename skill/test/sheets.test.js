@@ -19,19 +19,24 @@ test('only a read-only token and a GET batchGet are ever requested', async () =>
   const http = async (method, url, body, headers) => {
     calls.push({ method, url, body, headers });
     if (url.startsWith('https://oauth2.googleapis.com/token')) return { access_token: 'tok', expires_in: 3600 };
-    return { valueRanges: [{ values: [['10/10/26', '1']] }, { values: [['1', 'x', 'SENT']] }] };
+    return {
+      valueRanges: [
+        { values: [['10/10/26', '1']] },
+        { values: [['1', 'n', '702 555 0100', '7025550100', '10-10-26', '', '', 'Accepted / sent via service'], ['2', 'n', '', '', '', '', '', 'Not texted']] },
+      ],
+    };
   };
   const out = await sheets.readSheet(http, goodKey);
   await sheets.readSheet(http, goodKey); // token cached → 1 token call total
 
-  assert.deepStrictEqual(out, { receipts: [['10/10/26', '1']], pickups: [['1', 'x', 'SENT']] });
+  assert.deepStrictEqual(out, { receipts: [['10/10/26', '1']], pickups: [['1', '', 'SENT'], ['2', '', 'Not texted']] });
   assert.strictEqual(calls.filter((c) => c.method === 'POST').length, 1);
   const sheetCalls = calls.filter((c) => c.url.includes('sheets.googleapis.com'));
   assert.strictEqual(sheetCalls.length, 2);
   for (const c of sheetCalls) {
     assert.strictEqual(c.method, 'GET');
     assert.match(c.url, /values:batchGet\?/);
-    assert.match(c.url, /1-LVtZR-ycBMipCROolHWmIC8hcnphw7co6U11r6ZE68/);
+    assert.match(c.url, /14NLtaKEBKPLU-lM6SSpXuJx-Wog-qmXltMIjsimh0as/);
     assert.strictEqual(c.headers.Authorization, 'Bearer tok');
   }
 
