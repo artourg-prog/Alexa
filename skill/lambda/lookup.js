@@ -4,26 +4,15 @@
 //
 // Source: sheet "Order Ready For Pickup", tab "Active Orders" (synced from the
 // Pickups tablet). Columns are found by header name, so a moved column can't
-// shift data into the wrong field. `reported_workers` is never read.
+// shift data into the wrong field. Only receipt, customer and phone are shown
+// (the screen's job is finding the bag on the shelf); `reported_workers` is never read.
 const FIELDS = {
   receipt: 'receipt_number',
   customer: 'customer_or_shop',
   phone: 'phone',
   phoneNormalized: 'phone_normalized',
-  received: 'received_date',
-  promised: 'promised_at',
-  sms: 'sms_state',
-  paymentType: 'payment_type',
-  paymentStatus: 'payment_status',
+  received: 'received_date', // sort only
 };
-
-const SMS_LABELS = {
-  'not texted': 'NOT TEXTED',
-  'accepted / sent via service': 'TEXT SENT',
-  'not sent': 'TEXT NOT SENT',
-};
-
-const PAYMENT_STATUSES = new Set(['PAID', 'NOT PAID', 'PART PAID', 'ON ACCOUNT']);
 
 function str(v) {
   return v == null ? '' : String(v).trim();
@@ -52,26 +41,6 @@ function columnMap(header) {
     throw new Error('BAD_HEADER');
   }
   return idx;
-}
-
-// Fallback while payment_status is still blank (before the Pickups redeploy):
-// same rules the Pickups app uses.
-function paymentFromType(type) {
-  const p = str(type).toLowerCase();
-  if (!p) return '';
-  if (p === 'account') return 'ON ACCOUNT';
-  if (p.includes('due')) return p.replace(/\bdue\b/, '').replace(/[+\s]/g, '') ? 'PART PAID' : 'NOT PAID';
-  return 'PAID';
-}
-
-function payment(status, type) {
-  const s = str(status).toUpperCase();
-  return PAYMENT_STATUSES.has(s) ? s : paymentFromType(type);
-}
-
-function smsLabel(s) {
-  const v = str(s);
-  return SMS_LABELS[v.toLowerCase()] || v.toUpperCase();
 }
 
 function prettyPhone(raw, normalized) {
@@ -112,9 +81,6 @@ function findOrders(last4, rows) {
     receipt: get(r, 'receipt'),
     customer: get(r, 'customer'),
     phone: prettyPhone(get(r, 'phone'), get(r, 'phoneNormalized')),
-    promised: get(r, 'promised'),
-    sms: smsLabel(get(r, 'sms')),
-    paid: payment(get(r, 'paymentStatus'), get(r, 'paymentType')),
   }));
   return { cards, count: matches.length };
 }
@@ -149,4 +115,4 @@ function speech(result, hasScreen = true) {
   return hasScreen || !result.count ? text : `${text} Look on the Echo Show for details.`;
 }
 
-module.exports = { FIELDS, normalizeLast4, columnMap, payment, smsLabel, prettyPhone, findOrders, findMany, speech };
+module.exports = { FIELDS, normalizeLast4, columnMap, prettyPhone, findOrders, findMany, speech };

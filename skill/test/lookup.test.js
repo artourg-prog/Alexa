@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { normalizeLast4, findOrders, findMany, payment, smsLabel, prettyPhone, columnMap, speech } = require('../lambda/lookup');
+const { normalizeLast4, findOrders, findMany, prettyPhone, columnMap, speech } = require('../lambda/lookup');
 const { header, row, orders } = require('./fixtures');
 
 const byNum = (last4) => findOrders(last4, orders);
@@ -18,37 +18,18 @@ test('several matches: newest first, blank receipt skipped, fields shown', () =>
   const r = byNum('4417');
   assert.strictEqual(r.count, 2);
   assert.deepStrictEqual(r.cards, [
-    { receipt: '33520', customer: 'Sam Roe', phone: '(702) 555-4417', promised: '10-14-26 5 PM', sms: 'TEXT SENT', paid: 'PART PAID' },
-    { receipt: '33515', customer: 'Pat Lee', phone: '(702) 555-4417', promised: '10-09-26 1:30 PM', sms: 'NOT TEXTED', paid: 'PAID' },
+    { receipt: '33520', customer: 'Sam Roe', phone: '(702) 555-4417' },
+    { receipt: '33515', customer: 'Pat Lee', phone: '(702) 555-4417' },
   ]);
 });
 
-test('reported_workers never leaves the lookup, and no "ready" is claimed', () => {
+test('only receipt, customer, phone leave the lookup (no workers, payment, text status, ready)', () => {
   const all = ['4417', '2222', '9528', '3333', '0030'].flatMap((n) => byNum(n).cards);
   const text = JSON.stringify(all);
   assert.doesNotMatch(text, /SECRET WORKER/);
   assert.doesNotMatch(text, /READY/i);
-  for (const c of all) assert.ok(!('workers' in c) && !('ready' in c));
-});
-
-test('payment: payment_status used as is; falls back to payment_type while blank', () => {
-  assert.strictEqual(byNum('2222').cards[0].paid, 'NOT PAID');
-  assert.strictEqual(byNum('9528').cards[0].paid, 'ON ACCOUNT');
-  assert.strictEqual(byNum('3333').cards[0].paid, 'PART PAID'); // status blank, type Card + Due
-  assert.strictEqual(payment('', 'Due'), 'NOT PAID');
-  assert.strictEqual(payment('', 'Cash + Card'), 'PAID');
-  assert.strictEqual(payment('', 'Account'), 'ON ACCOUNT');
-  assert.strictEqual(payment('', ''), '');
-  assert.strictEqual(payment('paid', 'Due'), 'PAID'); // status wins
-  assert.strictEqual(payment('weird', 'Card'), 'PAID'); // unknown status -> fallback
-});
-
-test('sms labels', () => {
-  assert.strictEqual(smsLabel('Not texted'), 'NOT TEXTED');
-  assert.strictEqual(smsLabel('Accepted / sent via service'), 'TEXT SENT');
-  assert.strictEqual(smsLabel('Not sent'), 'TEXT NOT SENT');
-  assert.strictEqual(smsLabel('Queued'), 'QUEUED');
-  assert.strictEqual(smsLabel(''), '');
+  for (const c of all) assert.deepStrictEqual(Object.keys(c), ['receipt', 'customer', 'phone']);
+  assert.doesNotMatch(text, /PAID|ACCOUNT|texted|Cash|Card/);
 });
 
 test('phones: +1, blank', () => {

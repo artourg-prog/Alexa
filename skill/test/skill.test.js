@@ -40,12 +40,12 @@ test('"ask Tailor Shop 4417" → screen with both orders, voice says only the co
   const d = res.response.directives[0];
   assert.strictEqual(d.type, 'Alexa.Presentation.APL.RenderDocument');
   const props = d.datasources.data.properties;
-  assert.deepStrictEqual(props.cards.map((c) => [c.receipt, c.customer, c.detail, c.paid, c.sms]), [
-    ['33520', 'Sam Roe', '(702) 555-4417  ·  Promised 10-14-26 5 PM', 'PART PAID', 'TEXT SENT'],
-    ['33515', 'Pat Lee', '(702) 555-4417  ·  Promised 10-09-26 1:30 PM', 'PAID', 'NOT TEXTED'],
+  assert.deepStrictEqual(props.cards, [
+    { receipt: '33520', customer: 'Sam Roe', phone: '(702) 555-4417' },
+    { receipt: '33515', customer: 'Pat Lee', phone: '(702) 555-4417' },
   ]);
   assert.strictEqual(props.message, '');
-  assert.doesNotMatch(JSON.stringify(res), /SECRET WORKER|READY/);
+  assert.doesNotMatch(JSON.stringify(res), /SECRET WORKER|READY|PAID|Promised|TEXT/);
 });
 
 test('no screen → count only, no APL directive', async () => {
@@ -66,7 +66,7 @@ test('51 matches → all on a scrollable screen, compact rows, voice count only'
   const props = res.response.directives[0].datasources.data.properties;
   assert.strictEqual(props.cards.length, 51);
   assert.match(props.title, /51 orders · swipe up/);
-  assert.strictEqual(props.size.receipt, '36dp');
+  assert.strictEqual(props.size.receipt, '40dp');
   assert.ok(!('footer' in props));
   assert.match(res.response.outputSpeech.ssml, /51 orders for 9 5 2 8\./);
   const apl = res.response.directives[0].document;
@@ -79,13 +79,13 @@ test('"4417 and 2222 and 9999" → all on one screen, receipt huge for ≤3, mis
   assert.deepStrictEqual(props.cards.map((c) => c.receipt), ['33520', '33515', '33498']);
   assert.strictEqual(props.title, 'Phone …4417, …2222, …9999 · 3 orders');
   assert.strictEqual(props.missing, 'No orders for …9999');
-  assert.strictEqual(props.size.receipt, '88dp');
+  assert.strictEqual(props.size.receipt, '96dp');
   assert.match(res.response.outputSpeech.ssml, /2 orders for 4 4 1 7, 1 order for 2 2 2 2, no orders for 9 9 9 9\./);
 });
 
 test('one order → receipt number at its biggest', async () => {
   const res = await run(lookup('2222'));
-  assert.strictEqual(res.response.directives[0].datasources.data.properties.size.receipt, '160dp');
+  assert.strictEqual(res.response.directives[0].datasources.data.properties.size.receipt, '180dp');
 });
 
 test('sheet header changed → says so', async () => {

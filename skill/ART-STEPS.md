@@ -1,34 +1,24 @@
-# Tailor Shop skill — steps for Art
+# Tailor Shop skill — paste steps for Art
 
-Already done: words (interaction model), screen on, skill opens in the Test tab.
+The sheet share is done. Do these in order.
 
-**0. Update the words (can do now)**
-Build tab → Interaction Model → JSON Editor → delete all → paste our `interactionModels/custom/en-US.json` → **Save** → **Build skill**.
-(Adds 2 or 3 numbers at once: "ask tailor shop 4417 and 2222".)
+**1. Words** — Build tab → **Interaction Model** → **JSON Editor** → select all, delete → paste `interactionModels/custom/en-US.json` → **Save** → **Build skill**. Wait for "Build successful".
 
-**Do steps 1–5 only after the builder says the sheet share is confirmed.**
+**2. Code** — **Code** tab → folder `lambda`:
+- `index.js` → select all, delete → paste ours
+- `package.json` → select all, delete → paste ours
+- **New File** → type `lambda/lookup.js` → paste ours
+- **New File** → `lambda/sheets.js` → paste ours
+- **New File** → `lambda/screen.js` → paste ours
+- **New File** → `lambda/apl.json` → paste ours
 
-**1. Paste the code**
-Code tab → left side, folder `lambda`.
-- Click `index.js` → select all → delete → paste our `index.js`.
-- Click `package.json` → select all → delete → paste our `package.json`.
-- For each of these, click **New File** (top left), type the name exactly, then paste ours:
-  `lambda/lookup.js`, `lambda/sheets.js`, `lambda/screen.js`, `lambda/apl.json`
+**3. Key** — **New File** → `lambda/sheet-key.json` → paste the key text from the Mac builder. Nowhere else.
 
-**2. Paste the key**
-**New File** → `lambda/sheet-key.json` → paste the key text the Mac builder gives you. Nowhere else.
+**4. Save + Deploy** — **Save** → **Deploy**. Wait for "Deployment successful".
 
-**3. Save and deploy**
-Click **Save**, then **Deploy** (top right). Wait for "Deployment successful" (about 1 minute).
+**5. Try it** — **Test** tab (Development) → type `ask tailor shop 4417` (a real client's last 4). Two or three at once: `ask tailor shop 4417 and 2222`.
+Screen: receipt number big, customer name and full phone under it. Alexa only says how many.
 
-**4. Try it**
-Test tab → type `ask tailor shop 4417` (use a real customer's last 4). Several at once: `ask tailor shop 4417 and 2222 and 9999`.
-The screen shows the receipt number big; under it: name, phone, promised time, PAID / NOT PAID / PART PAID / ON ACCOUNT, and the text status.
-Alexa only says how many orders.
+If the screen says "Sheet key not set up yet" → redo step 3. "Can't reach the sheet" → tell the builder.
 
-If the screen says:
-- "Sheet key not set up yet" → step 2 missing or pasted wrong.
-- "Can't reach the sheet" → the share isn't done yet.
-- "Sheet layout changed" → tell the builder.
-
-**5. Don't click Publish** until ChatGPT has reviewed.
+**Don't click Publish** until ChatGPT has reviewed.
