@@ -73,9 +73,9 @@ class MainActivity : Activity() {
         tts = TextToSpeech(this) { ok ->
             if (ok == TextToSpeech.SUCCESS) tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onStart(id: String?) {}
-                override fun onDone(id: String?) { main.post { if (handsFree) listenSoon(300) } }
+                override fun onDone(id: String?) { main.post { speakNext() } }
                 @Deprecated("Deprecated in Java")
-                override fun onError(id: String?) { main.post { if (handsFree) listenSoon(300) } }
+                override fun onError(id: String?) { main.post { speakNext() } }
             })
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -225,35 +225,52 @@ class MainActivity : Activity() {
     private fun answer(alts: List<String>, detectedLang: String?) {
         val tappedNow = tapped
         tapped = false
+        // Right after "find receipt…" with no number, the next phrase is taken as the number
+        // (people pause, and the recognizer splits the command from the digits).
+        val armed = System.currentTimeMillis() < armedUntil
+        armedUntil = 0L
+        main.removeCallbacks(armedTimeout)
         val go = {
-            // Numbers are the main path: any guess with a number that finds an order wins,
-            // then the top guess if it finds something, then any guess with a number.
-            // Names only come from the top guess (noise matches some customer too easily).
-            val top = alts.first()
-            fun hasNumber(s: String) = Lookup.parseQueries(s).any { it !is Query.Name }
-            val pick = alts.firstOrNull { hasNumber(it) && Lookup.findAll(it, orders).isNotEmpty() }
-                ?: top.takeIf { Lookup.findAll(it, orders).isNotEmpty() }
-                ?: alts.firstOrNull(::hasNumber)
-                ?: top
-            Log.d("TailorCounter", "heard=$alts picked=$pick")
-            val queries = Lookup.parseQueries(pick)
-            val cards = Lookup.findAll(pick, orders)
-            val russian = pick.any { it in 'а'..'я' || it in 'А'..'Я' } ||
-                detectedLang?.startsWith("ru") == true || (detectedLang == null && russianFirst)
-            // A tap, or a short "find order / найди заказ …" phrase, is always answered.
-            val asked = tappedNow || alts.any(Lookup::soundsLikeLookup)
-            val isNumber = queries.any { it !is Query.Name }
-            when {
-                isNumber || (cards.isNotEmpty() && Lookup.isLikelyQuestion(pick)) -> {
-                    heard.text = pick; showCards(cards); speak(Lookup.reply(cards, russian), russian)
+            // Only a command ("find receipt…", "check…", "найди заказ…") is acted on; a tap
+            // counts as a command for whatever was said. Among the recognizer's guesses, a
+            // command whose number finds an order wins, then any command with a number,
+            // then the first command.
+            val tails = alts.mapNotNull { a ->
+                (Lookup.commandTail(a) ?: a.takeIf { tappedNow || (armed && Lookup.parseQueries(it).any { q -> q !is Query.Name }) })
+                    ?.let { a to it }
+            }
+            fun hasNumber(t: String) = Lookup.parseQueries(t).any { it !is Query.Name }
+            val chosen = tails.firstOrNull { (_, t) -> hasNumber(t) && Lookup.findAll(t, orders).isNotEmpty() }
+                ?: tails.firstOrNull { (_, t) -> hasNumber(t) }
+                ?: tails.firstOrNull()
+            Log.d("TailorCounter", "heard=$alts command=${chosen?.second}")
+            if (chosen == null) {
+                if (armed) sayDidntCatch(armedRussian) // asked, but no number followed
+                else if (handsFree) listenSoon(300) // room talk: ignored silently
+            } else {
+                val (said, tail) = chosen
+                val russian = said.any { it in 'а'..'я' || it in 'А'..'Я' } ||
+                    detectedLang?.startsWith("ru") == true || (detectedLang == null && russianFirst)
+                val queries = Lookup.parseQueries(tail)
+                val cards = Lookup.findAll(tail, orders)
+                heard.text = said
+                when {
+                    queries.isEmpty() && !armed -> {
+                        // Wait a few seconds for the number before giving up.
+                        armedUntil = System.currentTimeMillis() + 8_000
+                        armedRussian = russian
+                        main.postDelayed(armedTimeout, 8_000)
+                        showMessage(if (russian) "Скажите номер…" else "Say the number…")
+                        listenSoon(100)
+                    }
+                    queries.isEmpty() -> sayDidntCatch(russian)
+                    cards.isEmpty() -> { showCards(cards); speak(Lookup.notFound(russian) to russian) }
+                    else -> {
+                        showCards(cards)
+                        val (en, ru) = Lookup.replyEnRu(cards)
+                        speak(en to false, ru to true)
+                    }
                 }
-                asked && queries.isNotEmpty() -> {
-                    heard.text = pick; showCards(cards); speak(Lookup.reply(cards, russian), russian)
-                }
-                asked -> {
-                    heard.text = pick; showMessage(Lookup.didntCatch(russian)); speak(Lookup.didntCatch(russian), russian)
-                }
-                else -> if (handsFree) listenSoon(300) // overheard chatter: stay quiet
             }
             setStatus(idleText())
         }
@@ -261,10 +278,35 @@ class MainActivity : Activity() {
         if (System.currentTimeMillis() - loadedAt > 20_000) refresh(go) else go()
     }
 
-    private fun speak(text: String, russian: Boolean) {
-        val t = tts ?: return
+    private var armedUntil = 0L
+    private var armedRussian = false
+    private val armedTimeout = Runnable {
+        if (armedUntil != 0L) { armedUntil = 0L; stopListening(); sayDidntCatch(armedRussian) }
+    }
+
+    private fun sayDidntCatch(russian: Boolean) {
+        showMessage(Lookup.didntCatch(russian))
+        speak(Lookup.didntCatch(russian) to russian)
+    }
+
+    // Utterances are spoken one after another, each in its own language; listening
+    // resumes only after the last one, so the app never hears itself.
+    private val speechQueue = ArrayDeque<Pair<String, Boolean>>()
+
+    private fun speak(vararg parts: Pair<String, Boolean>) {
+        tts?.stop()
+        speechQueue.clear()
+        speechQueue.addAll(parts)
+        speakNext()
+    }
+
+    private fun speakNext() {
+        val t = tts
+        val next = speechQueue.removeFirstOrNull()
+        if (t == null || next == null) { if (handsFree) listenSoon(300); return }
+        val (text, russian) = next
         t.language = if (russian) Locale("ru", "RU") else Locale.US
-        t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "answer")
+        t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "answer-${speechQueue.size}")
     }
 
     // ---- UI ----
@@ -322,13 +364,37 @@ class MainActivity : Activity() {
         setOnClickListener { onClick() }
     }
 
+    // Idle screen: a big clock across the whole width, plus a one-line reminder.
+    private var clockView: TextView? = null
+    private val tick = object : Runnable {
+        override fun run() {
+            clockView?.let { v ->
+                val now = java.text.SimpleDateFormat("h:mm", Locale.US).format(java.util.Date())
+                if (v.text != now) {
+                    v.text = now
+                    val dm = resources.displayMetrics
+                    val w = (if (cardsBox.width > 0) cardsBox.width else dm.widthPixels - dp(32))
+                    v.setTextSize(TypedValue.COMPLEX_UNIT_PX, fillWidth(now, w, dm.heightPixels * 0.6f))
+                }
+                main.postDelayed(this, 1000)
+            }
+        }
+    }
+
     private fun hint() {
         cardsBox.removeAllViews()
+        clockView = TextView(this).apply {
+            setTextColor(Color.rgb(230, 230, 230)); typeface = Typeface.DEFAULT_BOLD
+            maxLines = 1; includeFontPadding = false; gravity = Gravity.CENTER_HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        cardsBox.addView(clockView)
         cardsBox.addView(TextView(this).apply {
-            setTextColor(Color.rgb(140, 140, 140)); textSize = 24f
-            text = "Say a receipt number, the last 4 digits of the phone, or the customer's name.\n\n" +
-                "Скажите номер квитанции, последние 4 цифры телефона или имя клиента."
+            setTextColor(Color.rgb(110, 110, 110)); textSize = 20f; gravity = Gravity.CENTER_HORIZONTAL
+            text = "Say “Find receipt …” or “Check …”  ·  «Найди заказ …»"
         })
+        main.removeCallbacks(tick)
+        main.post(tick)
     }
 
     // A result stays up for a minute, then the screen goes back to the hint.
@@ -343,6 +409,7 @@ class MainActivity : Activity() {
 
     private fun showMessage(text: String) {
         shownCards = null
+        clockView = null
         cardsBox.removeAllViews()
         cardsBox.addView(TextView(this).apply {
             setTextColor(Color.rgb(255, 120, 120)); textSize = 40f; typeface = Typeface.DEFAULT_BOLD
@@ -372,14 +439,16 @@ class MainActivity : Activity() {
     }
 
     private fun drawCards(cards: List<Card>) {
+        clockView = null
         cardsBox.removeAllViews()
         if (cards.size > 1) cardsBox.addView(TextView(this).apply {
             setTextColor(Color.rgb(170, 170, 170)); textSize = 22f; text = "${cards.size} orders"
         })
         val dm = resources.displayMetrics
         val inner = (if (cardsBox.width > 0) cardsBox.width else dm.widthPixels - dp(32)) - dp(40)
-        // One order: the number may use up to half the screen height; several: a quarter each.
-        val cap = dm.heightPixels * (if (cards.size == 1) 0.5f else 0.25f)
+        // One order: the number may use about a third of the screen height (customer, phone and
+        // ready line must still fit below it); several: a bit less each.
+        val cap = dm.heightPixels * (if (cards.size == 1) 0.34f else 0.22f)
         for (c in cards) {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -396,6 +465,11 @@ class MainActivity : Activity() {
             })
             card.addView(TextView(this).apply { setTextColor(Color.WHITE); textSize = 40f; text = c.customer.ifEmpty { "—" } })
             card.addView(TextView(this).apply { setTextColor(Color.rgb(190, 190, 190)); textSize = 32f; text = c.phone })
+            card.addView(TextView(this).apply {
+                textSize = 32f; typeface = Typeface.DEFAULT_BOLD
+                setTextColor(if (c.ready) Color.rgb(90, 210, 120) else Color.rgb(255, 170, 60))
+                text = if (c.ready) "Ready for pickup · Готово к выдаче" else "Not finished yet · Ещё не готово"
+            })
             cardsBox.addView(card)
         }
     }

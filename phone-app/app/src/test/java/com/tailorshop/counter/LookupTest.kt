@@ -18,6 +18,16 @@ class LookupTest {
 
     private fun receipts(said: String) = Lookup.findAll(said, orders).map { it.receipt }
 
+    @Test fun tailorNameMeansReady() {
+        val rows2 = listOf(
+            listOf("Receipt #", "Customer", "Phone", "M.T."),
+            listOf("30001", "A", "702 555 1111", "Gor"),
+            listOf("30002", "B", "702 555 1111", ""),
+        )
+        val cards = Lookup.findAll("1111", Lookup.parseOrders(rows2)).associate { it.receipt to it.ready }
+        assertEquals(mapOf("30002" to false, "30001" to true), cards)
+    }
+
     @Test fun headerByName_skipsBlankReceipt() {
         assertEquals(4, orders.size)
         assertEquals("Andrea Lopez", orders.first { it.receipt == "26240" }.customer)
@@ -85,32 +95,50 @@ class LookupTest {
         assertTrue(q("I'll be there in 5").isEmpty())
     }
 
-    @Test fun lookupPhrasesAreAlwaysAnswered() {
-        assertTrue(Lookup.soundsLikeLookup("Find receipt number for"))
-        assertTrue(Lookup.soundsLikeLookup("Найди заказ на"))
-        assertTrue(!Lookup.soundsLikeLookup("да последние номера телефонов или же весь номер телефона"))
+    private fun tail(said: String) = Lookup.commandTail(said)
+
+    @Test fun onlyCommandsAreActedOn() {
+        assertEquals(listOf(Query.Last4("2151")), q(tail("Find receipt for the phone number 2151")!!))
+        assertEquals(listOf(Query.Last4("6824")), q(tail("Find a receipt number for 6824")!!))
+        assertEquals(listOf(Query.Last4("6824")), q(tail("find the receipt number for six eight two four")!!))
+        assertEquals(listOf(Query.Last4("6824")), q(tail("Fine Order for Six eight to for")!!))
+        assertEquals(listOf(Query.Last4("7970")), q(tail("check for the phone number 7970")!!))
+        assertEquals(listOf(Query.Last4("2151")), q(tail("check receipt number 21 51")!!))
+        assertEquals(listOf(Query.Last4("2151")), q(tail("найди ресит 2151")!!))
+        assertEquals(listOf(Query.Last4("2151")), q(tail("найди номер ресита двадцать один пятьдесят один")!!))
+        assertEquals(listOf(Query.Last4("2151")), q(tail("найди квитанцию 2151")!!))
+        assertEquals(listOf(Query.Last4("4847")), q(tail("Найди заказ на 48 47")!!))
+        assertEquals(listOf(Query.FullPhone("7255551203")), q(tail("find order 725 555 1203")!!))
+    }
+
+    @Test fun roomTalkIsIgnored() {
+        assertEquals(null, tail("towards that you should treat the weather"))
+        assertEquals(null, tail("да последние номера телефонов или же весь номер телефона"))
+        assertEquals(null, tail("я найду время 1203")) // number without a command
+        assertEquals(null, tail("I'll find it later"))
+    }
+
+    @Test fun commandWithoutNumberIsDidntCatch() {
+        assertTrue(q(tail("Find receipt number for")!!).isEmpty())
         assertEquals("I didn't catch the number.", Lookup.didntCatch(false))
     }
 
     @Test fun fillerOnlyIsNoQuery() = assertTrue(Lookup.parseQueries("find the order please").isEmpty())
 
-    @Test fun shopChatterIsIgnored() {
-        assertTrue(!Lookup.isLikelyQuestion("towards that you should treat the weather"))
-        assertTrue(Lookup.isLikelyQuestion("speak 1203"))
-        assertTrue(Lookup.isLikelyQuestion("find Andrea Lopez"))
-        assertTrue(Lookup.isLikelyQuestion("найди заказ Андреа"))
+    @Test fun answerIsReceiptDigitsEnglishThenRussian() {
+        val (en, ru) = Lookup.replyEnRu(listOf(Card("26253", "Pat", "(702) 555-1034", ready = true)))
+        assertEquals("Receipt two, six, two, five, three — ready for pickup.", en)
+        assertEquals("Квитанция два, шесть, два, пять, три — готово к выдаче.", ru)
+        assertTrue(!en.contains("1034") && !en.contains("one, zero, three, four"))
+        val (en2, ru2) = Lookup.replyEnRu(listOf(Card("26254", "Sam", "", ready = false)))
+        assertEquals("Receipt two, six, two, five, four — work is not finished yet.", en2)
+        assertEquals("Квитанция два, шесть, два, пять, четыре — работа ещё не закончена.", ru2)
     }
 
     @Test fun notFoundSaysOnlyThat() {
-        assertEquals("I can't find this order.", Lookup.reply(emptyList(), russian = false))
-        assertEquals("Не могу найти этот заказ.", Lookup.reply(emptyList(), russian = true))
+        assertEquals("I can't find this order.", Lookup.notFound(false))
+        assertEquals("Не могу найти этот заказ.", Lookup.notFound(true))
         assertTrue(receipts("9999").isEmpty())
-    }
-
-    @Test fun replyNeverMentionsPickedUp() {
-        val r = Lookup.reply(Lookup.findAll("1034", orders), russian = false)
-        assertTrue(r.startsWith("2 orders. Receipt 26250, Sam Roe, phone ending 1 0 3 4"))
-        assertTrue(!r.contains("picked", ignoreCase = true))
     }
 
     @Test fun prettyPhone() {

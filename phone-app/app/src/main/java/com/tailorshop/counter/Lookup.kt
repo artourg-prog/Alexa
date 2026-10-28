@@ -6,11 +6,13 @@ import java.text.Normalizer
 //
 // Source: "Order Ready For Pickup" / tab "All Receipts" (the Pickups mirror: only
 // orders not yet picked up). Columns are found by header name, so a moved column
-// can't shift data into the wrong field. Only receipt, customer and phone are shown.
+// can't shift data into the wrong field. Only receipt, customer and phone are shown,
+// plus ready / not finished: column "M.T." holds the tailor's name once the work is done
+// (Art's rule), so a filled M.T. = ready for pickup, blank = not finished yet.
 
-data class Order(val receipt: String, val customer: String, val phone: String, val date: String)
+data class Order(val receipt: String, val customer: String, val phone: String, val date: String, val ready: Boolean = false)
 
-data class Card(val receipt: String, val customer: String, val phone: String)
+data class Card(val receipt: String, val customer: String, val phone: String, val ready: Boolean = false)
 
 sealed class Query {
     data class Last4(val digits: String) : Query()
@@ -25,6 +27,7 @@ object Lookup {
         "customer" to listOf("customer", "customer_or_shop"),
         "phone" to listOf("phone"),
         "date" to listOf("date", "received_date"),
+        "tailor" to listOf("m.t.", "m.t", "tailor"),
     )
 
     // Words people say around the actual name or number.
@@ -34,7 +37,7 @@ object Lookup {
         "last", "four", "digits", "is", "it", "name",
         "найди", "найти", "покажи", "проверь", "поиск", "заказ", "заказы", "квитанция", "квитанцию",
         "клиент", "клиента", "клиентка", "телефон", "номер", "для", "на", "и", "пожалуйста", "имя",
-        "последние", "цифры", "это",
+        "последние", "цифры", "это", "ресит", "ресита", "рисит", "квитанции", "with", "by", "on", "my",
     )
 
     // ---- sheet ----
@@ -50,7 +53,7 @@ object Lookup {
         return rows.drop(1).mapNotNull { row ->
             val receipt = cell(row, r)
             if (receipt.isEmpty()) null
-            else Order(receipt, cell(row, idx["customer"]), cell(row, p), cell(row, idx["date"]))
+            else Order(receipt, cell(row, idx["customer"]), cell(row, p), cell(row, idx["date"]), cell(row, idx["tailor"]).isNotEmpty())
         }
     }
 
@@ -83,30 +86,25 @@ object Lookup {
 
     private val FILLER_N by lazy { FILLER.map(::normalize).toSet() }
 
-    // Words that mean "look something up". A short phrase with one of these is a question
-    // even when no number came through, so the app answers instead of staying silent.
-    private val TRIGGERS = setOf(
-        "find", "fine", "look", "lookup", "order", "orders", "receipt", "number", "phone", "namber", "resit", "risit",
-        "naydi", "nayti", "zakaz", "zakaza", "kvitantsiya", "kvitantsiyu", "kvitantsii", "nomer", "telefon",
-    )
+    // The command is the wake word (Art's choice): the app acts only on "find receipt / find
+    // order …", "check …", "найди заказ / ресит / квитанцию …". Everything else is ignored.
+    // "fine"/"faynd" and "chek" are how the recognizer often writes "find" and "check".
+    private val FIND = setOf("find", "fine", "faynd", "fayind", "naydi", "nayti", "naydite")
+    private val OBJECT_PREFIXES = listOf("receipt", "order", "resi", "risi", "zakaz", "kvitan", "nomer", "number", "namber")
+    private val CHECK = setOf("check", "chek", "checks", "prover", "proverte")
 
-    fun soundsLikeLookup(said: String): Boolean {
+    /** Text after the command, or null when there is no command in what was said. */
+    fun commandTail(said: String): String? {
         val words = normalize(said).split(' ').filter { it.isNotEmpty() }
-        return words.size <= 7 && words.any { it in TRIGGERS }
+        for (i in words.indices) {
+            val w = words[i]
+            val isFind = w in FIND && words.drop(i + 1).take(3).any { n -> OBJECT_PREFIXES.any { n.startsWith(it) } }
+            if (isFind || w in CHECK) return words.drop(i + 1).joinToString(" ")
+        }
+        return null
     }
 
     fun didntCatch(russian: Boolean) = if (russian) "Не расслышал номер." else "I didn't catch the number."
-
-    /**
-     * Hands-free hears the whole shop. A number is always a question; words are only
-     * treated as a name when short (up to 3 words after filler), so chatter is ignored.
-     */
-    fun isLikelyQuestion(said: String): Boolean {
-        val q = parseQueries(said)
-        if (q.isEmpty()) return false
-        val name = q.singleOrNull() as? Query.Name ?: return true
-        return name.words.size <= 3
-    }
 
     // ---- matching ----
 
@@ -122,7 +120,7 @@ object Lookup {
         }
         return hits
             .sortedWith(compareByDescending<Order> { dateKey(it.date) }.thenByDescending { digits(it.receipt).toLongOrNull() ?: 0L })
-            .map { Card(it.receipt, it.customer, prettyPhone(it.phone)) }
+            .map { Card(it.receipt, it.customer, prettyPhone(it.phone), it.ready) }
     }
 
     fun findAll(said: String, orders: List<Order>): List<Card> =
@@ -138,30 +136,30 @@ object Lookup {
 
     // ---- speech out ----
 
-    fun reply(cards: List<Card>, russian: Boolean): String {
-        if (cards.isEmpty()) return if (russian) "Не могу найти этот заказ." else "I can't find this order."
-        val parts = cards.take(3).map { c ->
-            val phone = digits(c.phone).takeLast(4).toCharArray().joinToString(" ")
-            if (russian) "Квитанция ${c.receipt}, ${c.customer}, телефон на $phone"
-            else "Receipt ${c.receipt}, ${c.customer}, phone ending $phone"
+    private val EN_DIGITS = listOf("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+    private val RU_DIGITS = listOf("ноль", "один", "два", "три", "четыре", "пять", "шесть", "семь", "восемь", "девять")
+
+    /** "26253" -> "two, six, two, five, three" (or Russian). */
+    fun spellDigits(number: String, russian: Boolean): String =
+        digits(number).map { (if (russian) RU_DIGITS else EN_DIGITS)[it - '0'] }.joinToString(", ")
+
+    /**
+     * Spoken answer: the receipt number digit by digit and ready / not finished — first in
+     * English, then in Russian. Never the phone, never "picked up". Up to 3 receipts; the
+     * rest are on screen.
+     */
+    fun replyEnRu(cards: List<Card>): Pair<String, String> {
+        val shown = cards.take(3)
+        val en = shown.joinToString(" ") {
+            "Receipt ${spellDigits(it.receipt, false)} — " + (if (it.ready) "ready for pickup." else "work is not finished yet.")
         }
-        val head = when {
-            cards.size == 1 -> ""
-            russian -> "${cards.size} ${ordersRu(cards.size)}. "
-            else -> "${cards.size} orders. "
+        val ru = shown.joinToString(" ") {
+            "Квитанция ${spellDigits(it.receipt, true)} — " + (if (it.ready) "готово к выдаче." else "работа ещё не закончена.")
         }
-        val more = if (cards.size > 3) (if (russian) " И ещё ${cards.size - 3} на экране." else " And ${cards.size - 3} more on screen.") else ""
-        return head + parts.joinToString(". ") + "." + more
+        return en to ru
     }
 
-    private fun ordersRu(n: Int): String {
-        val m10 = n % 10; val m100 = n % 100
-        return when {
-            m10 == 1 && m100 != 11 -> "заказ"
-            m10 in 2..4 && m100 !in 12..14 -> "заказа"
-            else -> "заказов"
-        }
-    }
+    fun notFound(russian: Boolean) = if (russian) "Не могу найти этот заказ." else "I can't find this order."
 
     // ---- helpers ----
 
