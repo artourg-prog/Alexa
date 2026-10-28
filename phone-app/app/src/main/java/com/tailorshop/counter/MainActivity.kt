@@ -25,7 +25,6 @@ import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import java.io.File
 import java.util.Locale
@@ -51,8 +50,7 @@ class MainActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var heard: TextView
-    private lateinit var cardsBox: LinearLayout
-    private lateinit var scroll: ScrollView
+    private lateinit var stage: LinearLayout
     private lateinit var micButton: Button
     private lateinit var langButton: Button
     private lateinit var handsButton: Button
@@ -89,6 +87,7 @@ class MainActivity : Activity() {
         resumed = true
         hideSystemBars()
         main.post(refresher)
+        main.removeCallbacks(ticker); main.post(ticker)
         if (handsFree) listenSoon(800)
         setupLanguages()
     }
@@ -150,6 +149,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         resumed = false
         main.removeCallbacks(refresher)
+        main.removeCallbacks(ticker)
         stopListening()
         super.onPause()
     }
@@ -318,13 +318,13 @@ class MainActivity : Activity() {
                         armedUntil = System.currentTimeMillis() + 8_000
                         armedRussian = russian
                         main.postDelayed(armedTimeout, 8_000)
-                        showMessage(if (russian) "Скажите номер…" else "Say the number…")
+                        showMessage(if (russian) "Скажите номер…" else "Say the number…", 8_000)
                         listenSoon(100)
                     }
                     queries.isEmpty() -> sayDidntCatch(russian)
-                    cards.isEmpty() -> { showCards(cards); speak(Lookup.notFound(russian) to russian) }
+                    cards.isEmpty() -> { showMessage(Lookup.notFound(russian)); speak(Lookup.notFound(russian) to russian) }
                     else -> {
-                        showCards(cards)
+                        addResults(cards)
                         val (en, ru) = Lookup.replyEnRu(cards)
                         speak(en to false, ru to true)
                     }
@@ -375,7 +375,7 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.BLACK)
-            setPadding(dp(16), dp(12), dp(16), dp(12))
+            setPadding(dp(8), dp(8), dp(8), dp(10))
         }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         status = TextView(this).apply {
@@ -394,24 +394,31 @@ class MainActivity : Activity() {
         top.addView(status); top.addView(langButton); top.addView(handsButton)
 
         heard = TextView(this).apply {
-            setTextColor(Color.rgb(120, 200, 255)); textSize = 26f
-            setPadding(0, dp(8), 0, dp(8))
+            setTextColor(Color.rgb(120, 200, 255)); textSize = 18f; maxLines = 1
+            setPadding(dp(8), dp(4), dp(8), dp(4))
         }
-        cardsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        scroll = ScrollView(this).apply {
-            addView(cardsBox)
+        stage = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
                 .apply { bottomMargin = dp(30) } // ~5 mm gap so nothing sits under the button
         }
+        val swipe = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: android.view.MotionEvent) = true
+            override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, vx: Float, vy: Float): Boolean {
+                if (Math.abs(vx) < Math.abs(vy) || Math.abs(vx) < 300) return false
+                flip(if (vx < 0) 1 else -1); return true
+            }
+        })
+        stage.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev) }
         micButton = Button(this).apply {
             textSize = 30f; setTextColor(Color.WHITE); isAllCaps = false
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(96))
             setOnClickListener { if (listening) stopListening() else { tts?.stop(); tapped = true; startListening() } }
         }
-        root.addView(top); root.addView(heard); root.addView(scroll); root.addView(micButton)
+        root.addView(top); root.addView(heard); root.addView(stage); root.addView(micButton)
         updateLang(); updateHands(); updateMic()
         setStatus(if (sheets.hasKey()) "Loading orders…" else "Setup needed: the sheet key is not installed")
-        hint()
+        stage.post { render() }
         return root
     }
 
@@ -423,126 +430,124 @@ class MainActivity : Activity() {
         setOnClickListener { onClick() }
     }
 
-    // Idle screen: a big clock across the whole width, plus a one-line reminder.
-    private var clockView: TextView? = null
-    private val tick = object : Runnable {
+    // ---- what the screen shows ----
+    //
+    // Every found order is added to a list (a repeat lookup moves it to the end). The list
+    // shows one order at a time, full screen, rotating every few seconds; swipe left/right
+    // to flip by hand. Each order drops off 2 minutes after it was looked up; with none left
+    // the screen is a big clock. Short messages ("I can't find this order") show for a few
+    // seconds on top, then the list or clock comes back.
+
+    private class Shown(val card: Card, val addedAt: Long)
+    private val shown = mutableListOf<Shown>()
+    private var index = 0
+    private var message: String? = null
+    private var pausedUntil = 0L
+    private val keepMs = 120_000L
+    private val rotateMs = 10_000L
+
+    private val endMessage = Runnable { message = null; render() }
+    private val ticker = object : Runnable {
         override fun run() {
-            clockView?.let { v ->
-                val now = java.text.SimpleDateFormat("h:mm", Locale.US).format(java.util.Date())
-                if (v.text != now) {
-                    v.text = now
-                    val dm = resources.displayMetrics
-                    val w = (if (cardsBox.width > 0) cardsBox.width else dm.widthPixels - dp(32))
-                    v.setTextSize(TypedValue.COMPLEX_UNIT_PX, fillWidth(now, w, dm.heightPixels * 0.6f))
-                }
-                main.postDelayed(this, 1000)
-            }
+            val now = System.currentTimeMillis()
+            val before = shown.size
+            prune()
+            if (message == null && shown.size > 1 && now >= pausedUntil && now - lastRotate >= rotateMs) {
+                index = (index + 1) % shown.size; lastRotate = now; render()
+            } else if (shown.size != before || (message == null && shown.isEmpty())) render()
+            main.postDelayed(this, 1000)
         }
     }
+    private var lastRotate = 0L
 
-    private fun hint() {
-        cardsBox.removeAllViews()
-        clockView = TextView(this).apply {
-            setTextColor(Color.rgb(230, 230, 230)); typeface = Typeface.DEFAULT_BOLD
-            maxLines = 1; includeFontPadding = false; gravity = Gravity.CENTER_HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-        cardsBox.addView(clockView)
-        cardsBox.addView(TextView(this).apply {
-            setTextColor(Color.rgb(110, 110, 110)); textSize = 20f; gravity = Gravity.CENTER_HORIZONTAL
-            text = "Say “Find receipt …” or “Check …”  ·  «Найди заказ …»"
-        })
-        main.removeCallbacks(tick)
-        main.post(tick)
+    private fun prune() {
+        val now = System.currentTimeMillis()
+        val cur = shown.getOrNull(index)
+        shown.removeAll { now - it.addedAt > keepMs }
+        index = cur?.let { shown.indexOf(it) }?.takeIf { it >= 0 } ?: 0
     }
 
-    // A result stays up for a minute, then the screen goes back to the hint.
-    // A new question replaces it right away.
-    private val clearResult = Runnable { shownCards = null; heard.text = ""; hint() }
-    private var shownCards: List<Card>? = null
-
-    private fun holdResult() {
-        main.removeCallbacks(clearResult)
-        main.postDelayed(clearResult, 60_000)
+    private fun addResults(cards: List<Card>) {
+        val now = System.currentTimeMillis()
+        shown.removeAll { s -> cards.any { it.receipt == s.card.receipt } }
+        val first = shown.size
+        cards.forEach { shown += Shown(it, now) }
+        index = first; lastRotate = now
+        message = null; main.removeCallbacks(endMessage)
+        render()
     }
 
-    private fun showMessage(text: String) {
-        shownCards = null
-        clockView = null
-        cardsBox.removeAllViews()
-        cardsBox.addView(TextView(this).apply {
-            setTextColor(Color.rgb(255, 120, 120)); textSize = 40f; typeface = Typeface.DEFAULT_BOLD
-            this.text = text
-        })
-        holdResult()
+    private fun showMessage(text: String, ms: Long = 6_000) {
+        message = text
+        main.removeCallbacks(endMessage)
+        main.postDelayed(endMessage, ms)
+        render()
+    }
+
+    private fun flip(step: Int) {
+        if (shown.size < 2 || message != null) return
+        index = (index + step + shown.size) % shown.size
+        pausedUntil = System.currentTimeMillis() + 15_000 // let Art read what he flipped to
+        lastRotate = System.currentTimeMillis()
+        render()
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
-        // Folding/unfolding changes the width: redraw so the receipt number fills it again.
-        shownCards?.let { main.post { drawCards(it) } }
+        // Folding/unfolding changes the size: redraw so the number fills it again.
+        stage.post { render() }
     }
 
     /** Text size (px) that makes [text] fill [width] px in bold, capped at [maxPx]. */
     private fun fillWidth(text: String, width: Int, maxPx: Float): Float {
         val p = android.graphics.Paint().apply { typeface = Typeface.DEFAULT_BOLD; textSize = 100f }
         val w = p.measureText(text).coerceAtLeast(1f)
-        return minOf(100f * width * 0.96f / w, maxPx)
+        return minOf(100f * width * 0.98f / w, maxPx)
     }
 
-    private fun showCards(cards: List<Card>) {
-        if (cards.isEmpty()) { showMessage("I can't find this order"); return }
-        shownCards = cards
-        drawCards(cards)
-        holdResult()
+    private fun bigLine(text: String, color: Int, maxHeightShare: Float) = TextView(this).apply {
+        setTextColor(color); typeface = Typeface.DEFAULT_BOLD
+        maxLines = 1; includeFontPadding = false; gravity = Gravity.CENTER_HORIZONTAL
+        val w = if (stage.width > 0) stage.width else resources.displayMetrics.widthPixels - dp(16)
+        val h = if (stage.height > 0) stage.height else resources.displayMetrics.heightPixels / 2
+        setTextSize(TypedValue.COMPLEX_UNIT_PX, fillWidth(text, w, h * maxHeightShare))
+        this.text = text
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     }
 
-    private fun drawCards(cards: List<Card>) {
-        clockView = null
-        cardsBox.removeAllViews()
-        if (cards.size > 1) cardsBox.addView(TextView(this).apply {
-            setTextColor(Color.rgb(170, 170, 170)); textSize = 22f; text = "${cards.size} orders"
-        })
-        val dm = resources.displayMetrics
-        val inner = (if (cardsBox.width > 0) cardsBox.width else dm.widthPixels - dp(32)) - dp(40)
-        // One order: the number may use about a third of the screen height (customer, phone and
-        // ready line must still fit below it); several: a bit less each.
-        val cap = dm.heightPixels * (if (cards.size == 1) 0.34f else 0.22f)
-        for (c in cards) {
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                background = GradientDrawable().apply { setColor(Color.rgb(28, 28, 30)); cornerRadius = dp(18).toFloat() }
-                setPadding(dp(20), dp(12), dp(20), dp(16))
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                    .apply { topMargin = dp(10) }
+    private fun smallLine(text: String, color: Int, size: Float, bold: Boolean = false) = TextView(this).apply {
+        setTextColor(color); textSize = size; gravity = Gravity.CENTER_HORIZONTAL; maxLines = 1
+        if (bold) typeface = Typeface.DEFAULT_BOLD
+        this.text = text
+    }
+
+    private fun render() {
+        if (!::stage.isInitialized) return
+        prune()
+        stage.removeAllViews()
+        val msg = message
+        when {
+            msg != null -> stage.addView(TextView(this).apply {
+                setTextColor(Color.rgb(255, 120, 120)); textSize = 44f; typeface = Typeface.DEFAULT_BOLD
+                gravity = Gravity.CENTER; text = msg
+            })
+            shown.isEmpty() -> {
+                heard.text = ""
+                val now = java.text.SimpleDateFormat("h:mm", Locale.US).format(java.util.Date())
+                stage.addView(bigLine(now, Color.rgb(230, 230, 230), 0.8f))
+                stage.addView(smallLine("Say “Find receipt …” or “Check …”  ·  «Найди заказ …»", Color.rgb(110, 110, 110), 18f))
             }
-            card.addView(TextView(this).apply {
-                setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
-                maxLines = 1; includeFontPadding = false; gravity = Gravity.CENTER_HORIZONTAL
-                setTextSize(TypedValue.COMPLEX_UNIT_PX, fillWidth(c.receipt, inner, cap)); text = c.receipt
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            })
-            card.addView(TextView(this).apply { setTextColor(Color.WHITE); textSize = 40f; text = c.customer.ifEmpty { "—" } })
-            card.addView(TextView(this).apply { setTextColor(Color.rgb(190, 190, 190)); textSize = 32f; text = c.phone })
-            card.addView(TextView(this).apply {
-                textSize = 32f; typeface = Typeface.DEFAULT_BOLD
-                setTextColor(if (c.ready) Color.rgb(90, 210, 120) else Color.rgb(255, 170, 60))
-                text = if (c.ready) "Ready for pickup · Готово к выдаче" else "Not finished yet · Ещё не готово"
-            })
-            cardsBox.addView(card)
+            else -> {
+                val c = shown[index].card
+                // The receipt number edge to edge; everything else small underneath.
+                stage.addView(bigLine(c.receipt, Color.WHITE, 0.72f))
+                stage.addView(smallLine(listOf(c.customer, c.phone).filter { it.isNotEmpty() }.joinToString("  ·  "),
+                    Color.rgb(190, 190, 190), 22f))
+                stage.addView(smallLine(if (c.ready) "Ready for pickup · Готово к выдаче" else "Not finished yet · Ещё не готово",
+                    if (c.ready) Color.rgb(90, 210, 120) else Color.rgb(255, 170, 60), 22f, bold = true))
+                if (shown.size > 1) stage.addView(smallLine("${index + 1} / ${shown.size}   ‹ swipe ›", Color.rgb(120, 120, 120), 16f))
+            }
         }
-        if (cards.size == 1) scroll.post { shrinkToFit() }
-    }
-
-    /** One order: if the card is taller than the space above the button, shrink the receipt number until it fits. */
-    private fun shrinkToFit() {
-        val card = cardsBox.getChildAt(0) as? LinearLayout ?: return
-        val number = card.getChildAt(0) as? TextView ?: return
-        val overflow = cardsBox.height - scroll.height
-        if (overflow <= 0) return
-        val h = number.height.coerceAtLeast(1)
-        val scale = ((h - overflow).toFloat() / h).coerceIn(0.3f, 1f)
-        number.setTextSize(TypedValue.COMPLEX_UNIT_PX, number.textSize * scale)
     }
 
     private fun idleText(): String {

@@ -96,10 +96,21 @@ object Lookup {
     /** Text after the command, or null when there is no command in what was said. */
     fun commandTail(said: String): String? {
         val words = normalize(said).split(' ').filter { it.isNotEmpty() }
+        fun isObject(n: String) = OBJECT_PREFIXES.any { n.startsWith(it) }
         for (i in words.indices) {
             val w = words[i]
-            val isFind = w in FIND && words.drop(i + 1).take(3).any { n -> OBJECT_PREFIXES.any { n.startsWith(it) } }
+            val isFind = w in FIND && words.drop(i + 1).take(3).any(::isObject)
             if (isFind || w in CHECK) return words.drop(i + 1).joinToString(" ")
+        }
+        // The recognizer often splits a pause: "Найди" … "заказ 4742". A bare "find" waits
+        // for the rest (empty tail), and a short "order / заказ <number>" counts on its own.
+        if (words.isNotEmpty() && words.last() in FIND && words.size <= 2) return ""
+        if (words.size <= 5) {
+            val o = words.indexOfFirst(::isObject)
+            if (o >= 0) {
+                val rest = words.drop(o + 1).joinToString(" ")
+                if (parseQueries(rest).any { it !is Query.Name }) return rest
+            }
         }
         return null
     }

@@ -126,6 +126,15 @@ class LookupTest {
         assertTrue(q(tail("find order for")!!).isEmpty())
     }
 
+    @Test fun splitCommand() {
+        assertEquals("", tail("Найди"))
+        assertEquals("", tail("find"))
+        assertEquals(listOf(Query.Last4("4742")), q(tail("заказ 4742")!!))
+        assertEquals(listOf(Query.Last4("4742")), q(tail("Какие заказ 4742")!!))
+        assertEquals(listOf(Query.Last4("4742")), q(tail("order 47 42")!!))
+        assertEquals(null, tail("у меня был заказ вчера"))
+    }
+
     @Test fun roomTalkIsIgnored() {
         assertEquals(null, tail("towards that you should treat the weather"))
         assertEquals(null, tail("да последние номера телефонов или же весь номер телефона"))
