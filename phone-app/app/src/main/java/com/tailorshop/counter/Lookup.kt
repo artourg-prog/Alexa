@@ -89,8 +89,8 @@ object Lookup {
     // The command is the wake word (Art's choice): the app acts only on "find receipt / find
     // order …", "check …", "найди заказ / ресит / квитанцию …". Everything else is ignored.
     // "fine"/"faynd" and "chek" are how the recognizer often writes "find" and "check".
-    private val FIND = setOf("find", "fine", "faynd", "fayind", "naydi", "nayti", "naydite")
-    private val OBJECT_PREFIXES = listOf("receipt", "order", "resi", "risi", "zakaz", "kvitan", "nomer", "number", "namber")
+    private val FIND = setOf("find", "fine", "fined", "define", "faynd", "fayind", "naydi", "nayti", "naydite")
+    private val OBJECT_PREFIXES = listOf("receipt", "order", "resi", "risi", "zakaz", "kvitan", "nomer", "number", "namber", "phone", "telefon")
     private val CHECK = setOf("check", "chek", "checks", "prover", "proverte")
 
     /** Text after the command, or null when there is no command in what was said. */

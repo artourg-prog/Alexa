@@ -126,6 +126,12 @@ class LookupTest {
         assertTrue(q(tail("find order for")!!).isEmpty())
     }
 
+    @Test fun findNumberAndPhoneTriggers() {
+        for (said in listOf("find phone number 4742", "find number 4742", "найди номер 4742", "Define phone number 4742",
+                "найди телефон 4742", "find the phone 47 42"))
+            assertEquals(said, listOf(Query.Last4("4742")), q(tail(said)!!))
+    }
+
     @Test fun splitCommand() {
         assertEquals("", tail("Найди"))
         assertEquals("", tail("find"))

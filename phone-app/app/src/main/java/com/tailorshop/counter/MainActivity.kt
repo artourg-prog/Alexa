@@ -50,6 +50,7 @@ class MainActivity : Activity() {
 
     private lateinit var status: TextView
     private lateinit var heard: TextView
+    private lateinit var topBar: View
     private lateinit var stage: LinearLayout
     private lateinit var micButton: Button
     private lateinit var langButton: Button
@@ -88,6 +89,9 @@ class MainActivity : Activity() {
         hideSystemBars()
         main.post(refresher)
         main.removeCallbacks(ticker); main.post(ticker)
+        screenOff = !inShopHours()
+        if (screenOff) scheduleMorningWake()
+        render()
         if (handsFree) listenSoon(800)
         setupLanguages()
     }
@@ -198,7 +202,7 @@ class MainActivity : Activity() {
     private val startRunnable = Runnable { startListening() }
 
     private fun startListening() {
-        if (!resumed || listening || tts?.isSpeaking == true) return
+        if (!resumed || listening || tts?.isSpeaking == true || screenOff) return
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             setStatus("Speech recognition is not available on this phone"); return
@@ -379,6 +383,7 @@ class MainActivity : Activity() {
             setPadding(dp(8), dp(8), dp(8), dp(10))
         }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        topBar = top
         status = TextView(this).apply {
             setTextColor(Color.rgb(170, 170, 170)); textSize = 20f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -448,10 +453,82 @@ class MainActivity : Activity() {
             if (message == null && shown.size > 1 && now >= pausedUntil && now - lastRotate >= rotateMs) {
                 index = (index + 1) % shown.size; lastRotate = now; render()
             } else if (shown.size != before || (message == null && shown.isEmpty())) render()
+            val off = !inShopHours()
+            if (off != screenOff) {
+                screenOff = off
+                if (off) { stopListening(); tts?.stop(); scheduleMorningWake() } else if (handsFree) listenSoon(500)
+                render()
+            }
+            if (now - lastShift >= 60_000) { lastShift = now; shiftContent() }
             main.postDelayed(this, 1000)
         }
     }
     private var lastRotate = 0L
+
+    // ---- protecting the Fold's OLED screen ----
+    //
+    // Shop hours 10:45–19:30 (Los Angeles): outside them the screen is black, the app stops
+    // listening and lets the phone sleep, and an alarm wakes it at 10:45. A tap after hours
+    // brings it back for 5 minutes. The idle clock is dim and alone on screen (controls
+    // show for 10 s after a tap), and whatever is shown drifts slightly every minute.
+    private var screenOff = false
+    private var awakeUntil = 0L   // after-hours tap
+    private var chromeUntil = 0L  // controls shown over the clock after a tap
+    private var lastShift = 0L
+    private val shopZone = java.time.ZoneId.of("America/Los_Angeles")
+    private val CLOCK_DRIFT_DP = 30
+    private val NUMBER_DRIFT_DP = 6
+
+    private fun inShopHours(): Boolean {
+        if (System.currentTimeMillis() < awakeUntil) return true
+        val t = java.time.ZonedDateTime.now(shopZone)
+        val m = t.hour * 60 + t.minute
+        return m >= 10 * 60 + 45 && m < 19 * 60 + 30
+    }
+
+    private fun scheduleMorningWake() {
+        val now = java.time.ZonedDateTime.now(shopZone)
+        var wake = now.withHour(10).withMinute(45).withSecond(0).withNano(0)
+        if (!wake.isAfter(now)) wake = wake.plusDays(1)
+        val am = getSystemService(android.app.AlarmManager::class.java) ?: return
+        val pi = android.app.PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
+        try {
+            am.setAlarmClock(android.app.AlarmManager.AlarmClockInfo(wake.toInstant().toEpochMilli(), pi), pi)
+            Log.d("TailorCounter", "wake scheduled for $wake")
+        } catch (e: SecurityException) {
+            Log.d("TailorCounter", "can't schedule wake: ${e.message}")
+        }
+    }
+
+    private fun shiftContent() {
+        val r = java.util.Random()
+        // The receipt number is edge to edge, so it mostly moves up/down; the clock moves both ways.
+        val clock = shown.isEmpty() && message == null
+        val dx = dp(if (clock) CLOCK_DRIFT_DP else NUMBER_DRIFT_DP)
+        stage.translationX = (r.nextInt(2 * dx + 1) - dx).toFloat()
+        stage.translationY = (r.nextInt(2 * dp(24) + 1) - dp(24)).toFloat()
+    }
+
+    private fun setBrightness(value: Float) {
+        val lp = window.attributes
+        if (lp.screenBrightness != value) { lp.screenBrightness = value; window.attributes = lp }
+    }
+
+    /** Controls, brightness and keep-awake for the current mode. */
+    private fun applyMode(clockOnly: Boolean) {
+        val chrome = !screenOff && (!clockOnly || System.currentTimeMillis() < chromeUntil)
+        val vis = if (chrome) View.VISIBLE else View.GONE
+        topBar.visibility = vis; heard.visibility = vis; micButton.visibility = vis
+        if (screenOff) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            setBrightness(0f)
+        } else {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            setBrightness(if (clockOnly && !chrome) 0.1f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
+        }
+    }
 
     private fun prune() {
         val now = System.currentTimeMillis()
@@ -498,7 +575,12 @@ class MainActivity : Activity() {
                 val loc = IntArray(2).also { stage.getLocationOnScreen(it) }
                 downInStage = ev.rawY >= loc[1] && ev.rawY <= loc[1] + stage.height
             }
-            android.view.MotionEvent.ACTION_UP -> if (downInStage) {
+            android.view.MotionEvent.ACTION_UP -> if (Math.abs(ev.rawX - downX) < dp(20) && Math.abs(ev.rawY - downY) < dp(20)) {
+                val now = System.currentTimeMillis()
+                if (screenOff) { awakeUntil = now + 5 * 60_000; screenOff = false; if (handsFree) listenSoon(300) }
+                chromeUntil = now + 10_000
+                render(); main.postDelayed({ render() }, 10_200)
+            } else if (downInStage) {
                 val dx = ev.rawX - downX; val dy = ev.rawY - downY
                 // Any direction: left/up = next, right/down = previous.
                 when {
@@ -523,10 +605,11 @@ class MainActivity : Activity() {
         return minOf(100f * width * 0.98f / w, maxPx)
     }
 
-    private fun bigLine(text: String, color: Int, maxHeightShare: Float) = TextView(this).apply {
+    /** [drift] = room left on each side for the anti-burn-in shift, so the text is never cut off. */
+    private fun bigLine(text: String, color: Int, maxHeightShare: Float, drift: Int) = TextView(this).apply {
         setTextColor(color); typeface = Typeface.DEFAULT_BOLD
         maxLines = 1; includeFontPadding = false; gravity = Gravity.CENTER_HORIZONTAL
-        val w = if (stage.width > 0) stage.width else resources.displayMetrics.widthPixels - dp(16)
+        val w = (if (stage.width > 0) stage.width else resources.displayMetrics.widthPixels - dp(16)) - 2 * drift
         val h = if (stage.height > 0) stage.height else resources.displayMetrics.heightPixels / 2
         setTextSize(TypedValue.COMPLEX_UNIT_PX, fillWidth(text, w, h * maxHeightShare))
         this.text = text
@@ -544,7 +627,9 @@ class MainActivity : Activity() {
         prune()
         stage.removeAllViews()
         val msg = message
+        applyMode(clockOnly = msg == null && shown.isEmpty())
         when {
+            screenOff -> {} // black
             msg != null -> stage.addView(TextView(this).apply {
                 setTextColor(Color.rgb(255, 120, 120)); textSize = 44f; typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER; text = msg
@@ -552,13 +637,14 @@ class MainActivity : Activity() {
             shown.isEmpty() -> {
                 heard.text = ""
                 val now = java.text.SimpleDateFormat("h:mm", Locale.US).format(java.util.Date())
-                stage.addView(bigLine(now, Color.rgb(230, 230, 230), 0.8f))
-                stage.addView(smallLine("Say “Find receipt …” or “Check …”  ·  «Найди заказ …»", Color.rgb(110, 110, 110), 18f))
+                stage.addView(bigLine(now, Color.rgb(200, 200, 200), 0.75f, drift = dp(CLOCK_DRIFT_DP)))
+                if (System.currentTimeMillis() < chromeUntil)
+                    stage.addView(smallLine("Say “Find receipt …” or “Check …”  ·  «Найди заказ …»", Color.rgb(110, 110, 110), 18f))
             }
             else -> {
                 val c = shown[index].card
                 // The receipt number edge to edge; everything else small underneath.
-                stage.addView(bigLine(c.receipt, Color.WHITE, 0.72f))
+                stage.addView(bigLine(c.receipt, Color.WHITE, 0.72f, drift = dp(NUMBER_DRIFT_DP)))
                 stage.addView(smallLine(listOf(c.customer, c.phone).filter { it.isNotEmpty() }.joinToString("  ·  "),
                     Color.rgb(190, 190, 190), 22f))
                 stage.addView(smallLine(if (c.ready) "Ready for pickup · Готово к выдаче" else "Not finished yet · Ещё не готово",
