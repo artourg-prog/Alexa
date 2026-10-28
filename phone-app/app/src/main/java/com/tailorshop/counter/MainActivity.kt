@@ -223,31 +223,39 @@ class MainActivity : Activity() {
     // ---- answering ----
 
     private fun answer(alts: List<String>, detectedLang: String?) {
-        val asked = tapped
+        val tappedNow = tapped
         tapped = false
         val go = {
-            // The top guess wins if it finds something. Lower guesses may only rescue a
-            // number (a name guessed from noise matches some customer far too easily).
+            // Numbers are the main path: any guess with a number that finds an order wins,
+            // then the top guess if it finds something, then any guess with a number.
+            // Names only come from the top guess (noise matches some customer too easily).
             val top = alts.first()
-            val pick = if (Lookup.findAll(top, orders).isNotEmpty()) top
-                else alts.drop(1).firstOrNull { alt ->
-                    Lookup.parseQueries(alt).none { it is Query.Name } && Lookup.findAll(alt, orders).isNotEmpty()
-                } ?: top
+            fun hasNumber(s: String) = Lookup.parseQueries(s).any { it !is Query.Name }
+            val pick = alts.firstOrNull { hasNumber(it) && Lookup.findAll(it, orders).isNotEmpty() }
+                ?: top.takeIf { Lookup.findAll(it, orders).isNotEmpty() }
+                ?: alts.firstOrNull(::hasNumber)
+                ?: top
             Log.d("TailorCounter", "heard=$alts picked=$pick")
+            val queries = Lookup.parseQueries(pick)
             val cards = Lookup.findAll(pick, orders)
             val russian = pick.any { it in 'а'..'я' || it in 'А'..'Я' } ||
                 detectedLang?.startsWith("ru") == true || (detectedLang == null && russianFirst)
-            // Overheard words that match no customer are chatter, not a question: stay quiet.
-            val overheardName = !asked && cards.isEmpty() &&
-                Lookup.parseQueries(pick).all { it is Query.Name }
-            if (!Lookup.isLikelyQuestion(pick) || overheardName) {
-                setStatus(idleText()); if (handsFree) listenSoon(300)
-            } else {
-                heard.text = pick
-                showCards(cards)
-                speak(Lookup.reply(cards, russian), russian)
-                setStatus(idleText())
+            // A tap, or a short "find order / найди заказ …" phrase, is always answered.
+            val asked = tappedNow || alts.any(Lookup::soundsLikeLookup)
+            val isNumber = queries.any { it !is Query.Name }
+            when {
+                isNumber || (cards.isNotEmpty() && Lookup.isLikelyQuestion(pick)) -> {
+                    heard.text = pick; showCards(cards); speak(Lookup.reply(cards, russian), russian)
+                }
+                asked && queries.isNotEmpty() -> {
+                    heard.text = pick; showCards(cards); speak(Lookup.reply(cards, russian), russian)
+                }
+                asked -> {
+                    heard.text = pick; showMessage(Lookup.didntCatch(russian)); speak(Lookup.didntCatch(russian), russian)
+                }
+                else -> if (handsFree) listenSoon(300) // overheard chatter: stay quiet
             }
+            setStatus(idleText())
         }
         // Use a copy no older than 20 s so a just-dropped-off order is found.
         if (System.currentTimeMillis() - loadedAt > 20_000) refresh(go) else go()
@@ -261,7 +269,6 @@ class MainActivity : Activity() {
 
     // ---- UI ----
 
-    private fun sp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun buildUi(): View {
@@ -324,19 +331,55 @@ class MainActivity : Activity() {
         })
     }
 
-    private fun showCards(cards: List<Card>) {
+    // A result stays up for a minute, then the screen goes back to the hint.
+    // A new question replaces it right away.
+    private val clearResult = Runnable { shownCards = null; heard.text = ""; hint() }
+    private var shownCards: List<Card>? = null
+
+    private fun holdResult() {
+        main.removeCallbacks(clearResult)
+        main.postDelayed(clearResult, 60_000)
+    }
+
+    private fun showMessage(text: String) {
+        shownCards = null
         cardsBox.removeAllViews()
-        if (cards.isEmpty()) {
-            cardsBox.addView(TextView(this).apply {
-                setTextColor(Color.rgb(255, 120, 120)); textSize = 40f; typeface = Typeface.DEFAULT_BOLD
-                text = "I can't find this order"
-            })
-            return
-        }
+        cardsBox.addView(TextView(this).apply {
+            setTextColor(Color.rgb(255, 120, 120)); textSize = 40f; typeface = Typeface.DEFAULT_BOLD
+            this.text = text
+        })
+        holdResult()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Folding/unfolding changes the width: redraw so the receipt number fills it again.
+        shownCards?.let { main.post { drawCards(it) } }
+    }
+
+    /** Text size (px) that makes [text] fill [width] px in bold, capped at [maxPx]. */
+    private fun fillWidth(text: String, width: Int, maxPx: Float): Float {
+        val p = android.graphics.Paint().apply { typeface = Typeface.DEFAULT_BOLD; textSize = 100f }
+        val w = p.measureText(text).coerceAtLeast(1f)
+        return minOf(100f * width * 0.96f / w, maxPx)
+    }
+
+    private fun showCards(cards: List<Card>) {
+        if (cards.isEmpty()) { showMessage("I can't find this order"); return }
+        shownCards = cards
+        drawCards(cards)
+        holdResult()
+    }
+
+    private fun drawCards(cards: List<Card>) {
+        cardsBox.removeAllViews()
         if (cards.size > 1) cardsBox.addView(TextView(this).apply {
             setTextColor(Color.rgb(170, 170, 170)); textSize = 22f; text = "${cards.size} orders"
         })
-        val big = if (cards.size == 1) 110f else 72f
+        val dm = resources.displayMetrics
+        val inner = (if (cardsBox.width > 0) cardsBox.width else dm.widthPixels - dp(32)) - dp(40)
+        // One order: the number may use up to half the screen height; several: a quarter each.
+        val cap = dm.heightPixels * (if (cards.size == 1) 0.5f else 0.25f)
         for (c in cards) {
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -347,7 +390,9 @@ class MainActivity : Activity() {
             }
             card.addView(TextView(this).apply {
                 setTextColor(Color.WHITE); typeface = Typeface.DEFAULT_BOLD
-                setTextSize(TypedValue.COMPLEX_UNIT_PX, sp(big)); text = c.receipt
+                maxLines = 1; includeFontPadding = false; gravity = Gravity.CENTER_HORIZONTAL
+                setTextSize(TypedValue.COMPLEX_UNIT_PX, fillWidth(c.receipt, inner, cap)); text = c.receipt
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             })
             card.addView(TextView(this).apply { setTextColor(Color.WHITE); textSize = 40f; text = c.customer.ifEmpty { "—" } })
             card.addView(TextView(this).apply { setTextColor(Color.rgb(190, 190, 190)); textSize = 32f; text = c.phone })

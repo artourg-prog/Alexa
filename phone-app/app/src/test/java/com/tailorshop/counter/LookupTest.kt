@@ -41,6 +41,57 @@ class LookupTest {
 
     @Test fun shortScrapsDontMatchNames() = assertTrue(receipts("sa").isEmpty())
 
+    private fun q(said: String) = Lookup.parseQueries(said)
+
+    @Test fun fourDigitsInsideAnyPhrase() {
+        assertEquals(listOf(Query.Last4("6824")), q("Find receipt number for 6824"))
+        assertEquals(listOf(Query.Last4("6824")), q("find order for 6824"))
+        assertEquals(listOf(Query.Last4("6824")), q("квитанция на 6824"))
+        assertEquals(listOf(Query.Last4("4847")), q("Найди заказ на 48 47"))
+        assertEquals(listOf(Query.Last4("4847")), q("Найди заказ на 48-47"))
+        assertEquals(listOf(Query.Last4("3267")), q("Find order number for 3267"))
+    }
+
+    @Test fun numberWordsEnglish() {
+        assertEquals(listOf(Query.Last4("8438")), q("eighty-four thirty-eight"))
+        assertEquals(listOf(Query.Last4("6824")), q("Fine Order for Six eight to for"))
+        assertEquals(listOf(Query.Last4("6824")), q("find order for six eight two four"))
+        assertEquals(listOf(Query.Last4("1203")), q("twelve oh three"))
+        assertEquals(listOf(Query.Last4("4838")), q("for eight three eight"))
+        assertEquals(listOf(Query.Last4("1208")), q("twelve hundred eight"))
+    }
+
+    @Test fun numberWordsRussian() {
+        assertEquals(listOf(Query.Last4("8438")), q("восемь четыре три восемь"))
+        assertEquals(listOf(Query.Last4("6824")), q("шестьдесят восемь двадцать четыре"))
+        assertEquals(listOf(Query.Last4("1208")), q("найди заказ одна тысяча двести восемь"))
+        assertEquals(listOf(Query.Last4("6824")), q("сикс эйт ту фор"))
+    }
+
+    @Test fun fullPhoneAnyForm() {
+        assertEquals(listOf(Query.FullPhone("7255551203")), q("725 555 1203"))
+        assertEquals(listOf(Query.FullPhone("7255551203")), q("phone 7255551203"))
+        assertEquals(listOf(Query.FullPhone("7255551203")), q("1 725 555 1203"))
+        assertEquals(listOf(Query.FullPhone("5551203")), q("555 1203"))
+        assertEquals(listOf("26251"), receipts("my number is 725 555 1203"))
+        assertEquals(listOf("26251"), receipts("555 1203"))
+    }
+
+    @Test fun twoNumbersStaySeparate() =
+        assertEquals(listOf(Query.Last4("1034"), Query.Last4("1203")), q("1034 1203"))
+
+    @Test fun shortNumbersInChatAreNotQuestions() {
+        assertTrue(q("четыре будет легче").isEmpty())
+        assertTrue(q("I'll be there in 5").isEmpty())
+    }
+
+    @Test fun lookupPhrasesAreAlwaysAnswered() {
+        assertTrue(Lookup.soundsLikeLookup("Find receipt number for"))
+        assertTrue(Lookup.soundsLikeLookup("Найди заказ на"))
+        assertTrue(!Lookup.soundsLikeLookup("да последние номера телефонов или же весь номер телефона"))
+        assertEquals("I didn't catch the number.", Lookup.didntCatch(false))
+    }
+
     @Test fun fillerOnlyIsNoQuery() = assertTrue(Lookup.parseQueries("find the order please").isEmpty())
 
     @Test fun shopChatterIsIgnored() {

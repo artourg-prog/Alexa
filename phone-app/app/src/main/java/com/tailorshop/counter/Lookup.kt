@@ -62,9 +62,10 @@ object Lookup {
      * no digits -> customer name.
      */
     fun parseQueries(said: String): List<Query> {
-        val groups = Regex("\\d+").findAll(said).map { it.value }.toList()
+        val text = SpokenNumbers.toDigits(normalize(said))
+        val groups = Regex("\\d+").findAll(text).map { it.value }.toList()
         if (groups.isEmpty()) {
-            val words = normalize(said).split(' ').filter { it.isNotEmpty() && it !in FILLER.map(::normalize) }
+            val words = text.split(' ').filter { it.isNotEmpty() && it !in FILLER_N }
             return if (words.isEmpty()) emptyList() else listOf(Query.Name(words))
         }
         if (groups.all { it.length == 4 || it.length == 5 }) {
@@ -74,10 +75,27 @@ object Lookup {
         return when {
             all.length == 4 -> listOf(Query.Last4(all))
             all.length == 5 -> listOf(Query.Receipt(all))
+            all.length == 6 -> listOf(Query.Last4(all.takeLast(4)))
             all.length >= 7 -> listOf(Query.FullPhone(all.takeLast(10)))
-            else -> listOf(Query.Last4(all.padStart(4, '0')))
+            else -> emptyList() // 1-3 digits: not a phone ending or receipt
         }
     }
+
+    private val FILLER_N by lazy { FILLER.map(::normalize).toSet() }
+
+    // Words that mean "look something up". A short phrase with one of these is a question
+    // even when no number came through, so the app answers instead of staying silent.
+    private val TRIGGERS = setOf(
+        "find", "fine", "look", "lookup", "order", "orders", "receipt", "number", "phone", "namber", "resit", "risit",
+        "naydi", "nayti", "zakaz", "zakaza", "kvitantsiya", "kvitantsiyu", "kvitantsii", "nomer", "telefon",
+    )
+
+    fun soundsLikeLookup(said: String): Boolean {
+        val words = normalize(said).split(' ').filter { it.isNotEmpty() }
+        return words.size <= 7 && words.any { it in TRIGGERS }
+    }
+
+    fun didntCatch(russian: Boolean) = if (russian) "Не расслышал номер." else "I didn't catch the number."
 
     /**
      * Hands-free hears the whole shop. A number is always a question; words are only
