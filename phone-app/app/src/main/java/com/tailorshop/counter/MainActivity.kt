@@ -57,6 +57,7 @@ class MainActivity : Activity() {
     private lateinit var pickedButton: Button
     private lateinit var langButton: Button
     private lateinit var handsButton: Button
+    private lateinit var updateButton: Button
 
     private val refreshEvery = 60_000L
     private val refresher = object : Runnable {
@@ -72,6 +73,7 @@ class MainActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sheets = Sheets(File(filesDir, "sheet-key.json"))
         pickups = Pickups(filesDir)
+        Updater.scheduleNight(this)
         russianFirst = getPreferences(MODE_PRIVATE).getBoolean("russianFirst", true)
         setContentView(buildUi())
         tts = TextToSpeech(this) { ok ->
@@ -90,6 +92,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        Wake.clear(this)
         hideSystemBars()
         main.post(refresher)
         main.removeCallbacks(ticker); main.post(ticker)
@@ -409,7 +412,9 @@ class MainActivity : Activity() {
             handsFree = !handsFree; updateHands(); setStatus(idleText()); render()
             if (handsFree) listenSoon(200) else stopListening()
         }
-        top.addView(status); top.addView(langButton); top.addView(handsButton)
+        updateButton = smallButton { checkUpdate() }
+        updateButton.text = "Update"
+        top.addView(status); top.addView(langButton); top.addView(updateButton); top.addView(handsButton)
 
         heard = TextView(this).apply {
             setTextColor(Color.rgb(120, 200, 255)); textSize = 18f; maxLines = 1
@@ -478,6 +483,7 @@ class MainActivity : Activity() {
             }
             if (now - lastShift >= 60_000) { lastShift = now; shiftContent() }
             updatePicked() // the button goes away once its minute is up
+            Updater.confirmIntent?.let { if (resumed) { Updater.confirmIntent = null; startActivity(it) } }
             main.postDelayed(this, 1000)
         }
     }
@@ -508,16 +514,8 @@ class MainActivity : Activity() {
         val now = java.time.ZonedDateTime.now(shopZone)
         var wake = now.withHour(10).withMinute(45).withSecond(0).withNano(0)
         if (!wake.isAfter(now)) wake = wake.plusDays(1)
-        val am = getSystemService(android.app.AlarmManager::class.java) ?: return
-        val pi = android.app.PendingIntent.getActivity(this, 1, Intent(this, MainActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
-        try {
-            am.setAlarmClock(android.app.AlarmManager.AlarmClockInfo(wake.toInstant().toEpochMilli(), pi), pi)
-            Log.d("TailorCounter", "wake scheduled for $wake")
-        } catch (e: SecurityException) {
-            Log.d("TailorCounter", "can't schedule wake: ${e.message}")
-        }
+        Wake.schedule(this, wake.toInstant().toEpochMilli(), 1)
+        Log.d("TailorCounter", "wake scheduled for $wake")
     }
 
     private fun shiftContent() {
@@ -618,6 +616,14 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 Log.d("TailorCounter", "pickup sync failed: ${e.message}") // kept; retried next minute
             }
+        }
+    }
+
+    private fun checkUpdate() {
+        showMessage("Checking for update…", 20_000)
+        io.execute {
+            val r = try { Updater.checkAndInstall(applicationContext) } catch (e: Exception) { "Update check failed: ${e.message}" }
+            main.post { showMessage(r) }
         }
     }
 
@@ -757,7 +763,8 @@ class MainActivity : Activity() {
     private fun idleText(): String {
         if (!sheets.hasKey()) return "Setup needed: the sheet key is not installed"
         val n = orders.size
-        return if (handsFree) "$n orders" else "$n orders · tap the button to talk"
+        val v = " · v" + Updater.versionName(this)
+        return if (handsFree) "$n orders$v" else "$n orders · tap the button to talk$v"
     }
 
     private fun setStatus(s: String) { status.text = s }
