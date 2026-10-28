@@ -15,18 +15,25 @@ object SpokenNumbers {
         "nol" to 0, "nul" to 0, "odin" to 1, "odna" to 1, "odno" to 1, "dva" to 2, "dve" to 2, "tri" to 3,
         "chetyre" to 4, "pyat" to 5, "shest" to 6, "sem" to 7, "vosem" to 8, "devyat" to 9,
         // English said to a Russian recognizer, written in Cyrillic ("сикс эйт")
-        "ziro" to 0, "zero" to 0, "van" to 1, "fri" to 3, "fayv" to 5, "siks" to 6, "seven" to 7,
-        "sevn" to 7, "eyt" to 8, "nayn" to 9,
+        "ziro" to 0, "zero" to 0, "van" to 1, "fri" to 3, "sri" to 3, "fayv" to 5, "fayf" to 5, "siks" to 6,
+        "sevn" to 7, "eyt" to 8, "eit" to 8, "nayn" to 9,
     )
 
     // Real digits only when next to other number words ("six eight to for").
-    private val SOFT = mapOf("oh" to 0, "to" to 2, "too" to 2, "tu" to 2, "for" to 4, "fo" to 4, "fore" to 4, "ate" to 8, "won" to 1)
+    // Includes common mishearings of digits ("sex side to for" = 6824).
+    private val SOFT = mapOf(
+        "oh" to 0, "to" to 2, "too" to 2, "tu" to 2, "for" to 4, "fo" to 4, "fore" to 4, "ate" to 8, "won" to 1,
+        "sex" to 6, "sax" to 6, "side" to 8, "sight" to 8, "site" to 8, "tree" to 3, "free" to 3, "fife" to 5, "nein" to 9,
+    )
+    // Sentence glue that often leads a number ("order for 6824") and isn't part of it.
+    private val GLUE = setOf("for", "to", "too", "tu", "fo", "fore")
 
     private val TEENS = mapOf(
         "ten" to 10, "eleven" to 11, "twelve" to 12, "thirteen" to 13, "fourteen" to 14, "fifteen" to 15,
         "sixteen" to 16, "seventeen" to 17, "eighteen" to 18, "nineteen" to 19,
         "desyat" to 10, "odinnadtsat" to 11, "dvenadtsat" to 12, "trinadtsat" to 13, "chetyrnadtsat" to 14,
         "pyatnadtsat" to 15, "shestnadtsat" to 16, "semnadtsat" to 17, "vosemnadtsat" to 18, "devyatnadtsat" to 19,
+        "tvelv" to 12, "tvelf" to 12,
     )
 
     private val TENS = mapOf(
@@ -34,6 +41,9 @@ object SpokenNumbers {
         "seventy" to 70, "eighty" to 80, "ninety" to 90,
         "dvadtsat" to 20, "tridtsat" to 30, "sorok" to 40, "pyatdesyat" to 50, "shestdesyat" to 60,
         "semdesyat" to 70, "vosemdesyat" to 80, "devyanosto" to 90,
+        // English tens written in Cyrillic by the Russian recognizer ("сёрти", "найнти")
+        "tventi" to 20, "tuenti" to 20, "serti" to 30, "sorti" to 30, "fyorti" to 40, "forti" to 40, "ferti" to 40,
+        "fifti" to 50, "siksti" to 60, "seventi" to 70, "eyti" to 80, "eiti" to 80, "naynti" to 90,
     )
 
     // RU hundreds are whole numbers; EN "hundred" multiplies.
@@ -45,7 +55,7 @@ object SpokenNumbers {
 
     private sealed class Tok {
         data class Digits(val s: String) : Tok()
-        data class Unit(val v: Int, val soft: Boolean) : Tok()
+        data class Unit(val v: Int, val soft: Boolean, val word: String = "") : Tok()
         data class Teen(val v: Int) : Tok()
         data class Tens(val v: Int) : Tok()
         data class Hundreds(val v: Int) : Tok()
@@ -56,7 +66,7 @@ object SpokenNumbers {
     private fun classify(w: String): Tok = when {
         w.all { it.isDigit() } -> Tok.Digits(w)
         w in UNITS -> Tok.Unit(UNITS.getValue(w), false)
-        w in SOFT -> Tok.Unit(SOFT.getValue(w), true)
+        w in SOFT -> Tok.Unit(SOFT.getValue(w), true, w)
         w in TEENS -> Tok.Teen(TEENS.getValue(w))
         w in TENS -> Tok.Tens(TENS.getValue(w))
         w in HUNDREDS -> Tok.Hundreds(HUNDREDS.getValue(w))
@@ -77,8 +87,8 @@ object SpokenNumbers {
             var j = i
             while (j < toks.size && isNumber(toks[j])) j++
             val run = toks.subList(i, j)
-            if (run.none(::isHard)) {
-                // "for" / "to" alone are just words
+            if (run.none(::isHard) && run.size < 4) {
+                // "for" / "to" alone are just words; four or more in a row are a number
                 run.forEach { out += softWord(it) }
             } else {
                 out += render(run)
@@ -88,13 +98,13 @@ object SpokenNumbers {
         return out.joinToString(" ")
     }
 
-    private fun softWord(t: Tok): String = SOFT.entries.first { it.value == (t as Tok.Unit).v }.key
+    private fun softWord(t: Tok): String = (t as Tok.Unit).word
 
     private fun render(run: List<Tok>): List<String> {
         // Leading "for"/"to" usually belong to the sentence ("order for 6824"), unless
         // dropping them leaves fewer than 4 digits ("for eight three eight" = 4838).
         var start = 0
-        while (start < run.size && run[start] is Tok.Unit && (run[start] as Tok.Unit).soft) start++
+        while (start < run.size && (run[start] as? Tok.Unit)?.let { it.soft && it.word in GLUE } == true) start++
         val trimmed = render2(run.subList(start, run.size))
         if (start > 0 && trimmed.joinToString("").length < 4) {
             val full = render2(run)

@@ -111,6 +111,21 @@ class LookupTest {
         assertEquals(listOf(Query.FullPhone("7255551203")), q(tail("find order 725 555 1203")!!))
     }
 
+    @Test fun ninetyNineThirtyThreeEveryWay() {
+        for (said in listOf(
+            "Find order for 9933", "Check number 9933", "find order for ninety nine thirty three",
+            "find order for ninety-nine thirty-three", "Find order for 99 33", "find order for 9,933",
+            "find order for $99.33", "check number nine nine three three", "Find order for найн найн сёрти фри",
+            "найди заказ девяносто девять тридцать три", "найди заказ 99-33",
+            "check number nine thousand nine hundred thirty three",
+        )) assertEquals(said, listOf(Query.Last4("9933")), q(tail(said)!!))
+    }
+
+    @Test fun misheardDigitsInsideCommand() {
+        assertEquals(listOf(Query.Last4("6824")), q(tail("Fine Order for Sex Side to for")!!))
+        assertTrue(q(tail("find order for")!!).isEmpty())
+    }
+
     @Test fun roomTalkIsIgnored() {
         assertEquals(null, tail("towards that you should treat the weather"))
         assertEquals(null, tail("да последние номера телефонов или же весь номер телефона"))

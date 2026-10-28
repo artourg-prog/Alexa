@@ -52,6 +52,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var heard: TextView
     private lateinit var cardsBox: LinearLayout
+    private lateinit var scroll: ScrollView
     private lateinit var micButton: Button
     private lateinit var langButton: Button
     private lateinit var handsButton: Button
@@ -340,9 +341,10 @@ class MainActivity : Activity() {
             setPadding(0, dp(8), 0, dp(8))
         }
         cardsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply {
+        scroll = ScrollView(this).apply {
             addView(cardsBox)
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+                .apply { bottomMargin = dp(30) } // ~5 mm gap so nothing sits under the button
         }
         micButton = Button(this).apply {
             textSize = 30f; setTextColor(Color.WHITE); isAllCaps = false
@@ -472,6 +474,18 @@ class MainActivity : Activity() {
             })
             cardsBox.addView(card)
         }
+        if (cards.size == 1) scroll.post { shrinkToFit() }
+    }
+
+    /** One order: if the card is taller than the space above the button, shrink the receipt number until it fits. */
+    private fun shrinkToFit() {
+        val card = cardsBox.getChildAt(0) as? LinearLayout ?: return
+        val number = card.getChildAt(0) as? TextView ?: return
+        val overflow = cardsBox.height - scroll.height
+        if (overflow <= 0) return
+        val h = number.height.coerceAtLeast(1)
+        val scale = ((h - overflow).toFloat() / h).coerceIn(0.3f, 1f)
+        number.setTextSize(TypedValue.COMPLEX_UNIT_PX, number.textSize * scale)
     }
 
     private fun idleText(): String {
