@@ -485,7 +485,7 @@ class MainActivity : Activity() {
         render()
     }
 
-    // Swipe left/right anywhere over the result area flips between orders. Caught here,
+    // A swipe in any direction over the result area flips between orders. Caught here,
     // before any view, so nothing on screen can swallow it.
     private var downX = 0f
     private var downY = 0f
@@ -500,7 +500,11 @@ class MainActivity : Activity() {
             }
             android.view.MotionEvent.ACTION_UP -> if (downInStage) {
                 val dx = ev.rawX - downX; val dy = ev.rawY - downY
-                if (Math.abs(dx) > dp(80) && Math.abs(dx) > 1.5f * Math.abs(dy)) flip(if (dx < 0) 1 else -1)
+                // Any direction: left/up = next, right/down = previous.
+                when {
+                    Math.abs(dx) > dp(80) && Math.abs(dx) >= Math.abs(dy) -> flip(if (dx < 0) 1 else -1)
+                    Math.abs(dy) > dp(80) -> flip(if (dy < 0) 1 else -1)
+                }
             }
         }
         return super.dispatchTouchEvent(ev)
@@ -559,7 +563,7 @@ class MainActivity : Activity() {
                     Color.rgb(190, 190, 190), 22f))
                 stage.addView(smallLine(if (c.ready) "Ready for pickup · Готово к выдаче" else "Not finished yet · Ещё не готово",
                     if (c.ready) Color.rgb(90, 210, 120) else Color.rgb(255, 170, 60), 22f, bold = true))
-                if (shown.size > 1) stage.addView(smallLine("${index + 1} / ${shown.size}   ‹ swipe ›", Color.rgb(120, 120, 120), 16f))
+                if (shown.size > 1) stage.addView(smallLine("${index + 1} / ${shown.size}   · swipe to flip", Color.rgb(120, 120, 120), 16f))
             }
         }
     }
