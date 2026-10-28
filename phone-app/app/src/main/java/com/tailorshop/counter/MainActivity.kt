@@ -187,7 +187,6 @@ class MainActivity : Activity() {
             try {
                 val rows = sheets.readRows()
                 orders = Lookup.parseOrders(rows)
-                if (orders.isNotEmpty()) pickups.reconcileWith(orders.map { it.receipt }.toSet())
                 loadedAt = System.currentTimeMillis()
                 main.post { if (!listening) setStatus(idleText()); then?.invoke() }
             } catch (e: Sheets.KeyMissing) {
@@ -442,7 +441,11 @@ class MainActivity : Activity() {
             textSize = 22f; setTextColor(Color.BLACK); isAllCaps = false
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             background = GradientDrawable().apply { setColor(Color.rgb(255, 190, 60)); cornerRadius = dp(16).toFloat() }
-            setOnClickListener { pickups.unresolved().firstOrNull()?.let { pickups.dismiss(it.id) }; render() }
+            setOnClickListener {
+                if (pickups.warning() != null) pickups.acknowledgeRecovery() // a save failure can't be tapped away
+                else pickups.toCheck().firstOrNull()?.let { pickups.dismiss(it.id) }
+                render()
+            }
         }
         root.addView(top); root.addView(heard); root.addView(stage); root.addView(checkButton); root.addView(pickedButton); root.addView(micButton)
         updateLang(); updateHands(); updateMic()
@@ -570,10 +573,11 @@ class MainActivity : Activity() {
     private val commitPickup = Runnable {
         val receipts = undoReceipts ?: return@Runnable
         undoReceipts = null
-        pickups.add(receipts)
+        val saved = pickups.add(receipts)
         shown.removeAll { it.card.receipt in receipts }; index = 0
-        Log.d("TailorCounter", "picked up sent: $receipts")
-        showMessage("Sent — leaves the list within 15 min")
+        Log.d("TailorCounter", "picked up saved=$saved: ${receipts.size}")
+        // Truthful: saved on the phone only; "sent" and "confirmed" come from the tablet's answers.
+        showMessage(if (saved) "Saved on the phone — sending to the tablet…" else pickups.warning() ?: "Not saved — mark it on the tablet")
         syncPickups()
     }
 
@@ -598,11 +602,12 @@ class MainActivity : Activity() {
     }
 
     private fun updatePicked() {
-        val open = pickups.unresolved()
-        val showCheck = !screenOff && open.isNotEmpty() && undoReceipts == null
+        val warn = pickups.warning()
+        val open = pickups.toCheck()
+        val showCheck = !screenOff && (warn != null || open.isNotEmpty()) && undoReceipts == null
         checkButton.visibility = if (showCheck) View.VISIBLE else View.GONE
-        if (showCheck) checkButton.text = Pickups.problemText(open.first().receipt, open.first().status) +
-            (if (open.size > 1) "  (+${open.size - 1} more)" else "") + "\nTap here when checked"
+        if (showCheck) checkButton.text = warn ?: (Pickups.problemText(open.first().receipt, open.first().status) +
+            (if (open.size > 1) "  (+${open.size - 1} more)" else "") + "\nTap here when checked")
         val undo = undoReceipts
         val group = currentGroup().filter { Lookup.digits(it) !in pickups.pending() }
         val show = pickups.configured() && !screenOff && (undo != null || (message == null && group.isNotEmpty()))
@@ -621,6 +626,8 @@ class MainActivity : Activity() {
             try {
                 val out = pickups.sync()
                 main.post {
+                    for (r in out.sent) showMessage("#${r.receipt} sent — waiting for the tablet to confirm")
+                    for (r in out.confirmed) showMessage("#${r.receipt} — tablet confirmed picked up")
                     for (r in out.problems) showMessage(Pickups.problemText(r.receipt, r.status), 10_000)
                     // Key missing or wrong: say it once, not every minute.
                     if (out.denied && !keyDeniedShown) showMessage("Phone key not set up — Picked up isn't reaching the tablet", 10_000)
@@ -767,8 +774,7 @@ class MainActivity : Activity() {
                     Color.rgb(190, 190, 190), 22f))
                 stage.addView(smallLine(if (c.ready) "Ready for pickup · Готово к выдаче" else "Not finished yet · Ещё не готово",
                     if (c.ready) Color.rgb(90, 210, 120) else Color.rgb(255, 170, 60), 22f, bold = true))
-                if (Lookup.digits(c.receipt) in pickups.pending())
-                    stage.addView(smallLine("Picked up — sent to the tablet", Color.rgb(120, 170, 255), 20f))
+                pickups.latest(c.receipt)?.let { stage.addView(smallLine(Pickups.stateText(it), Color.rgb(120, 170, 255), 20f)) }
                 if (shown.size > 1) stage.addView(smallLine("${index + 1} / ${shown.size}   · swipe to flip", Color.rgb(120, 120, 120), 16f))
             }
         }

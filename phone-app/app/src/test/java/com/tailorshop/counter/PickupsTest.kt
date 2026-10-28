@@ -49,15 +49,39 @@ class PickupsTest {
         assertEquals(1, q.size); assertEquals("QUEUED", q[0].status)
     }
 
-    @Test fun unresolvedStaysUntilReconciled() {
+    @Test fun absenceFromTheListIsNotProof() {
+        // There is no list-based clearing any more: only the tablet's answer or a person's tap settles it.
         val q = mutableListOf(req("1", 3 * day, sent = true, status = "EXPIRED"), req("2", 3 * day, sent = true, status = "NOT_FOUND"))
         Pickups.housekeep(q, t0)
-        assertEquals(2, q.size)                          // old but unresolved: kept
-        assertTrue(!Pickups.reconcile(q, emptySet()))    // no sheet data: no change
-        assertTrue(Pickups.reconcile(q, setOf("10002"))) // #10001 left the list -> handled on the tablet
-        assertTrue(q[0].resolved && !q[1].resolved)
+        assertEquals(2, q.size)
+        assertTrue(q.all { Pickups.needsCheck(it, t0) })
+        q[0].resolved = true                              // a person tapped "Checked"
         Pickups.housekeep(q, t0)
-        assertEquals(listOf("2"), q.map { it.id })       // only the reconciled one goes
+        assertEquals(listOf("2"), q.map { it.id })
+    }
+
+    @Test fun sentWithNoAnswerIsShownButKeepsItsId() {
+        val r = req("1", 2 * 3600_000L, sent = true, status = "QUEUED").apply { sentAt = t0 - 31 * 60_000L }
+        assertTrue(Pickups.needsCheck(r, t0))
+        assertEquals("#10001: sent, the tablet hasn't answered — check on the tablet", Pickups.problemText(r.receipt, r.status))
+        r.resolved = true                                 // checked by a person: hidden, but still asked about
+        assertTrue(!Pickups.needsCheck(r, t0))
+        val q = mutableListOf(r); Pickups.housekeep(q, t0 + 10 * day)
+        assertEquals(1, q.size); assertEquals("1", q[0].id) // same identity, never reissued
+        val fresh = req("2", 0, sent = true, status = "QUEUED").apply { sentAt = t0 - 60_000L }
+        assertTrue(!Pickups.needsCheck(fresh, t0))
+    }
+
+    @Test fun statusPollingStaysWithinBatchSize() {
+        val b = Pickups.batches((1..45).map { "id$it" })
+        assertEquals(listOf(20, 20, 5), b.map { it.size })
+    }
+
+    @Test fun screenSaysWhatIsTrue() {
+        assertEquals("Picked up — saved on the phone, not sent yet", Pickups.stateText(req("1", 0)))
+        assertEquals("Picked up — sent, waiting for the tablet", Pickups.stateText(req("1", 0, sent = true, status = "QUEUED")))
+        assertEquals("Picked up — confirmed by the tablet", Pickups.stateText(req("1", 0, sent = true, status = "APPLIED")))
+        assertEquals("Picked up NOT confirmed — check on the tablet", Pickups.stateText(req("1", 0, status = "NEEDS_CHECK")))
     }
 
     @Test fun settledRecordsAreCleanedAfterADay() {

@@ -27,4 +27,5 @@ android {
 
 dependencies {
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303") // real org.json for the queue-file tests (Android's is a stub on the JVM)
 }
