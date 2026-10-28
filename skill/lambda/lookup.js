@@ -2,16 +2,16 @@
 
 // Pure logic: sheet rows in, order cards out. No network, no writes.
 //
-// Source: sheet "Order Ready For Pickup", tab "Active Orders" (synced from the
-// Pickups tablet). Columns are found by header name, so a moved column can't
-// shift data into the wrong field. Only receipt, customer and phone are shown
-// (the screen's job is finding the bag on the shelf); `reported_workers` is never read.
+// Source: sheet "Order Ready For Pickup", tab "All Receipts" (written by the
+// Pickups mirror). Columns are found by header name (first matching alias), so
+// a moved or renamed column can't shift data into the wrong field. Only receipt,
+// customer and phone are shown (the screen's job is finding the bag on the shelf).
 const FIELDS = {
-  receipt: 'receipt_number',
-  customer: 'customer_or_shop',
-  phone: 'phone',
-  phoneNormalized: 'phone_normalized',
-  received: 'received_date', // sort only
+  receipt: ['receipt #', 'receipt_number'],
+  customer: ['customer', 'customer_or_shop'],
+  phone: ['phone'],
+  phoneNormalized: ['phone_normalized'],
+  received: ['date', 'received_date'], // sort only
 };
 
 function str(v) {
@@ -33,9 +33,9 @@ function normalizeLast4(spoken) {
 function columnMap(header) {
   const idx = {};
   const names = (header || []).map((h) => str(h).toLowerCase());
-  for (const [field, name] of Object.entries(FIELDS)) {
-    const i = names.indexOf(name);
-    if (i >= 0) idx[field] = i;
+  for (const [field, aliases] of Object.entries(FIELDS)) {
+    const i = aliases.map((a) => names.indexOf(a)).find((n) => n >= 0);
+    if (i != null) idx[field] = i;
   }
   if (idx.receipt == null || (idx.phoneNormalized == null && idx.phone == null)) {
     throw new Error('BAD_HEADER');

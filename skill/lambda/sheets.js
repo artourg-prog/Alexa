@@ -13,7 +13,7 @@ const path = require('path');
 // "Order Ready For Pickup" (synced from the Pickups tablet) — not the master receipts sheet.
 const SPREADSHEET_ID = '14NLtaKEBKPLU-lM6SSpXuJx-Wog-qmXltMIjsimh0as';
 // Header row included: lookup.js finds columns by name.
-const RANGES = ["'Active Orders'!A1:Z"];
+const RANGES = ["'All Receipts'!A1:Z"];
 const SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 // Alexa waits 8 s for the whole answer, then gives up silently (the simulator
@@ -117,7 +117,7 @@ async function accessToken(http, getKey, left) {
   return cachedToken.value;
 }
 
-// Returns the Active Orders rows, header first.
+// Returns the All Receipts rows, header first.
 async function readSheet(http = request, getKey = loadKey) {
   const deadline = Date.now() + BUDGET_MS;
   const left = () => {

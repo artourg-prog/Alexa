@@ -68,3 +68,23 @@ test('speech: counts only, per number, no list read out', () => {
   assert.strictEqual(speech(findMany(['4417', '2222', '9999'], orders)), '2 orders for 4 4 1 7, 1 order for 2 2 2 2, no orders for 9 9 9 9.');
   assert.doesNotMatch(speech(findMany(['4417'], orders)), /33520|Sam/);
 });
+
+test('All Receipts tab headers (Receipt # / Customer / Phone) are read by name', () => {
+  // Shape of the real "All Receipts" tab; names and phones made up.
+  const rows = [
+    ['Date', 'Receipt #', 'Total', 'Payment Type', 'Account', 'Description', 'Customer', 'D', 'Phone', 'P', 'M.T.'],
+    ['10/10/26', '26240', '$40.00', 'Card', 'Walking In Customers', 'Pants hem', 'Pat Lee', '', '(702) 555-1034', '', ''],
+    ['10/12/26', '26250', '$20.00', 'Cash', 'Walking In Customers', 'Shirt', 'Sam Roe', '', '+1 702 555 1034', '', ''],
+    ['10/12/26', '26251', '$20.00', 'Cash', 'Walking In Customers', 'Shirt', 'Kim Day', '', '702 555 2222', '', ''],
+  ];
+  const r = findOrders('1034', rows);
+  assert.strictEqual(r.count, 2);
+  assert.deepStrictEqual(r.cards.map((c) => [c.receipt, c.customer]), [['26250', 'Sam Roe'], ['26240', 'Pat Lee']]);
+});
+
+test('renamed "receipt #" header in the old orders layout still maps', () => {
+  const h = header.map((x) => (x === 'receipt_number' ? 'receipt #' : x));
+  const idx = columnMap(h);
+  assert.strictEqual(idx.receipt, 1);
+  assert.strictEqual(idx.customer, 2);
+});

@@ -33,7 +33,7 @@ test('only a read-only token and a GET batchGet are ever requested', async () =>
     assert.match(c.url, /values:batchGet\?/);
     assert.match(c.url, /14NLtaKEBKPLU-lM6SSpXuJx-Wog-qmXltMIjsimh0as/);
     assert.doesNotMatch(c.url, /1-LVtZR-ycBMipCROolHWmIC8hcnphw7co6U11r6ZE68/); // never the master
-    assert.match(decodeURIComponent(c.url), /'Active Orders'!A1:Z/);
+    assert.match(decodeURIComponent(c.url), /'All Receipts'!A1:Z/);
     assert.strictEqual(c.headers.Authorization, 'Bearer tok');
   }
 
