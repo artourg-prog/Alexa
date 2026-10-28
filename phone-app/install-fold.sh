@@ -18,7 +18,7 @@ done
 $ADB -s $S install -r "$APK"
 $ADB -s $S exec-in run-as $PKG sh -c 'mkdir -p files && cat > files/sheet-key.json' < "$KEY"
 $ADB -s $S shell run-as $PKG sh -c 'test -s files/sheet-key.json && echo key installed'
-# "Picked up" phone key, only once Art has saved it with install-pickup-key.sh.
+# "Picked up" phone key, only once Art has made it with phone-key-setup.sh.
 PICK=$HOME/AlexaSecrets/pickup-config.json
 if [[ -s $PICK ]]; then
   $ADB -s $S exec-in run-as $PKG sh -c 'cat > files/pickup-config.json && chmod 600 files/pickup-config.json' < "$PICK"
