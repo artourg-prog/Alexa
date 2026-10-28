@@ -16,7 +16,9 @@ done
 [[ -n $S ]] || { echo "No Galaxy Fold connected (or USB debugging not allowed yet)."; exit 1; }
 
 $ADB -s $S install -r "$APK"
-$ADB -s $S exec-in run-as $PKG sh -c 'mkdir -p files && cat > files/sheet-key.json' < "$KEY"
+$ADB -s $S shell run-as $PKG mkdir -p files
+$ADB -s $S exec-in run-as $PKG sh -c 'cat > files/sheet-key.json' < "$KEY"
+$ADB -s $S shell "run-as $PKG chmod 600 files/sheet-key.json"
 $ADB -s $S shell run-as $PKG sh -c 'test -s files/sheet-key.json && echo key installed'
 $ADB -s $S shell pm grant $PKG android.permission.RECORD_AUDIO
 $ADB -s $S shell am start -n $PKG/.MainActivity

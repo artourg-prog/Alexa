@@ -15,8 +15,10 @@ IFS= read -r KEY || true
 [[ $($ADB -s $S get-state 2>/dev/null) == device ]] || { echo "NOT SET: Fold not connected"; exit 1; }
 [[ $($ADB -s $S shell getprop ro.product.model | tr -d '\r') == SM-F9* ]] || { echo "NOT SET: not the Fold"; exit 1; }
 URL=$URL KEY=$KEY python3 -c 'import json,os; print(json.dumps({"url": os.environ["URL"], "secret": os.environ["KEY"]}))' |
-  $ADB -s $S exec-in run-as $PKG sh -c 'mkdir -p files && cat > files/pickup-config.tmp && chmod 600 files/pickup-config.tmp && mv files/pickup-config.tmp files/pickup-config.json' \
-  || { echo "NOT SET: couldn't write on the Fold"; exit 1; }
+  $ADB -s $S exec-in run-as $PKG sh -c 'cat > files/pickup-config.tmp' || { echo "NOT SET: couldn't write on the Fold"; exit 1; }
+# adb joins its arguments into one device command, so anything after "&&" must be quoted as one string
+# or it runs outside run-as (that left a mode-666 .tmp the first time). Lock it down, then swap it in.
+$ADB -s $S shell "run-as $PKG sh -c 'chmod 600 files/pickup-config.tmp && mv files/pickup-config.tmp files/pickup-config.json'"
 unset KEY
-[[ $($ADB -s $S shell run-as $PKG sh -c 'test -s files/pickup-config.json && echo ok' | tr -d '\r') == ok ]] \
+[[ $($ADB -s $S shell "run-as $PKG sh -c 'test -s files/pickup-config.json && echo ok'" | tr -d '\r') == ok ]] \
   && echo SET || echo "NOT SET: not saved"
