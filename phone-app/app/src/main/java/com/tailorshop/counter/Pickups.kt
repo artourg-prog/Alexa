@@ -20,14 +20,21 @@ import java.util.UUID
 //   tap. A receipt leaving the pickup list is NOT taken as proof.
 // - Sent but no answer for 30 min: shown for checking, still asked about under the same id.
 // - The screen says what is true: saved on the phone / sent, waiting / confirmed by the tablet.
+// - A new tap is never sent until it (with its request id) is saved in the queue file: a tap whose save
+//   failed stays on the phone, is shown as NOT saved, and is sent only after a later save succeeds.
 // - The queue file is written then swapped in; a failed write keeps the last good file and shows a
 //   warning. A file that can't be read is set aside (never overwritten) and a warning stays on screen
 //   until someone confirms they checked the tablet.
 // pickup-config.json ({"url": …, "secret": …}) is put in app storage over USB by set-pickup-key-on-fold.sh
 // (called from Pickups' phone-key.sh), never in git or the APK.
-class Pickups(private val dir: File, private val replace: (File, File) -> Boolean = { from, to -> from.renameTo(to) }) {
+class Pickups(
+    private val dir: File,
+    private val replace: (File, File) -> Boolean = { from, to -> from.renameTo(to) },
+    private val poster: ((String, JSONObject) -> JSONObject)? = null, // tests: a fake server
+) {
+    // durable = this exact record (with its id) is in the queue file; not stored, true for everything read back.
     data class Req(val id: String, val receipt: String, val at: Long, var sent: Boolean = false, var status: String = "",
-                   var resolved: Boolean = false, var sentAt: Long = 0L)
+                   var resolved: Boolean = false, var sentAt: Long = 0L, var durable: Boolean = false)
 
     /** What one sync found, for short messages: newly sent, confirmed by the tablet, needing a person, key refused. */
     data class Outcome(val sent: List<Req>, val confirmed: List<Req>, val problems: List<Req>, val denied: Boolean)
@@ -70,6 +77,7 @@ class Pickups(private val dir: File, private val replace: (File, File) -> Boolea
         fun stateText(r: Req): String = when {
             r.status == "APPLIED" -> "Picked up — confirmed by the tablet"
             r.status == "ALREADY_PICKED_UP" -> "Already picked up on the tablet"
+            !r.durable -> "Picked up NOT saved on the phone — mark it on the tablet"
             r.resolved -> "Picked up — checked on the tablet by staff"
             r.status in UNRESOLVED -> "Picked up NOT confirmed — check on the tablet"
             r.sent -> "Picked up — sent, waiting for the tablet"
@@ -140,7 +148,9 @@ class Pickups(private val dir: File, private val replace: (File, File) -> Boolea
         fun out(denied: Boolean): Outcome { synchronized(this) { save() }; return Outcome(sent, confirmed, problems, denied) }
         val todo = synchronized(this) {
             problems += housekeep(reqs, System.currentTimeMillis())
-            reqs.filter { it.status !in FINAL }.toList()
+            if (reqs.any { !it.durable }) save() // storage may have recovered: retry the save first
+            // Only taps already saved with their id may leave the phone.
+            reqs.filter { it.durable && it.status !in FINAL }.toList()
         }
         for (r in todo.filter { !it.sent }) {
             val res = post(url, JSONObject().put("secret", secret).put("mode", "pickupRequest").put("requestId", r.id)
@@ -171,6 +181,7 @@ class Pickups(private val dir: File, private val replace: (File, File) -> Boolea
 
     // Apps Script answers a POST with a redirect to the result, which must be fetched with GET.
     private fun post(url: String, body: JSONObject): JSONObject {
+        poster?.let { return it(url, body) }
         var c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = TIMEOUT_MS; c.readTimeout = TIMEOUT_MS
         c.instanceFollowRedirects = false
@@ -198,7 +209,7 @@ class Pickups(private val dir: File, private val replace: (File, File) -> Boolea
             for (i in 0 until a.length()) a.getJSONObject(i).run {
                 // Older files lack "resolved"/"sentAt": read as not checked / unknown, nothing pending is lost.
                 reqs += Req(getString("id"), getString("receipt"), getLong("at"), optBoolean("sent"), optString("status"),
-                    optBoolean("resolved"), optLong("sentAt", if (optBoolean("sent")) getLong("at") else 0L))
+                    optBoolean("resolved"), optLong("sentAt", if (optBoolean("sent")) getLong("at") else 0L), durable = true)
             }
         } catch (e: Exception) {
             reqs.clear()
@@ -219,6 +230,7 @@ class Pickups(private val dir: File, private val replace: (File, File) -> Boolea
             replace(tmpFile, queueFile)
         } catch (e: Exception) { false }
         saveFailed = !ok
+        if (ok) reqs.forEach { it.durable = true }
         return ok
     }
 }

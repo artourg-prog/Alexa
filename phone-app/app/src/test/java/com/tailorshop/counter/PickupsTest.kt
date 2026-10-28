@@ -31,7 +31,7 @@ class PickupsTest {
     private val day = 24 * 3600_000L
     private val t0 = 1_000_000_000_000L
     private fun req(id: String, age: Long, sent: Boolean = false, status: String = "") =
-        Pickups.Req(id, "1000$id", t0 - age, sent, status)
+        Pickups.Req(id, "1000$id", t0 - age, sent, status, durable = true) // as read back from the queue file
 
     @Test fun offlineForDaysKeepsTapsAndNeverSendsThemLate() {
         val q = mutableListOf(req("1", 2 * day), req("2", 60_000))
