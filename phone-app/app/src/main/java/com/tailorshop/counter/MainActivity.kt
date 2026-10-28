@@ -16,6 +16,7 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -46,6 +47,7 @@ class MainActivity : Activity() {
     private var handsFree = true
     private var russianFirst = false
     private var resumed = false
+    private var tapped = false // this listen was started by the button, so always answer
 
     private lateinit var status: TextView
     private lateinit var heard: TextView
@@ -66,6 +68,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sheets = Sheets(File(filesDir, "sheet-key.json"))
+        russianFirst = getPreferences(MODE_PRIVATE).getBoolean("russianFirst", true)
         setContentView(buildUi())
         tts = TextToSpeech(this) { ok ->
             if (ok == TextToSpeech.SUCCESS) tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
@@ -179,7 +182,9 @@ class MainActivity : Activity() {
     }
 
     private val listener = object : RecognitionListener {
-        override fun onReadyForSpeech(params: Bundle?) { setStatus(if (russianFirst) "Слушаю…" else "Listening…") }
+        override fun onReadyForSpeech(params: Bundle?) {
+            setStatus((if (russianFirst) "Слушаю…" else "Listening…") + " · ${orders.size} orders")
+        }
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
@@ -191,6 +196,7 @@ class MainActivity : Activity() {
 
         override fun onError(error: Int) {
             listening = false
+            tapped = false
             updateMic()
             when (error) {
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
@@ -217,14 +223,24 @@ class MainActivity : Activity() {
     // ---- answering ----
 
     private fun answer(alts: List<String>, detectedLang: String?) {
-        heard.text = alts.first()
+        val asked = tapped
+        tapped = false
         val go = {
-            // First alternative that finds something wins; otherwise the top one.
-            val pick = alts.firstOrNull { Lookup.findAll(it, orders).isNotEmpty() } ?: alts.first()
+            // The top guess wins if it finds something. Lower guesses may only rescue a
+            // number (a name guessed from noise matches some customer far too easily).
+            val top = alts.first()
+            val pick = if (Lookup.findAll(top, orders).isNotEmpty()) top
+                else alts.drop(1).firstOrNull { alt ->
+                    Lookup.parseQueries(alt).none { it is Query.Name } && Lookup.findAll(alt, orders).isNotEmpty()
+                } ?: top
+            Log.d("TailorCounter", "heard=$alts picked=$pick")
             val cards = Lookup.findAll(pick, orders)
             val russian = pick.any { it in 'а'..'я' || it in 'А'..'Я' } ||
                 detectedLang?.startsWith("ru") == true || (detectedLang == null && russianFirst)
-            if (Lookup.parseQueries(pick).isEmpty()) {
+            // Overheard words that match no customer are chatter, not a question: stay quiet.
+            val overheardName = !asked && cards.isEmpty() &&
+                Lookup.parseQueries(pick).all { it is Query.Name }
+            if (!Lookup.isLikelyQuestion(pick) || overheardName) {
                 setStatus(idleText()); if (handsFree) listenSoon(300)
             } else {
                 heard.text = pick
@@ -259,7 +275,11 @@ class MainActivity : Activity() {
             setTextColor(Color.rgb(170, 170, 170)); textSize = 20f
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
-        langButton = smallButton { russianFirst = !russianFirst; updateLang(); restartIfListening() }
+        langButton = smallButton {
+            russianFirst = !russianFirst
+            getPreferences(MODE_PRIVATE).edit().putBoolean("russianFirst", russianFirst).apply()
+            updateLang(); restartIfListening()
+        }
         handsButton = smallButton {
             handsFree = !handsFree; updateHands()
             if (handsFree) listenSoon(200) else stopListening()
@@ -278,7 +298,7 @@ class MainActivity : Activity() {
         micButton = Button(this).apply {
             textSize = 30f; setTextColor(Color.WHITE); isAllCaps = false
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(96))
-            setOnClickListener { if (listening) stopListening() else { tts?.stop(); startListening() } }
+            setOnClickListener { if (listening) stopListening() else { tts?.stop(); tapped = true; startListening() } }
         }
         root.addView(top); root.addView(heard); root.addView(scroll); root.addView(micButton)
         updateLang(); updateHands(); updateMic()

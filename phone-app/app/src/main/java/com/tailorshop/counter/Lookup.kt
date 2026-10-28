@@ -79,6 +79,17 @@ object Lookup {
         }
     }
 
+    /**
+     * Hands-free hears the whole shop. A number is always a question; words are only
+     * treated as a name when short (up to 3 words after filler), so chatter is ignored.
+     */
+    fun isLikelyQuestion(said: String): Boolean {
+        val q = parseQueries(said)
+        if (q.isEmpty()) return false
+        val name = q.singleOrNull() as? Query.Name ?: return true
+        return name.words.size <= 3
+    }
+
     // ---- matching ----
 
     fun find(query: Query, orders: List<Order>): List<Card> {
@@ -103,7 +114,8 @@ object Lookup {
     fun nameMatches(words: List<String>, customer: String): Boolean {
         val target = normalize(customer).split(' ').filter { it.isNotEmpty() }
         if (target.isEmpty()) return false
-        return words.all { w -> target.any { t -> t.startsWith(w) || (w.length >= 4 && editDistance(w, t) <= 1) } }
+        // Short scraps ("to", "a") would prefix-match half the list, so a word needs 3+ letters.
+        return words.all { w -> w.length >= 3 && target.any { t -> t.startsWith(w) || (w.length >= 5 && editDistance(w, t) <= 1) } }
     }
 
     // ---- speech out ----

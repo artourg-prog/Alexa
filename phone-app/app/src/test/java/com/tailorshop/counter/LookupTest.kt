@@ -39,7 +39,16 @@ class LookupTest {
 
     @Test fun nameOneTypo() = assertEquals(listOf("26240"), receipts("Andria"))
 
+    @Test fun shortScrapsDontMatchNames() = assertTrue(receipts("sa").isEmpty())
+
     @Test fun fillerOnlyIsNoQuery() = assertTrue(Lookup.parseQueries("find the order please").isEmpty())
+
+    @Test fun shopChatterIsIgnored() {
+        assertTrue(!Lookup.isLikelyQuestion("towards that you should treat the weather"))
+        assertTrue(Lookup.isLikelyQuestion("speak 1203"))
+        assertTrue(Lookup.isLikelyQuestion("find Andrea Lopez"))
+        assertTrue(Lookup.isLikelyQuestion("найди заказ Андреа"))
+    }
 
     @Test fun notFoundSaysOnlyThat() {
         assertEquals("I can't find this order.", Lookup.reply(emptyList(), russian = false))
