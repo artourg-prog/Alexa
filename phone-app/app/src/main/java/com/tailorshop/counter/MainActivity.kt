@@ -36,6 +36,7 @@ class MainActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private val io = Executors.newSingleThreadExecutor()
     private lateinit var sheets: Sheets
+    private lateinit var pickups: Pickups
 
     @Volatile private var orders: List<Order> = emptyList()
     @Volatile private var loadedAt = 0L
@@ -53,6 +54,7 @@ class MainActivity : Activity() {
     private lateinit var topBar: View
     private lateinit var stage: LinearLayout
     private lateinit var micButton: Button
+    private lateinit var pickedButton: Button
     private lateinit var langButton: Button
     private lateinit var handsButton: Button
 
@@ -60,6 +62,7 @@ class MainActivity : Activity() {
     private val refresher = object : Runnable {
         override fun run() {
             refresh(null)
+            syncPickups()
             main.postDelayed(this, refreshEvery)
         }
     }
@@ -68,6 +71,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sheets = Sheets(File(filesDir, "sheet-key.json"))
+        pickups = Pickups(filesDir)
         russianFirst = getPreferences(MODE_PRIVATE).getBoolean("russianFirst", true)
         setContentView(buildUi())
         tts = TextToSpeech(this) { ok ->
@@ -414,7 +418,12 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(96))
             setOnClickListener { if (listening) stopListening() else { tts?.stop(); tapped = true; startListening() } }
         }
-        root.addView(top); root.addView(heard); root.addView(stage); root.addView(micButton)
+        pickedButton = Button(this).apply {
+            textSize = 30f; setTextColor(Color.WHITE); isAllCaps = false
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(96))
+            setOnClickListener { onPickedTap() }
+        }
+        root.addView(top); root.addView(heard); root.addView(stage); root.addView(pickedButton); root.addView(micButton)
         updateLang(); updateHands(); updateMic()
         setStatus(if (sheets.hasKey()) "Loading orders…" else "Setup needed: the sheet key is not installed")
         stage.post { render() }
@@ -522,6 +531,7 @@ class MainActivity : Activity() {
         val chrome = !screenOff && (!clockOnly || System.currentTimeMillis() < chromeUntil)
         val vis = if (chrome) View.VISIBLE else View.GONE
         topBar.visibility = vis; heard.visibility = vis
+        updatePicked()
         // The big button only in tap-to-talk mode; hands-free gives its space to the receipt number.
         val showMic = chrome && !handsFree
         micButton.visibility = if (showMic) View.VISIBLE else View.GONE
@@ -535,6 +545,71 @@ class MainActivity : Activity() {
         } else {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             setBrightness(if (clockOnly && !chrome) 0.1f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
+        }
+    }
+
+    // ---- Picked up (Art: one tap marks every receipt from that lookup, 5 s Undo, then one request each) ----
+
+    private var undoReceipts: List<String>? = null
+    private val commitPickup = Runnable {
+        val receipts = undoReceipts ?: return@Runnable
+        undoReceipts = null
+        pickups.add(receipts)
+        shown.removeAll { it.card.receipt in receipts }; index = 0
+        Log.d("TailorCounter", "picked up sent: $receipts")
+        showMessage("Sent — leaves the list within 15 min")
+        syncPickups()
+    }
+
+    /** The receipts of the lookup the card on screen came from (same lookup = added together). */
+    private fun currentGroup(): List<String> {
+        val cur = shown.getOrNull(index) ?: return emptyList()
+        return shown.filter { it.addedAt == cur.addedAt }.map { it.card.receipt }
+    }
+
+    private fun onPickedTap() {
+        if (undoReceipts != null) { // Undo
+            undoReceipts = null; main.removeCallbacks(commitPickup); render(); return
+        }
+        val group = currentGroup().filter { Lookup.digits(it) !in pickups.pending() }
+        if (group.isEmpty()) return
+        undoReceipts = group
+        main.postDelayed(commitPickup, 5_000)
+        render()
+    }
+
+    private fun updatePicked() {
+        val undo = undoReceipts
+        val group = currentGroup().filter { Lookup.digits(it) !in pickups.pending() }
+        val show = pickups.configured() && !screenOff && (undo != null || (message == null && group.isNotEmpty()))
+        pickedButton.visibility = if (show) View.VISIBLE else View.GONE
+        if (!show) return
+        pickedButton.text = if (undo != null) "↩  Undo — picked up " + undo.joinToString(", ") { "#$it" }
+            else if (group.size > 1) "✓  Picked up (${group.size} receipts)" else "✓  Picked up"
+        pickedButton.background = GradientDrawable().apply {
+            setColor(if (undo != null) Color.rgb(200, 120, 20) else Color.rgb(30, 140, 70)); cornerRadius = dp(20).toFloat()
+        }
+    }
+
+    private fun syncPickups() {
+        if (!pickups.configured()) return
+        io.execute {
+            try {
+                val problems = pickups.sync()
+                main.post {
+                    for (r in problems) {
+                        val why = when (r.status) {
+                            "NOT_FOUND" -> "not found on the tablet"
+                            "AMBIGUOUS" -> "more than one order with that number"
+                            else -> "too old"
+                        }
+                        showMessage("#${r.receipt}: $why — mark it on the tablet", 10_000)
+                    }
+                    render()
+                }
+            } catch (e: Exception) {
+                Log.d("TailorCounter", "pickup sync failed: ${e.message}") // kept; retried next minute
+            }
         }
     }
 
@@ -664,6 +739,8 @@ class MainActivity : Activity() {
                     Color.rgb(190, 190, 190), 22f))
                 stage.addView(smallLine(if (c.ready) "Ready for pickup · Готово к выдаче" else "Not finished yet · Ещё не готово",
                     if (c.ready) Color.rgb(90, 210, 120) else Color.rgb(255, 170, 60), 22f, bold = true))
+                if (Lookup.digits(c.receipt) in pickups.pending())
+                    stage.addView(smallLine("Picked up — sent to the tablet", Color.rgb(120, 170, 255), 20f))
                 if (shown.size > 1) stage.addView(smallLine("${index + 1} / ${shown.size}   · swipe to flip", Color.rgb(120, 120, 120), 16f))
             }
         }
