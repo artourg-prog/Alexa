@@ -155,19 +155,12 @@ object Lookup {
         digits(number).map { (if (russian) RU_DIGITS else EN_DIGITS)[it - '0'] }.joinToString(", ")
 
     /**
-     * Spoken answer: the receipt number digit by digit and ready / not finished — first in
-     * English, then in Russian. Never the phone, never "picked up". Up to 3 receipts; the
-     * rest are on screen.
+     * Spoken answer: once, in English only (Art: a longer answer made the app miss the next
+     * customer): the receipt number digit by digit and ready / not finished. Never the
+     * phone, never "picked up". Up to 3 receipts; the rest are on screen.
      */
-    fun replyEnRu(cards: List<Card>): Pair<String, String> {
-        val shown = cards.take(3)
-        val en = shown.joinToString(" ") {
-            "Receipt ${spellDigits(it.receipt, false)} — " + (if (it.ready) "ready for pickup." else "work is not finished yet.")
-        }
-        val ru = shown.joinToString(" ") {
-            "Квитанция ${spellDigits(it.receipt, true)} — " + (if (it.ready) "готово к выдаче." else "работа ещё не закончена.")
-        }
-        return en to ru
+    fun replyEn(cards: List<Card>): String = cards.take(3).joinToString(" ") {
+        "Receipt ${spellDigits(it.receipt, false)} — " + (if (it.ready) "ready for pickup." else "work is not finished yet.")
     }
 
     fun notFound(russian: Boolean) = if (russian) "Не могу найти этот заказ." else "I can't find this order."

@@ -254,6 +254,8 @@ class MainActivity : Activity() {
         override fun onError(error: Int) {
             listening = false
             tapped = false
+            if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
+                Log.d("TailorCounter", "recognizer error $error")
             updateMic()
             when (error) {
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
@@ -325,8 +327,7 @@ class MainActivity : Activity() {
                     cards.isEmpty() -> { showMessage(Lookup.notFound(russian)); speak(Lookup.notFound(russian) to russian) }
                     else -> {
                         addResults(cards)
-                        val (en, ru) = Lookup.replyEnRu(cards)
-                        speak(en to false, ru to true)
+                        speak(Lookup.replyEn(cards) to false)
                     }
                 }
             }
@@ -402,14 +403,6 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
                 .apply { bottomMargin = dp(30) } // ~5 mm gap so nothing sits under the button
         }
-        val swipe = android.view.GestureDetector(this, object : android.view.GestureDetector.SimpleOnGestureListener() {
-            override fun onDown(e: android.view.MotionEvent) = true
-            override fun onFling(e1: android.view.MotionEvent?, e2: android.view.MotionEvent, vx: Float, vy: Float): Boolean {
-                if (Math.abs(vx) < Math.abs(vy) || Math.abs(vx) < 300) return false
-                flip(if (vx < 0) 1 else -1); return true
-            }
-        })
-        stage.setOnTouchListener { _, ev -> swipe.onTouchEvent(ev) }
         micButton = Button(this).apply {
             textSize = 30f; setTextColor(Color.WHITE); isAllCaps = false
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(96))
@@ -490,6 +483,27 @@ class MainActivity : Activity() {
         pausedUntil = System.currentTimeMillis() + 15_000 // let Art read what he flipped to
         lastRotate = System.currentTimeMillis()
         render()
+    }
+
+    // Swipe left/right anywhere over the result area flips between orders. Caught here,
+    // before any view, so nothing on screen can swallow it.
+    private var downX = 0f
+    private var downY = 0f
+    private var downInStage = false
+
+    override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            android.view.MotionEvent.ACTION_DOWN -> {
+                downX = ev.rawX; downY = ev.rawY
+                val loc = IntArray(2).also { stage.getLocationOnScreen(it) }
+                downInStage = ev.rawY >= loc[1] && ev.rawY <= loc[1] + stage.height
+            }
+            android.view.MotionEvent.ACTION_UP -> if (downInStage) {
+                val dx = ev.rawX - downX; val dy = ev.rawY - downY
+                if (Math.abs(dx) > dp(80) && Math.abs(dx) > 1.5f * Math.abs(dy)) flip(if (dx < 0) 1 else -1)
+            }
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {

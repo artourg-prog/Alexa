@@ -149,14 +149,12 @@ class LookupTest {
 
     @Test fun fillerOnlyIsNoQuery() = assertTrue(Lookup.parseQueries("find the order please").isEmpty())
 
-    @Test fun answerIsReceiptDigitsEnglishThenRussian() {
-        val (en, ru) = Lookup.replyEnRu(listOf(Card("26253", "Pat", "(702) 555-1034", ready = true)))
+    @Test fun answerIsReceiptDigitsEnglishOnly() {
+        val en = Lookup.replyEn(listOf(Card("26253", "Pat", "(702) 555-1034", ready = true)))
         assertEquals("Receipt two, six, two, five, three — ready for pickup.", en)
-        assertEquals("Квитанция два, шесть, два, пять, три — готово к выдаче.", ru)
         assertTrue(!en.contains("1034") && !en.contains("one, zero, three, four"))
-        val (en2, ru2) = Lookup.replyEnRu(listOf(Card("26254", "Sam", "", ready = false)))
-        assertEquals("Receipt two, six, two, five, four — work is not finished yet.", en2)
-        assertEquals("Квитанция два, шесть, два, пять, четыре — работа ещё не закончена.", ru2)
+        assertEquals("Receipt two, six, two, five, four — work is not finished yet.",
+            Lookup.replyEn(listOf(Card("26254", "Sam", "", ready = false))))
     }
 
     @Test fun notFoundSaysOnlyThat() {
