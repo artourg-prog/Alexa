@@ -244,12 +244,13 @@ class MainActivity : Activity() {
 
     private val listener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
-            setStatus((if (russianFirst) "Слушаю…" else "Listening…") + " · ${orders.size} orders")
+            // Hands-free: no listening indicator anywhere on screen (Art).
+            if (!handsFree) setStatus((if (russianFirst) "Слушаю…" else "Listening…") + " · ${orders.size} orders")
         }
         override fun onBeginningOfSpeech() {}
         override fun onRmsChanged(rmsdB: Float) {}
         override fun onBufferReceived(buffer: ByteArray?) {}
-        override fun onEndOfSpeech() { setStatus(if (russianFirst) "Ищу…" else "Looking…") }
+        override fun onEndOfSpeech() { if (!handsFree) setStatus(if (russianFirst) "Ищу…" else "Looking…") }
         override fun onPartialResults(partial: Bundle?) {
             partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { heard.text = it }
         }
@@ -394,7 +395,7 @@ class MainActivity : Activity() {
             updateLang(); restartIfListening()
         }
         handsButton = smallButton {
-            handsFree = !handsFree; updateHands()
+            handsFree = !handsFree; updateHands(); setStatus(idleText()); render()
             if (handsFree) listenSoon(200) else stopListening()
         }
         top.addView(status); top.addView(langButton); top.addView(handsButton)
@@ -520,7 +521,14 @@ class MainActivity : Activity() {
     private fun applyMode(clockOnly: Boolean) {
         val chrome = !screenOff && (!clockOnly || System.currentTimeMillis() < chromeUntil)
         val vis = if (chrome) View.VISIBLE else View.GONE
-        topBar.visibility = vis; heard.visibility = vis; micButton.visibility = vis
+        topBar.visibility = vis; heard.visibility = vis
+        // The big button only in tap-to-talk mode; hands-free gives its space to the receipt number.
+        val showMic = chrome && !handsFree
+        micButton.visibility = if (showMic) View.VISIBLE else View.GONE
+        (stage.layoutParams as LinearLayout.LayoutParams).let { lp ->
+            val m = if (showMic) dp(30) else 0
+            if (lp.bottomMargin != m) { lp.bottomMargin = m; stage.layoutParams = lp }
+        }
         if (screenOff) {
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             setBrightness(0f)
@@ -657,7 +665,7 @@ class MainActivity : Activity() {
     private fun idleText(): String {
         if (!sheets.hasKey()) return "Setup needed: the sheet key is not installed"
         val n = orders.size
-        return if (handsFree) "$n orders · always listening" else "$n orders · tap the button to talk"
+        return if (handsFree) "$n orders" else "$n orders · tap the button to talk"
     }
 
     private fun setStatus(s: String) { status.text = s }
