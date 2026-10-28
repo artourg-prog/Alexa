@@ -1,0 +1,90 @@
+{
+  "type": "APL",
+  "version": "2023.3",
+  "theme": "dark",
+  "mainTemplate": {
+    "parameters": [
+      "payload"
+    ],
+    "item": {
+      "type": "Container",
+      "width": "100vw",
+      "height": "100vh",
+      "paddingLeft": "4vw",
+      "paddingRight": "4vw",
+      "paddingTop": "3vh",
+      "items": [
+        {
+          "type": "Text",
+          "text": "${payload.data.properties.title}",
+          "fontSize": "${payload.data.properties.size.title}",
+          "fontWeight": "bold",
+          "color": "#BBBBBB",
+          "paddingBottom": "2vh"
+        },
+        {
+          "type": "Text",
+          "when": "${payload.data.properties.missing != ''}",
+          "text": "${payload.data.properties.missing}",
+          "fontSize": "${payload.data.properties.size.title}",
+          "color": "#FFB84D",
+          "paddingBottom": "1vh"
+        },
+        {
+          "type": "Text",
+          "when": "${payload.data.properties.message != ''}",
+          "text": "${payload.data.properties.message}",
+          "fontSize": "${payload.data.properties.size.receipt}",
+          "fontWeight": "bold",
+          "color": "#FFFFFF",
+          "textAlign": "center",
+          "textAlignVertical": "center",
+          "grow": 1
+        },
+        {
+          "type": "Sequence",
+          "when": "${payload.data.properties.message == ''}",
+          "grow": 1,
+          "shrink": 1,
+          "data": "${payload.data.properties.cards}",
+          "items": [
+            {
+              "type": "Container",
+              "paddingTop": "${payload.data.properties.size.pad}",
+              "paddingBottom": "${payload.data.properties.size.pad}",
+              "borderBottomWidth": "2dp",
+              "borderColor": "#333333",
+              "items": [
+                {
+                  "type": "Text",
+                  "text": "#${data.receipt}",
+                  "fontSize": "${payload.data.properties.size.receipt}",
+                  "fontWeight": "bold",
+                  "color": "#FFFFFF",
+                  "maxLines": 1
+                },
+                {
+                  "type": "Text",
+                  "when": "${data.customer != ''}",
+                  "text": "${data.customer}",
+                  "fontSize": "${payload.data.properties.size.name}",
+                  "color": "#DDDDDD",
+                  "maxLines": 1
+                },
+                {
+                  "type": "Text",
+                  "when": "${data.phone != ''}",
+                  "text": "${data.phone}",
+                  "fontSize": "${payload.data.properties.size.detail}",
+                  "color": "#AAAAAA",
+                  "maxLines": 1
+                }
+              ]
+            }
+          ],
+          "paddingBottom": "2vh"
+        }
+      ]
+    }
+  }
+}

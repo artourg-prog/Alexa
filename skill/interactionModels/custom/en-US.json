@@ -1,0 +1,67 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "tailor shop",
+      "intents": [
+        {
+          "name": "LookupIntent",
+          "slots": [
+            {
+              "name": "lastFour",
+              "type": "AMAZON.FOUR_DIGIT_NUMBER"
+            },
+            {
+              "name": "lastFourB",
+              "type": "AMAZON.FOUR_DIGIT_NUMBER"
+            },
+            {
+              "name": "lastFourC",
+              "type": "AMAZON.FOUR_DIGIT_NUMBER"
+            }
+          ],
+          "samples": [
+            "{lastFour}",
+            "for {lastFour}",
+            "phone {lastFour}",
+            "number {lastFour}",
+            "check {lastFour}",
+            "look up {lastFour}",
+            "lookup {lastFour}",
+            "find {lastFour}",
+            "receipt for {lastFour}",
+            "receipts for {lastFour}",
+            "customer {lastFour}",
+            "client {lastFour}",
+            "{lastFour} and {lastFourB}",
+            "for {lastFour} and {lastFourB}",
+            "check {lastFour} and {lastFourB}",
+            "{lastFour} and {lastFourB} and {lastFourC}",
+            "for {lastFour} and {lastFourB} and {lastFourC}",
+            "check {lastFour} and {lastFourB} and {lastFourC}"
+          ]
+        },
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        }
+      ],
+      "types": []
+    }
+  }
+}

@@ -1,0 +1,4 @@
+# The real Google key is pasted only in the Alexa console. Never commit it.
+lambda/sheet-key.json
+node_modules/
+lambda/package-lock.json

@@ -1,0 +1,13 @@
+{
+  "name": "tailor-shop",
+  "version": "1.0.0",
+  "description": "Echo Show lookup: last 4 phone digits -> receipts, ready, paid (read-only)",
+  "main": "index.js",
+  "scripts": {
+    "test": "node --test ../test/*.test.js"
+  },
+  "dependencies": {
+    "ask-sdk-core": "^2.14.0",
+    "ask-sdk-model": "^1.86.0"
+  }
+}
