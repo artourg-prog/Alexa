@@ -58,7 +58,6 @@ class MainActivity : Activity() {
     private lateinit var checkButton: Button
     private lateinit var langButton: Button
     private lateinit var handsButton: Button
-    private lateinit var updateButton: Button
 
     private val refreshEvery = 60_000L
     private val refresher = object : Runnable {
@@ -413,9 +412,8 @@ class MainActivity : Activity() {
             handsFree = !handsFree; updateHands(); setStatus(idleText()); render()
             if (handsFree) listenSoon(200) else stopListening()
         }
-        updateButton = smallButton { checkUpdate() }
-        updateButton.text = "Update"
-        top.addView(status); top.addView(langButton); top.addView(updateButton); top.addView(handsButton)
+        holdForSettings(handsButton)
+        top.addView(status); top.addView(langButton); top.addView(handsButton)
 
         heard = TextView(this).apply {
             setTextColor(Color.rgb(120, 200, 255)); textSize = 18f; maxLines = 1
@@ -637,6 +635,36 @@ class MainActivity : Activity() {
         }
     }
 
+    /**
+     * Art: a normal tap on the automatic / tap-to-talk button switches as before; holding it 3 s opens
+     * Settings (version + Update) instead. The Update button and version are no longer on the main screen.
+     */
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun holdForSettings(b: Button) {
+        var opened = false
+        val open = Runnable { opened = true; b.isPressed = false; showSettings() }
+        b.setOnTouchListener { v, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> { opened = false; v.isPressed = true; main.postDelayed(open, 3_000) }
+                android.view.MotionEvent.ACTION_UP -> {
+                    main.removeCallbacks(open); v.isPressed = false
+                    if (!opened) v.performClick()
+                }
+                android.view.MotionEvent.ACTION_CANCEL -> { main.removeCallbacks(open); v.isPressed = false }
+            }
+            true
+        }
+    }
+
+    private fun showSettings() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Settings")
+            .setMessage("Tailor Counter v${Updater.versionName(this)}\n\nNew versions install by themselves at 8:00 AM on Wi-Fi.")
+            .setPositiveButton("Update now") { _, _ -> checkUpdate() }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
     private fun checkUpdate() {
         showMessage("Checking for update…", 20_000)
         io.execute {
@@ -757,7 +785,10 @@ class MainActivity : Activity() {
             shown.isEmpty() -> {
                 heard.text = ""
                 val now = java.text.SimpleDateFormat("h:mm", Locale.US).format(java.util.Date())
-                stage.addView(bigLine(now, Color.rgb(200, 200, 200), 0.75f, drift = dp(CLOCK_DRIFT_DP)))
+                stage.addView(bigLine(now, Color.rgb(200, 200, 200), 0.62f, drift = dp(CLOCK_DRIFT_DP)))
+                // The date under the clock (US month/day/year); it's in the stage, so it drifts with the clock.
+                stage.addView(smallLine(java.text.SimpleDateFormat("MM/dd/yyyy", Locale.US).format(java.util.Date()),
+                    Color.rgb(170, 170, 170), 44f))
                 if (System.currentTimeMillis() < chromeUntil)
                     stage.addView(smallLine("Say “Find receipt …” or “Check …”  ·  «Найди заказ …»", Color.rgb(110, 110, 110), 18f))
             }
@@ -780,8 +811,7 @@ class MainActivity : Activity() {
     private fun idleText(): String {
         if (!sheets.hasKey()) return "Setup needed: the sheet key is not installed"
         val n = orders.size
-        val v = " · v" + Updater.versionName(this)
-        return if (handsFree) "$n orders$v" else "$n orders · tap the button to talk$v"
+        return if (handsFree) "$n orders" else "$n orders · tap the button to talk"
     }
 
     private fun setStatus(s: String) { status.text = s }
