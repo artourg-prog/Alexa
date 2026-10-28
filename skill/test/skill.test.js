@@ -100,14 +100,22 @@ test('missing digits → asks again', async () => {
 });
 
 test('sheet down → says so, shows it', async () => {
-  const res = await run(lookup('4417'), async () => { throw new Error('HTTP_403'); });
+  const res = await run(lookup('4417'), async () => { throw new Error('TIMEOUT'); });
   assert.match(res.response.outputSpeech.ssml, /Can't reach the sheet/);
   assert.strictEqual(res.response.directives[0].datasources.data.properties.message, "Can't reach the sheet");
 });
 
-test('key not pasted yet → clear message', async () => {
-  const res = await run(lookup('4417'), async () => { throw new Error('KEY_MISSING'); });
-  assert.match(res.response.outputSpeech.ssml, /Sheet key not set up yet/);
+test('key problems → plain-words message on screen saying what to do', async () => {
+  for (const [code, text] of [
+    ['KEY_FILE_MISSING', /Key file missing/],
+    ['KEY_BAD_JSON', /damaged — paste it again/],
+    ['KEY_INCOMPLETE', /incomplete/],
+    ['HTTP_403', /No access to the sheet/],
+  ]) {
+    const res = await run(lookup('4417'), async () => { throw new Error(code); });
+    assert.match(res.response.directives[0].datasources.data.properties.message, text, code);
+    assert.match(res.response.outputSpeech.ssml, /setup problem/);
+  }
 });
 
 test('launch and help ask for the digits', async () => {

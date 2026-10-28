@@ -55,17 +55,43 @@ test('no write code anywhere in the skill', () => {
   }
 });
 
-test('placeholder key → KEY_MISSING, no network', async () => {
+test('placeholder key → KEY_INCOMPLETE, no network', async () => {
   sheets._resetTokenCache();
   let called = false;
   const placeholder = require('../lambda/sheet-key.example.json');
-  await assert.rejects(sheets.readSheet(async () => { called = true; }, keyOf(placeholder)), /KEY_MISSING/);
+  await assert.rejects(sheets.readSheet(async () => { called = true; }, keyOf(placeholder)), /KEY_INCOMPLETE/);
   assert.strictEqual(called, false);
 });
 
-test('missing key file → KEY_MISSING', async () => {
+test('key file problems each get their own code', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'key-'));
+  const f = (name, text) => { const p = path.join(dir, name); fs.writeFileSync(p, text); return p; };
+  const real = { type: 'service_account', client_email: 'r@x.iam.gserviceaccount.com', private_key: privateKey };
+
+  assert.throws(() => sheets.loadKey(path.join(dir, 'nope.json')), /KEY_FILE_MISSING/);
+  assert.throws(() => sheets.loadKey(f('cut.json', JSON.stringify(real).slice(0, 200))), /KEY_BAD_JSON/);
+  assert.throws(() => sheets.loadKey(f('noemail.json', JSON.stringify({ private_key: privateKey }))), /KEY_INCOMPLETE/);
+  assert.throws(
+    () => sheets.loadKey(f('garbled.json', JSON.stringify({ ...real, private_key: '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n' }))),
+    /KEY_INVALID/,
+  );
+
+  // A real Google key file: one long line, \n escapes inside private_key.
+  assert.strictEqual(sheets.loadKey(f('ok.json', JSON.stringify(real))).client_email, real.client_email);
+  // Same with a BOM, trailing newline, and pretty-printed.
+  assert.ok(sheets.loadKey(f('bom.json', '﻿' + JSON.stringify(real, null, 2) + '\n\n')));
+  // Line breaks turned into literal backslash-n by the paste (double-escaped).
+  const doubled = JSON.stringify(real).replace(/\\n/g, '\\\\n');
+  const k = sheets.loadKey(f('doubled.json', doubled));
+  assert.ok(k.private_key.includes('\n') && !k.private_key.includes('\\n'));
+  fs.rmSync(dir, { recursive: true });
+});
+
+test('missing key file next to the code → KEY_FILE_MISSING', async () => {
   sheets._resetTokenCache();
   const fs = require('fs');
   if (fs.existsSync(path.join(__dirname, '..', 'lambda', 'sheet-key.json'))) return; // real key present locally
-  await assert.rejects(sheets.readSheet(async () => ({})), /KEY_MISSING/);
+  await assert.rejects(sheets.readSheet(async () => ({})), /KEY_FILE_MISSING/);
 });

@@ -6,7 +6,9 @@
 // Only values.batchGet (a GET) is ever called. There is no write code here.
 
 const crypto = require('crypto');
+const fs = require('fs');
 const https = require('https');
+const path = require('path');
 
 // "Order Ready For Pickup" (synced from the Pickups tablet) — not the master receipts sheet.
 const SPREADSHEET_ID = '14NLtaKEBKPLU-lM6SSpXuJx-Wog-qmXltMIjsimh0as';
@@ -16,21 +18,42 @@ const SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const TIMEOUT_MS = 5000; // Alexa gives the skill 8 s in total
 
-function loadKey() {
+const KEY_FILE = path.join(__dirname, 'sheet-key.json');
+
+// Each failure gets its own code so the screen says exactly what's wrong.
+// Never logs the key itself.
+function loadKey(file = KEY_FILE) {
+  let text;
+  try {
+    text = fs.readFileSync(file, 'utf8');
+  } catch (e) {
+    console.log('Key file not found:', file, e.code);
+    throw new Error('KEY_FILE_MISSING');
+  }
   let key;
   try {
-    key = require('./sheet-key.json');
+    key = JSON.parse(text.replace(/^\uFEFF/, '').trim()); // tolerate BOM / stray whitespace
   } catch (e) {
-    throw new Error('KEY_MISSING');
+    console.log('Key file is not valid JSON:', e.message, 'length', text.length);
+    throw new Error('KEY_BAD_JSON');
   }
   return checkKey(key);
 }
 
 function checkKey(key) {
-  if (!key.client_email || !key.private_key || !key.private_key.includes('PRIVATE KEY')) {
-    throw new Error('KEY_MISSING');
+  // Pasting can turn the key's \n line breaks into literal backslash-n; undo that.
+  const privateKey = String((key && key.private_key) || '').replace(/\\n/g, '\n');
+  if (!key || !key.client_email || !privateKey.includes('PRIVATE KEY')) {
+    console.log('Key file incomplete:', { client_email: Boolean(key && key.client_email), private_key: Boolean(privateKey) });
+    throw new Error('KEY_INCOMPLETE');
   }
-  return key;
+  try {
+    crypto.createPrivateKey(privateKey);
+  } catch (e) {
+    console.log('Private key unreadable:', e.message);
+    throw new Error('KEY_INVALID');
+  }
+  return { ...key, private_key: privateKey };
 }
 
 function b64url(buf) {
@@ -99,4 +122,4 @@ function _resetTokenCache() {
   cachedToken = null;
 }
 
-module.exports = { SPREADSHEET_ID, RANGES, SCOPE, signedJwt, checkKey, readSheet, _resetTokenCache };
+module.exports = { SPREADSHEET_ID, RANGES, SCOPE, signedJwt, loadKey, checkKey, readSheet, _resetTokenCache };

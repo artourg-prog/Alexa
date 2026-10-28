@@ -10,6 +10,18 @@ const { datasource } = require('./screen');
 const apl = require('./apl.json');
 
 const ASK = 'Say the last 4 digits of the phone number.';
+
+// Sheet/key failures -> short screen text (Art reads this, so plain words).
+const READ_ERRORS = {
+  KEY_FILE_MISSING: 'Key file missing — add sheet-key.json, Save, Deploy',
+  KEY_BAD_JSON: 'Key file is damaged — paste it again, Save, Deploy',
+  KEY_INCOMPLETE: 'Key file is incomplete — paste the whole key again',
+  KEY_INVALID: 'Key file is damaged — paste it again, Save, Deploy',
+  HTTP_400: 'Google rejected the key — ask the builder',
+  HTTP_401: 'Google rejected the key — ask the builder',
+  HTTP_403: 'No access to the sheet — check the share',
+  HTTP_404: 'Sheet not found — ask the builder',
+};
 const SLOTS = ['lastFour', 'lastFourB', 'lastFourC']; // up to 3 clients in one request
 
 function hasScreen(handlerInput) {
@@ -46,9 +58,9 @@ function makeLookupHandler(read = readSheet) {
         rows = await read();
       } catch (e) {
         console.log('Sheet read failed:', e.message);
-        const msg = e.message === 'KEY_MISSING' ? 'Sheet key not set up yet' : "Can't reach the sheet";
+        const msg = READ_ERRORS[e.message] || "Can't reach the sheet";
         show(handlerInput, nums, null, msg);
-        return rb.speak(`${msg}. Try again in a minute.`).getResponse();
+        return rb.speak(READ_ERRORS[e.message] ? 'There is a setup problem. Look at the screen.' : "Can't reach the sheet. Try again in a minute.").getResponse();
       }
 
       let result;
