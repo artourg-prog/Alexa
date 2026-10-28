@@ -11,12 +11,33 @@ import java.util.UUID
 // The phone never writes to the sheet: it posts one receipt # per request with its own phone-only key,
 // and the tablet applies it only when exactly one active order has that number. Requests are kept on
 // the phone and resent with the same requestId until the server has them, so nothing is marked twice.
-// pickup-config.json ({"url": …, "secret": …}) is put in app storage by Art's install script, never git.
+// pickup-config.json ({"url": …, "secret": …}) is put in app storage over USB by set-pickup-key-on-fold.sh
+// (called from Pickups' phone-key.sh), never in git or the APK.
 class Pickups(dir: File) {
     data class Req(val id: String, val receipt: String, val at: Long, var sent: Boolean = false, var status: String = "")
 
+    /** What sync() found: requests that just ended badly (to show), and whether the key was refused. */
+    data class Outcome(val problems: List<Req>, val denied: Boolean)
+
     companion object {
-        val FINAL = setOf("APPLIED", "NOT_FOUND", "AMBIGUOUS", "EXPIRED")
+        // Final answers (Pickups API 5c50055). Only APPLIED is silent; the rest are shown once.
+        val FINAL = setOf("APPLIED", "NOT_FOUND", "AMBIGUOUS", "EXPIRED", "ALREADY_PICKED_UP", "BAD_REQUEST")
+
+        /** pickupRequest reply -> new status for the request, or null to keep it unsent and retry (FULL, network). */
+        fun afterRequest(result: String): String? = when (result) {
+            "QUEUED", "ALREADY" -> "QUEUED"
+            "BAD_REQUEST" -> "BAD_REQUEST"
+            else -> null // FULL / DENIED / anything new: keep, try again later
+        }
+
+        /** Screen text for a final answer other than APPLIED. */
+        fun problemText(receipt: String, status: String): String = when (status) {
+            "ALREADY_PICKED_UP" -> "#$receipt: already picked up"
+            "NOT_FOUND" -> "#$receipt: not found on the tablet — mark it on the tablet"
+            "AMBIGUOUS" -> "#$receipt: more than one order with that number — mark it on the tablet"
+            "BAD_REQUEST" -> "#$receipt: not marked — check on the tablet"
+            else -> "#$receipt: too old — mark it on the tablet"
+        }
         private const val DAY_MS = 24 * 3600_000L
         private const val TIMEOUT_MS = 10_000
     }
@@ -42,8 +63,8 @@ class Pickups(dir: File) {
      * Sends what isn't sent yet and asks for the outcome of the rest. Network; call off the main thread.
      * Returns the requests that just reached a final answer other than APPLIED (to show on screen).
      */
-    fun sync(): List<Req> {
-        if (!configured()) return emptyList()
+    fun sync(): Outcome {
+        if (!configured()) return Outcome(emptyList(), false)
         val cfg = JSONObject(configFile.readText().trim())
         val url = cfg.getString("url"); val secret = cfg.getString("secret")
         val problems = mutableListOf<Req>()
@@ -55,24 +76,30 @@ class Pickups(dir: File) {
             val res = post(url, JSONObject().put("secret", secret).put("mode", "pickupRequest").put("requestId", r.id)
                 .put("receipt", r.receipt).put("revision", "").put("at", java.time.Instant.ofEpochMilli(r.at).toString()))
             val result = res.optString("result")
-            if (result == "QUEUED" || result == "ALREADY") synchronized(this) { r.sent = true; r.status = "QUEUED" }
+            if (result == "DENIED") { synchronized(this) { save() }; return Outcome(problems, true) }
+            val next = afterRequest(result) ?: continue
+            synchronized(this) {
+                r.sent = next == "QUEUED"; r.status = next
+                if (next != "QUEUED") problems += r
+            }
         }
         val sent = todo.filter { it.sent }
         if (sent.isNotEmpty()) {
             val res = post(url, JSONObject().put("secret", secret).put("mode", "pickupStatus")
                 .put("requestIds", JSONArray(sent.map { it.id })))
-            val statuses = res.optJSONObject("statuses") ?: res
+            if (res.optString("result") == "DENIED") { synchronized(this) { save() }; return Outcome(problems, true) }
+            val statuses = res.optJSONObject("states") ?: res.optJSONObject("statuses") ?: res
             synchronized(this) {
                 for (r in sent) {
                     val s = statuses.optString(r.id, "")
-                    if (s.isEmpty() || s == r.status) continue
+                    if (s.isEmpty() || s == r.status || s == "UNKNOWN") continue // UNKNOWN: keep asking until the 24 h drop
                     r.status = s
                     if (s in FINAL && s != "APPLIED") problems += r
                 }
             }
         }
         synchronized(this) { save() }
-        return problems
+        return Outcome(problems, false)
     }
 
     // Apps Script answers a POST with a redirect to the result, which must be fetched with GET.

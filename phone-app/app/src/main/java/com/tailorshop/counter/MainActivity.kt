@@ -552,6 +552,7 @@ class MainActivity : Activity() {
     // ---- Picked up (Art: each receipt its own button, offered ~1 min after it's found; tap -> 5 s Undo -> one request) ----
 
     private var undoReceipts: List<String>? = null
+    private var keyDeniedShown = false
     private val commitPickup = Runnable {
         val receipts = undoReceipts ?: return@Runnable
         undoReceipts = null
@@ -599,16 +600,12 @@ class MainActivity : Activity() {
         if (!pickups.configured()) return
         io.execute {
             try {
-                val problems = pickups.sync()
+                val out = pickups.sync()
                 main.post {
-                    for (r in problems) {
-                        val why = when (r.status) {
-                            "NOT_FOUND" -> "not found on the tablet"
-                            "AMBIGUOUS" -> "more than one order with that number"
-                            else -> "too old"
-                        }
-                        showMessage("#${r.receipt}: $why — mark it on the tablet", 10_000)
-                    }
+                    for (r in out.problems) showMessage(Pickups.problemText(r.receipt, r.status), 10_000)
+                    // Key missing or wrong: say it once, not every minute.
+                    if (out.denied && !keyDeniedShown) showMessage("Phone key not set up — Picked up isn't reaching the tablet", 10_000)
+                    keyDeniedShown = out.denied
                     render()
                 }
             } catch (e: Exception) {
