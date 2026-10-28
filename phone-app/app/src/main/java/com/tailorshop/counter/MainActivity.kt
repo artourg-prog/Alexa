@@ -614,6 +614,11 @@ class MainActivity : Activity() {
     }
 
     /** [drift] = room left on each side for the anti-burn-in shift, so the text is never cut off. */
+    private fun pulse(v: View) = android.animation.ObjectAnimator.ofFloat(v, View.ALPHA, 1f, 0.25f).apply {
+        duration = 500; repeatCount = android.animation.ValueAnimator.INFINITE
+        repeatMode = android.animation.ValueAnimator.REVERSE; start()
+    }
+
     private fun bigLine(text: String, color: Int, maxHeightShare: Float, drift: Int) = TextView(this).apply {
         setTextColor(color); typeface = Typeface.DEFAULT_BOLD
         maxLines = 1; includeFontPadding = false; gravity = Gravity.CENTER_HORIZONTAL
@@ -652,7 +657,9 @@ class MainActivity : Activity() {
             else -> {
                 val c = shown[index].card
                 // The receipt number edge to edge; everything else small underneath.
-                stage.addView(bigLine(c.receipt, Color.WHITE, 0.72f, drift = dp(NUMBER_DRIFT_DP)))
+                // Any balance left: the number in red, pulsing once per second. Paid / account / unknown: as before.
+                stage.addView(bigLine(c.receipt, if (c.pay == Pay.DUE) Color.rgb(255, 50, 50) else Color.WHITE, 0.72f,
+                    drift = dp(NUMBER_DRIFT_DP)).apply { if (c.pay == Pay.DUE) pulse(this) })
                 stage.addView(smallLine(listOf(c.customer, c.phone).filter { it.isNotEmpty() }.joinToString("  ·  "),
                     Color.rgb(190, 190, 190), 22f))
                 stage.addView(smallLine(if (c.ready) "Ready for pickup · Готово к выдаче" else "Not finished yet · Ещё не готово",

@@ -163,6 +163,27 @@ class LookupTest {
             Lookup.replyEn(listOf(Card("26254", "Sam", "", ready = false))))
     }
 
+    @Test fun paidDueAccountFromPaymentType() {
+        val rows2 = listOf(
+            listOf("Receipt #", "Payment Type", "Customer", "Phone", "M.T."),
+            listOf("30001", "Card", "A", "702 555 2222", "Gor"),
+            listOf("30002", "Zelle + Due", "B", "702 555 2222", ""),
+            listOf("30003", "Account", "C", "702 555 2222", ""),
+            listOf("30004", "", "D", "702 555 2222", ""),
+            listOf("30005", "Due", "E", "702 555 2222", ""),
+            listOf("30006", "Cash + Card", "F", "702 555 2222", ""),
+        )
+        val pay = Lookup.findAll("2222", Lookup.parseOrders(rows2)).associate { it.receipt to it.pay }
+        assertEquals(mapOf("30001" to Pay.PAID, "30002" to Pay.DUE, "30003" to Pay.ACCOUNT, "30004" to Pay.UNKNOWN,
+            "30005" to Pay.DUE, "30006" to Pay.PAID), pay)
+        assertEquals("Receipt two, six, two, five, three — due — ready for pickup.",
+            Lookup.replyEn(listOf(Card("26253", "Pat", "", ready = true, pay = Pay.DUE))))
+        assertEquals("Receipt two, six, two, five, three — paid — work is not finished yet.",
+            Lookup.replyEn(listOf(Card("26253", "Pat", "", pay = Pay.PAID))))
+        assertEquals("Receipt two, six, two, five, three — account — ready for pickup.",
+            Lookup.replyEn(listOf(Card("26253", "Pat", "", ready = true, pay = Pay.ACCOUNT))))
+    }
+
     @Test fun notFoundSaysOnlyThat() {
         assertEquals("I can't find this order.", Lookup.notFound(false))
         assertEquals("Не могу найти этот заказ.", Lookup.notFound(true))

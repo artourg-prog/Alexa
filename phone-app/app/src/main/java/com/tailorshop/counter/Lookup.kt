@@ -10,9 +10,14 @@ import java.text.Normalizer
 // plus ready / not finished: column "M.T." holds the tailor's name once the work is done
 // (Art's rule), so a filled M.T. = ready for pickup, blank = not finished yet.
 
-data class Order(val receipt: String, val customer: String, val phone: String, val date: String, val ready: Boolean = false)
+data class Order(val receipt: String, val customer: String, val phone: String, val date: String, val ready: Boolean = false,
+                 val pay: Pay = Pay.UNKNOWN)
 
-data class Card(val receipt: String, val customer: String, val phone: String, val ready: Boolean = false)
+data class Card(val receipt: String, val customer: String, val phone: String, val ready: Boolean = false,
+                val pay: Pay = Pay.UNKNOWN)
+
+/** From column "Payment Type": any "Due" (incl. "Zelle + Due") = due; "Account" = billed to the store. */
+enum class Pay { PAID, DUE, ACCOUNT, UNKNOWN }
 
 sealed class Query {
     data class Last4(val digits: String) : Query()
@@ -28,7 +33,21 @@ object Lookup {
         "phone" to listOf("phone"),
         "date" to listOf("date", "received_date"),
         "tailor" to listOf("m.t.", "m.t", "tailor"),
+        "payment" to listOf("payment type", "payment_type", "payment"),
     )
+
+    private val PAID_WORDS = listOf("card", "cash", "zelle", "venmo", "check", "paid")
+
+    /** Never a guess: anything not clearly paid / due / account is UNKNOWN (nothing said). */
+    fun payOf(raw: String): Pay {
+        val t = raw.trim().lowercase()
+        return when {
+            "due" in t -> Pay.DUE
+            "account" in t -> Pay.ACCOUNT
+            PAID_WORDS.any { it in t } -> Pay.PAID
+            else -> Pay.UNKNOWN
+        }
+    }
 
     // Words people say around the actual name or number.
     private val FILLER = setOf(
@@ -53,7 +72,8 @@ object Lookup {
         return rows.drop(1).mapNotNull { row ->
             val receipt = cell(row, r)
             if (receipt.isEmpty()) null
-            else Order(receipt, cell(row, idx["customer"]), cell(row, p), cell(row, idx["date"]), cell(row, idx["tailor"]).isNotEmpty())
+            else Order(receipt, cell(row, idx["customer"]), cell(row, p), cell(row, idx["date"]), cell(row, idx["tailor"]).isNotEmpty(),
+                payOf(cell(row, idx["payment"])))
         }
     }
 
@@ -131,7 +151,7 @@ object Lookup {
         }
         return hits
             .sortedWith(compareByDescending<Order> { dateKey(it.date) }.thenByDescending { digits(it.receipt).toLongOrNull() ?: 0L })
-            .map { Card(it.receipt, it.customer, prettyPhone(it.phone), it.ready) }
+            .map { Card(it.receipt, it.customer, prettyPhone(it.phone), it.ready, it.pay) }
     }
 
     fun findAll(said: String, orders: List<Order>): List<Card> =
@@ -157,10 +177,12 @@ object Lookup {
     /**
      * Spoken answer: once, in English only (Art: a longer answer made the app miss the next
      * customer): the receipt number digit by digit and ready / not finished. Never the
-     * phone, never "picked up". Up to 3 receipts; the rest are on screen.
+     * phone, never "picked up". Then paid / due / account from the records, nothing when unknown.
+     * Up to 3 receipts; the rest are on screen.
      */
     fun replyEn(cards: List<Card>): String = cards.take(3).joinToString(" ") {
-        "Receipt ${spellDigits(it.receipt, false)} — " + (if (it.ready) "ready for pickup." else "work is not finished yet.")
+        val pay = when (it.pay) { Pay.PAID -> " paid —"; Pay.DUE -> " due —"; Pay.ACCOUNT -> " account —"; Pay.UNKNOWN -> "" }
+        "Receipt ${spellDigits(it.receipt, false)} —$pay " + (if (it.ready) "ready for pickup." else "work is not finished yet.")
     }
 
     fun notFound(russian: Boolean) = if (russian) "Не могу найти этот заказ." else "I can't find this order."
