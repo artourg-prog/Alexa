@@ -470,6 +470,7 @@ class MainActivity : Activity() {
                 render()
             }
             if (now - lastShift >= 60_000) { lastShift = now; shiftContent() }
+            updatePicked() // the button goes away once its minute is up
             main.postDelayed(this, 1000)
         }
     }
@@ -548,7 +549,7 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---- Picked up (Art: one tap marks every receipt from that lookup, 5 s Undo, then one request each) ----
+    // ---- Picked up (Art: each receipt its own button, offered ~1 min after it's found; tap -> 5 s Undo -> one request) ----
 
     private var undoReceipts: List<String>? = null
     private val commitPickup = Runnable {
@@ -561,10 +562,13 @@ class MainActivity : Activity() {
         syncPickups()
     }
 
-    /** The receipts of the lookup the card on screen came from (same lookup = added together). */
+    private val pickedWindowMs = 60_000L
+
+    /** The receipt on screen, while its Picked up button is still offered. Never more than one. */
     private fun currentGroup(): List<String> {
         val cur = shown.getOrNull(index) ?: return emptyList()
-        return shown.filter { it.addedAt == cur.addedAt }.map { it.card.receipt }
+        if (System.currentTimeMillis() - cur.addedAt > pickedWindowMs) return emptyList()
+        return listOf(cur.card.receipt)
     }
 
     private fun onPickedTap() {
@@ -585,7 +589,7 @@ class MainActivity : Activity() {
         pickedButton.visibility = if (show) View.VISIBLE else View.GONE
         if (!show) return
         pickedButton.text = if (undo != null) "↩  Undo — picked up " + undo.joinToString(", ") { "#$it" }
-            else if (group.size > 1) "✓  Picked up (${group.size} receipts)" else "✓  Picked up"
+            else "✓  Picked up #${group.first()}"
         pickedButton.background = GradientDrawable().apply {
             setColor(if (undo != null) Color.rgb(200, 120, 20) else Color.rgb(30, 140, 70)); cornerRadius = dp(20).toFloat()
         }
