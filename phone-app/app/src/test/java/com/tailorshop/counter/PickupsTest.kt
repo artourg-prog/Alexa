@@ -26,4 +26,46 @@ class PickupsTest {
         assertEquals("#26314: not marked — check on the tablet", Pickups.problemText("26314", "BAD_REQUEST"))
         assertEquals("#26314: not found on the tablet — mark it on the tablet", Pickups.problemText("26314", "NOT_FOUND"))
     }
+
+    // ---- nothing unconfirmed is dropped (synthetic data only) ----
+    private val day = 24 * 3600_000L
+    private val t0 = 1_000_000_000_000L
+    private fun req(id: String, age: Long, sent: Boolean = false, status: String = "") =
+        Pickups.Req(id, "1000$id", t0 - age, sent, status)
+
+    @Test fun offlineForDaysKeepsTapsAndNeverSendsThemLate() {
+        val q = mutableListOf(req("1", 2 * day), req("2", 60_000))
+        val flagged = Pickups.housekeep(q, t0)
+        assertEquals(listOf("1"), flagged.map { it.id })
+        assertEquals(2, q.size)                          // nothing removed
+        assertEquals("NEEDS_CHECK", q[0].status)         // not retried: it's final now
+        assertTrue(q[0].status in Pickups.FINAL)
+        assertEquals("", q[1].status)                    // the fresh one is still retried
+    }
+
+    @Test fun sentButUnansweredIsKeptForever() {
+        val q = mutableListOf(req("1", 5 * day, sent = true, status = "QUEUED"))
+        assertTrue(Pickups.housekeep(q, t0).isEmpty())
+        assertEquals(1, q.size); assertEquals("QUEUED", q[0].status)
+    }
+
+    @Test fun unresolvedStaysUntilReconciled() {
+        val q = mutableListOf(req("1", 3 * day, sent = true, status = "EXPIRED"), req("2", 3 * day, sent = true, status = "NOT_FOUND"))
+        Pickups.housekeep(q, t0)
+        assertEquals(2, q.size)                          // old but unresolved: kept
+        assertTrue(!Pickups.reconcile(q, emptySet()))    // no sheet data: no change
+        assertTrue(Pickups.reconcile(q, setOf("10002"))) // #10001 left the list -> handled on the tablet
+        assertTrue(q[0].resolved && !q[1].resolved)
+        Pickups.housekeep(q, t0)
+        assertEquals(listOf("2"), q.map { it.id })       // only the reconciled one goes
+    }
+
+    @Test fun settledRecordsAreCleanedAfterADay() {
+        val q = mutableListOf(req("1", 2 * day, sent = true, status = "APPLIED"), req("2", 1000, sent = true, status = "APPLIED"))
+        Pickups.housekeep(q, t0)
+        assertEquals(listOf("2"), q.map { it.id })
+    }
+
+    @Test fun needsCheckText() =
+        assertEquals("#26314: not sent in time — check on the tablet", Pickups.problemText("26314", "NEEDS_CHECK"))
 }

@@ -55,6 +55,7 @@ class MainActivity : Activity() {
     private lateinit var stage: LinearLayout
     private lateinit var micButton: Button
     private lateinit var pickedButton: Button
+    private lateinit var checkButton: Button
     private lateinit var langButton: Button
     private lateinit var handsButton: Button
     private lateinit var updateButton: Button
@@ -186,6 +187,7 @@ class MainActivity : Activity() {
             try {
                 val rows = sheets.readRows()
                 orders = Lookup.parseOrders(rows)
+                if (orders.isNotEmpty()) pickups.reconcileWith(orders.map { it.receipt }.toSet())
                 loadedAt = System.currentTimeMillis()
                 main.post { if (!listening) setStatus(idleText()); then?.invoke() }
             } catch (e: Sheets.KeyMissing) {
@@ -435,7 +437,14 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(96))
             setOnClickListener { onPickedTap() }
         }
-        root.addView(top); root.addView(heard); root.addView(stage); root.addView(pickedButton); root.addView(micButton)
+        // A Picked up tap the tablet couldn't apply stays here until it's checked (or leaves the pickup list).
+        checkButton = Button(this).apply {
+            textSize = 22f; setTextColor(Color.BLACK); isAllCaps = false
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            background = GradientDrawable().apply { setColor(Color.rgb(255, 190, 60)); cornerRadius = dp(16).toFloat() }
+            setOnClickListener { pickups.unresolved().firstOrNull()?.let { pickups.dismiss(it.id) }; render() }
+        }
+        root.addView(top); root.addView(heard); root.addView(stage); root.addView(checkButton); root.addView(pickedButton); root.addView(micButton)
         updateLang(); updateHands(); updateMic()
         setStatus(if (sheets.hasKey()) "Loading orders…" else "Setup needed: the sheet key is not installed")
         stage.post { render() }
@@ -589,6 +598,11 @@ class MainActivity : Activity() {
     }
 
     private fun updatePicked() {
+        val open = pickups.unresolved()
+        val showCheck = !screenOff && open.isNotEmpty() && undoReceipts == null
+        checkButton.visibility = if (showCheck) View.VISIBLE else View.GONE
+        if (showCheck) checkButton.text = Pickups.problemText(open.first().receipt, open.first().status) +
+            (if (open.size > 1) "  (+${open.size - 1} more)" else "") + "\nTap here when checked"
         val undo = undoReceipts
         val group = currentGroup().filter { Lookup.digits(it) !in pickups.pending() }
         val show = pickups.configured() && !screenOff && (undo != null || (message == null && group.isNotEmpty()))
