@@ -256,7 +256,7 @@ class MainActivity : Activity() {
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() { if (!handsFree) setStatus(if (russianFirst) "Ищу…" else "Looking…") }
         override fun onPartialResults(partial: Bundle?) {
-            partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()?.let { heard.text = it }
+            // Never shown: room talk must not appear on screen (Art).
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
 
@@ -297,6 +297,8 @@ class MainActivity : Activity() {
         // Right after "find receipt…" with no number, the next phrase is taken as the number
         // (people pause, and the recognizer splits the command from the digits).
         val armed = System.currentTimeMillis() < armedUntil
+        // For 15 s after an answer a follow-up number needs no trigger word (Art).
+        val followUp = System.currentTimeMillis() < followUntil
         armedUntil = 0L
         main.removeCallbacks(armedTimeout)
         val go = {
@@ -305,7 +307,7 @@ class MainActivity : Activity() {
             // command whose number finds an order wins, then any command with a number,
             // then the first command.
             val tails = alts.mapNotNull { a ->
-                (Lookup.commandTail(a) ?: a.takeIf { tappedNow || (armed && Lookup.parseQueries(it).any { q -> q !is Query.Name }) })
+                (Lookup.commandTail(a) ?: a.takeIf { tappedNow || ((armed || followUp) && Lookup.parseQueries(it).any { q -> q !is Query.Name }) })
                     ?.let { a to it }
             }
             fun hasNumber(t: String) = Lookup.parseQueries(t).any { it !is Query.Name }
@@ -322,7 +324,6 @@ class MainActivity : Activity() {
                     detectedLang?.startsWith("ru") == true || (detectedLang == null && russianFirst)
                 val queries = Lookup.parseQueries(tail)
                 val cards = Lookup.findAll(tail, orders)
-                heard.text = said
                 when {
                     queries.isEmpty() && !armed -> {
                         // Wait a few seconds for the number before giving up.
@@ -333,10 +334,11 @@ class MainActivity : Activity() {
                         listenSoon(100)
                     }
                     queries.isEmpty() -> sayDidntCatch(russian)
-                    cards.isEmpty() -> { showMessage(Lookup.notFound(russian)); speak(Lookup.notFound(russian) to russian) }
+                    cards.isEmpty() -> { showMessage(Lookup.notFound(russian)); speak(Lookup.notFound(russian) to russian); answered() }
                     else -> {
                         addResults(cards)
                         speak(Lookup.replyEn(cards) to false)
+                        answered()
                     }
                 }
             }
@@ -347,6 +349,8 @@ class MainActivity : Activity() {
     }
 
     private var armedUntil = 0L
+    private var followUntil = 0L
+    private fun answered() { followUntil = System.currentTimeMillis() + 15_000 }
     private var armedRussian = false
     private val armedTimeout = Runnable {
         if (armedUntil != 0L) { armedUntil = 0L; stopListening(); sayDidntCatch(armedRussian) }
@@ -371,7 +375,10 @@ class MainActivity : Activity() {
     private fun speakNext() {
         val t = tts
         val next = speechQueue.removeFirstOrNull()
-        if (t == null || next == null) { if (handsFree) listenSoon(300); return }
+        if (t == null || next == null) {
+            if (followUntil > System.currentTimeMillis()) answered() // the 15 s run from the end of the answer
+            if (handsFree) listenSoon(300); return
+        }
         val (text, russian) = next
         t.language = if (russian) Locale("ru", "RU") else Locale.US
         t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "answer-${speechQueue.size}")

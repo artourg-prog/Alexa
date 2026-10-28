@@ -135,10 +135,24 @@ class LookupTest {
     @Test fun splitCommand() {
         assertEquals("", tail("Найди"))
         assertEquals("", tail("find"))
-        assertEquals(listOf(Query.Last4("4742")), q(tail("заказ 4742")!!))
-        assertEquals(listOf(Query.Last4("4742")), q(tail("Какие заказ 4742")!!))
-        assertEquals(listOf(Query.Last4("4742")), q(tail("order 47 42")!!))
+        assertEquals("", tail("Check receipt number"))
+        assertEquals("", tail("найди заказ"))
+        // Without a trigger a number is taken only right after a command or an answer (MainActivity).
+        assertEquals(null, tail("заказ 4742"))
+        assertEquals(null, tail("Number 8438"))
         assertEquals(null, tail("у меня был заказ вчера"))
+    }
+
+    @Test fun triggerWords() {
+        for (said in listOf("find 4742", "look up 4742", "Lookup 47 42", "найди 4742", "посмотри 4742",
+                "Okay check number 4742", "Так найди сорок семь сорок два", "проверь 4742"))
+            assertEquals(said, listOf(Query.Last4("4742")), q(tail(said)!!))
+    }
+
+    @Test fun triggerOnlyAtTheStart() {
+        assertEquals(null, tail("я сказал ему что надо посмотреть 4742")) // trigger late, no "receipt"
+        assertEquals(null, tail("we should look up the weather"))
+        assertEquals(null, tail("посмотри какая погода"))
     }
 
     @Test fun roomTalkIsIgnored() {

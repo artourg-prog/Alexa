@@ -106,31 +106,31 @@ object Lookup {
 
     private val FILLER_N by lazy { FILLER.map(::normalize).toSet() }
 
-    // The command is the wake word (Art's choice): the app acts only on "find receipt / find
-    // order …", "check …", "найди заказ / ресит / квитанцию …". Everything else is ignored.
-    // "fine"/"faynd" and "chek" are how the recognizer often writes "find" and "check".
-    private val FIND = setOf("find", "fine", "fined", "define", "faynd", "fayind", "naydi", "nayti", "naydite")
+    // The command is the wake word (Art's choice): the app acts only on a trigger at the start of
+    // what was said: "find / look up / check …", "найди / посмотри / проверь …" (or "find receipt …"
+    // anywhere). Everything else is ignored and never shown. "fine"/"faynd" and "chek" are how the
+    // recognizer often writes "find" and "check".
+    private val FIND = setOf("find", "fine", "fined", "define", "faynd", "fayind", "naydi", "nayti", "naydite",
+        "lookup", "posmotri", "posmotrite", "check", "chek", "checks", "prover", "proverte")
     private val OBJECT_PREFIXES = listOf("receipt", "order", "resi", "risi", "zakaz", "kvitan", "nomer", "number", "namber", "phone", "telefon")
-    private val CHECK = setOf("check", "chek", "checks", "prover", "proverte")
+    private const val TRIGGER_WITHIN = 2 // "Okay, find …", "Так, найди …": at most 2 words before the trigger
 
-    /** Text after the command, or null when there is no command in what was said. */
+    /** Text after the command ("" = command without a number yet), or null when there is no command. */
     fun commandTail(said: String): String? {
         val words = normalize(said).split(' ').filter { it.isNotEmpty() }
+            .let { w -> w.indices.mapNotNull { i -> if (w[i] == "look" && w.getOrNull(i + 1) == "up") null
+                else if (w[i] == "up" && w.getOrNull(i - 1) == "look") "lookup" else w[i] } }
         fun isObject(n: String) = OBJECT_PREFIXES.any { n.startsWith(it) }
         for (i in words.indices) {
-            val w = words[i]
-            val isFind = w in FIND && words.drop(i + 1).take(3).any(::isObject)
-            if (isFind || w in CHECK) return words.drop(i + 1).joinToString(" ")
-        }
-        // The recognizer often splits a pause: "Найди" … "заказ 4742". A bare "find" waits
-        // for the rest (empty tail), and a short "order / заказ <number>" counts on its own.
-        if (words.isNotEmpty() && words.last() in FIND && words.size <= 2) return ""
-        if (words.size <= 5) {
-            val o = words.indexOfFirst(::isObject)
-            if (o >= 0) {
-                val rest = words.drop(o + 1).joinToString(" ")
-                if (parseQueries(rest).any { it !is Query.Name }) return rest
-            }
+            if (words[i] !in FIND) continue
+            val rest = words.drop(i + 1)
+            val tail = rest.joinToString(" ")
+            val strong = rest.take(3).any(::isObject) // "find receipt …" counts anywhere
+            if (i > TRIGGER_WITHIN && !strong) continue
+            if (parseQueries(tail).any { it !is Query.Name }) return tail
+            // Trigger and maybe "receipt / number", the number still to come ("Найди" … "заказ 4742").
+            if (rest.all { isObject(it) || it in FILLER_N }) return ""
+            if (strong) return tail
         }
         return null
     }
