@@ -44,8 +44,8 @@
               "type": "Container",
               "direction": "row",
               "alignItems": "center",
-              "paddingTop": "1.5vh",
-              "paddingBottom": "1.5vh",
+              "paddingTop": "${payload.data.properties.size.pad}",
+              "paddingBottom": "${payload.data.properties.size.pad}",
               "borderBottomWidth": "2dp",
               "borderColor": "#333333",
               "items": [
@@ -106,15 +106,7 @@
                 }
               ]
             }
-          ]
-        },
-        {
-          "type": "Text",
-          "when": "${payload.data.properties.footer != ''}",
-          "text": "${payload.data.properties.footer}",
-          "fontSize": "${payload.data.properties.size.name}",
-          "color": "#BBBBBB",
-          "paddingTop": "1vh",
+          ],
           "paddingBottom": "2vh"
         }
       ]

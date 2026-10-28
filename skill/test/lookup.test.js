@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { normalizeLast4, findOrders, payment, smsLabel, prettyPhone, columnMap, speech, MAX_CARDS } = require('../lambda/lookup');
+const { normalizeLast4, findOrders, payment, smsLabel, prettyPhone, columnMap, speech } = require('../lambda/lookup');
 const { header, row, orders } = require('./fixtures');
 
 const byNum = (last4) => findOrders(last4, orders);
@@ -61,15 +61,16 @@ test('columns found by header name even if moved; missing key columns -> BAD_HEA
   const moved = orders.map((r) => [...r].reverse());
   assert.deepStrictEqual(findOrders('4417', moved).cards.map((c) => c.receipt), ['33520', '33515']);
   assert.throws(() => columnMap(['foo', 'bar']), /BAD_HEADER/);
-  assert.deepStrictEqual(findOrders('4417', []), { cards: [], more: 0, count: 0 });
+  assert.deepStrictEqual(findOrders('4417', []), { cards: [], count: 0 });
 });
 
-test('caps at MAX_CARDS with "+N more"', () => {
-  const many = [header, ...Array.from({ length: 13 }, (_, i) => row(String(30000 + i), 'S', '', '7255559528', '10-10-26', '', '', 'Account', 'ON ACCOUNT'))];
+test('no cut-off: all 51 store orders returned, newest first', () => {
+  const many = [header, ...Array.from({ length: 51 }, (_, i) => row(String(30000 + i), 'S', '', '7255559528', '10-10-26', '', '', 'Account', 'ON ACCOUNT'))];
   const r = findOrders('9528', many);
-  assert.strictEqual(r.cards.length, MAX_CARDS);
-  assert.strictEqual(r.more, 3);
-  assert.strictEqual(r.cards[0].receipt, '30012');
+  assert.strictEqual(r.count, 51);
+  assert.strictEqual(r.cards.length, 51);
+  assert.strictEqual(r.cards[0].receipt, '30050');
+  assert.ok(!('more' in r));
 });
 
 test('speech: count only, no list read out', () => {

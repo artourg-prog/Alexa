@@ -17,8 +17,6 @@ const FIELDS = {
   paymentStatus: 'payment_status',
 };
 
-const MAX_CARDS = 10;
-
 const SMS_LABELS = {
   'not texted': 'NOT TEXTED',
   'accepted / sent via service': 'TEXT SENT',
@@ -94,7 +92,7 @@ function dateKey(s) {
 // rows[0] is the header row.
 function findOrders(last4, rows) {
   const [header, ...data] = rows || [];
-  if (!header) return { cards: [], more: 0, count: 0 };
+  if (!header) return { cards: [], count: 0 };
   const c = columnMap(header);
   const get = (r, f) => (c[f] == null ? '' : str(r[c[f]]));
 
@@ -109,7 +107,8 @@ function findOrders(last4, rows) {
       Number(digitsOnly(get(b, 'receipt'))) - Number(digitsOnly(get(a, 'receipt'))),
   );
 
-  const cards = matches.slice(0, MAX_CARDS).map((r) => ({
+  // All matches: the screen scrolls (Art wants every order, no cut-off).
+  const cards = matches.map((r) => ({
     receipt: get(r, 'receipt'),
     customer: get(r, 'customer'),
     phone: prettyPhone(get(r, 'phone'), get(r, 'phoneNormalized')),
@@ -117,7 +116,7 @@ function findOrders(last4, rows) {
     sms: smsLabel(get(r, 'sms')),
     paid: payment(get(r, 'paymentStatus'), get(r, 'paymentType')),
   }));
-  return { cards, more: Math.max(0, matches.length - MAX_CARDS), count: matches.length };
+  return { cards, count: matches.length };
 }
 
 function spokenDigits(s) {
@@ -132,4 +131,4 @@ function speech(last4, result, hasScreen = true) {
   return hasScreen ? `${n} for ${spokenDigits(last4)}.` : `${n} for ${spokenDigits(last4)}. Look on the Echo Show for details.`;
 }
 
-module.exports = { FIELDS, MAX_CARDS, normalizeLast4, columnMap, payment, smsLabel, prettyPhone, findOrders, speech };
+module.exports = { FIELDS, normalizeLast4, columnMap, payment, smsLabel, prettyPhone, findOrders, speech };

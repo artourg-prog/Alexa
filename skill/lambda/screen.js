@@ -18,23 +18,23 @@ const COLORS = {
   'TEXT NOT SENT': RED,
 };
 
-// Fewer orders -> bigger letters.
+// Fewer orders -> bigger letters; many -> compact rows, swipe to scroll.
 function sizes(n) {
-  if (n <= 1) return { title: '40dp', receipt: '96dp', name: '48dp', detail: '36dp', badge: '64dp' };
-  if (n <= 3) return { title: '36dp', receipt: '64dp', name: '34dp', detail: '28dp', badge: '44dp' };
-  return { title: '32dp', receipt: '48dp', name: '28dp', detail: '24dp', badge: '34dp' };
+  if (n <= 1) return { title: '40dp', receipt: '96dp', name: '48dp', detail: '36dp', badge: '64dp', pad: '2vh' };
+  if (n <= 3) return { title: '36dp', receipt: '64dp', name: '34dp', detail: '28dp', badge: '44dp', pad: '1.5vh' };
+  if (n <= 6) return { title: '32dp', receipt: '44dp', name: '28dp', detail: '22dp', badge: '32dp', pad: '1vh' };
+  return { title: '28dp', receipt: '34dp', name: '24dp', detail: '20dp', badge: '26dp', pad: '0.5vh' };
 }
 
 function datasource(last4, result, message = '') {
-  const { cards = [], more = 0, count = 0 } = result || {};
-  const title = count > 1 ? `Phone …${last4} · ${count} orders` : `Phone …${last4}`;
+  const { cards = [], count = 0 } = result || {};
+  const title = count > 1 ? `Phone …${last4} · ${count} orders${count > 6 ? ' · swipe up for more' : ''}` : `Phone …${last4}`;
   return {
     data: {
       type: 'object',
       properties: {
         title,
         message: message || (count ? '' : 'No orders'),
-        footer: more ? `+${more} more` : '',
         size: sizes(cards.length),
         cards: cards.map((c) => ({
           receipt: c.receipt,

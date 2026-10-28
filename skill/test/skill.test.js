@@ -51,6 +51,20 @@ test('no match → "No orders" on screen', async () => {
   assert.strictEqual(res.response.directives[0].datasources.data.properties.message, 'No orders');
 });
 
+test('51 matches → all on a scrollable screen, compact rows, voice count only', async () => {
+  const { header, row } = require('./fixtures');
+  const many = [header, ...Array.from({ length: 51 }, (_, i) => row(String(30000 + i), 'Store', '', '7255559528', '10-10-26', '', '', 'Account', 'ON ACCOUNT'))];
+  const res = await run(lookup('9528'), async () => many);
+  const props = res.response.directives[0].datasources.data.properties;
+  assert.strictEqual(props.cards.length, 51);
+  assert.match(props.title, /51 orders · swipe up/);
+  assert.strictEqual(props.size.receipt, '34dp');
+  assert.ok(!('footer' in props));
+  assert.match(res.response.outputSpeech.ssml, /51 orders for 9 5 2 8\./);
+  const apl = res.response.directives[0].document;
+  assert.strictEqual(apl.mainTemplate.item.items.find((i) => i.type === 'Sequence').scrollDirection || 'vertical', 'vertical');
+});
+
 test('sheet header changed → says so', async () => {
   const res = await run(lookup('4417'), async () => [['foo'], ['1']]);
   assert.strictEqual(res.response.directives[0].datasources.data.properties.message, 'Sheet layout changed');
