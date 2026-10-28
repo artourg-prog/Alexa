@@ -566,7 +566,7 @@ class MainActivity : Activity() {
         }
     }
 
-    // ---- Picked up (Art: each receipt its own button, offered ~1 min after it's found; tap -> 5 s Undo -> one request) ----
+    // ---- Picked up (Art: each receipt its own button, shown as long as its number is; tap -> 5 s Undo -> number and button go, one request) ----
 
     private var undoReceipts: List<String>? = null
     private var keyDeniedShown = false
@@ -581,12 +581,9 @@ class MainActivity : Activity() {
         syncPickups()
     }
 
-    private val pickedWindowMs = 60_000L
-
-    /** The receipt on screen, while its Picked up button is still offered. Never more than one. */
+    /** The receipt on screen. Its Picked up button lives exactly as long as the number is shown (Art). */
     private fun currentGroup(): List<String> {
         val cur = shown.getOrNull(index) ?: return emptyList()
-        if (System.currentTimeMillis() - cur.addedAt > pickedWindowMs) return emptyList()
         return listOf(cur.card.receipt)
     }
 
