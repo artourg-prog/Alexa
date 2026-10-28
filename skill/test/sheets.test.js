@@ -95,3 +95,28 @@ test('missing key file next to the code → KEY_FILE_MISSING', async () => {
   if (fs.existsSync(path.join(__dirname, '..', 'lambda', 'sheet-key.json'))) return; // real key present locally
   await assert.rejects(sheets.readSheet(async () => ({})), /KEY_FILE_MISSING/);
 });
+
+test('whole read stays inside the Alexa 8 s limit: each call gets only the time left', async () => {
+  sheets._resetTokenCache();
+  const budgets = [];
+  const http = async (method, url, body, headers, timeoutMs) => {
+    budgets.push(timeoutMs);
+    await new Promise((r) => setTimeout(r, 30));
+    if (method === 'POST') return { access_token: 'tok', expires_in: 3600 };
+    return { valueRanges: [{ values: [['receipt_number']] }] };
+  };
+  await sheets.readSheet(http, goodKey);
+  assert.strictEqual(budgets.length, 2);
+  assert.ok(budgets[0] <= sheets.BUDGET_MS && sheets.BUDGET_MS <= 6500);
+  assert.ok(budgets[1] < budgets[0], 'second call gets what is left, not a fresh budget');
+});
+
+test('a server that never answers is cut off (hard timeout, not idle timeout)', async () => {
+  const net = require('net');
+  const server = net.createServer(() => {}).listen(0); // accepts, never speaks TLS
+  await new Promise((r) => server.once('listening', r));
+  const t0 = Date.now();
+  await assert.rejects(sheets.request('GET', `https://127.0.0.1:${server.address().port}/`, null, {}, 300), /TIMEOUT/);
+  assert.ok(Date.now() - t0 < 2000);
+  server.close();
+});

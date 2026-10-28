@@ -16,7 +16,9 @@ const SPREADSHEET_ID = '14NLtaKEBKPLU-lM6SSpXuJx-Wog-qmXltMIjsimh0as';
 const RANGES = ["'Active Orders'!A1:Z"];
 const SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const TIMEOUT_MS = 5000; // Alexa gives the skill 8 s in total
+// Alexa waits 8 s for the whole answer, then gives up silently (the simulator
+// just spins). Token + sheet read together must finish well inside that.
+const BUDGET_MS = 6000;
 
 const KEY_FILE = path.join(__dirname, 'sheet-key.json');
 
@@ -69,9 +71,17 @@ function signedJwt(key, now = Math.floor(Date.now() / 1000)) {
   return `${header}.${claims}.${b64url(sig)}`;
 }
 
-function request(method, url, body, headers = {}) {
+// timeoutMs is a hard limit on the whole request, not just idle time.
+function request(method, url, body, headers = {}, timeoutMs = BUDGET_MS) {
   return new Promise((resolve, reject) => {
-    const req = https.request(url, { method, headers, timeout: TIMEOUT_MS }, (res) => {
+    const timer = setTimeout(() => req.destroy(new Error('TIMEOUT')), Math.max(1, timeoutMs));
+    const done = (fn) => (v) => {
+      clearTimeout(timer);
+      fn(v);
+    };
+    resolve = done(resolve);
+    reject = done(reject);
+    const req = https.request(url, { method, headers }, (res) => {
       let data = '';
       res.on('data', (c) => (data += c));
       res.on('end', () => {
@@ -86,7 +96,6 @@ function request(method, url, body, headers = {}) {
         }
       });
     });
-    req.on('timeout', () => req.destroy(new Error('TIMEOUT')));
     req.on('error', reject);
     if (body) req.write(body);
     req.end();
@@ -95,7 +104,7 @@ function request(method, url, body, headers = {}) {
 
 let cachedToken = null; // survives between warm Lambda calls
 
-async function accessToken(http, getKey) {
+async function accessToken(http, getKey, left) {
   const now = Math.floor(Date.now() / 1000);
   if (cachedToken && cachedToken.exp - 60 > now) return cachedToken.value;
   const key = getKey();
@@ -103,17 +112,23 @@ async function accessToken(http, getKey) {
     grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
     assertion: signedJwt(key, now),
   }).toString();
-  const res = await http('POST', TOKEN_URL, body, { 'Content-Type': 'application/x-www-form-urlencoded' });
+  const res = await http('POST', TOKEN_URL, body, { 'Content-Type': 'application/x-www-form-urlencoded' }, left());
   cachedToken = { value: res.access_token, exp: now + (res.expires_in || 3600) };
   return cachedToken.value;
 }
 
 // Returns the Active Orders rows, header first.
 async function readSheet(http = request, getKey = loadKey) {
-  const token = await accessToken(http, getKey);
+  const deadline = Date.now() + BUDGET_MS;
+  const left = () => {
+    const ms = deadline - Date.now();
+    if (ms <= 0) throw new Error('TIMEOUT');
+    return ms;
+  };
+  const token = await accessToken(http, getKey, left);
   const qs = RANGES.map((r) => `ranges=${encodeURIComponent(r)}`).join('&');
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values:batchGet?${qs}`;
-  const res = await http('GET', url, null, { Authorization: `Bearer ${token}` });
+  const res = await http('GET', url, null, { Authorization: `Bearer ${token}` }, left());
   const [orders] = res.valueRanges || [];
   return (orders && orders.values) || [];
 }
@@ -122,4 +137,4 @@ function _resetTokenCache() {
   cachedToken = null;
 }
 
-module.exports = { SPREADSHEET_ID, RANGES, SCOPE, signedJwt, loadKey, checkKey, readSheet, _resetTokenCache };
+module.exports = { SPREADSHEET_ID, RANGES, SCOPE, BUDGET_MS, request, signedJwt, loadKey, checkKey, readSheet, _resetTokenCache };
