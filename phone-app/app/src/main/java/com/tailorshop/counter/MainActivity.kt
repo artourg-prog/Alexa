@@ -90,6 +90,61 @@ class MainActivity : Activity() {
         hideSystemBars()
         main.post(refresher)
         if (handsFree) listenSoon(800)
+        setupLanguages()
+    }
+
+    // Automatic EN/RU: Google's on-phone recognizer can switch language mid-session, but
+    // only when both language packs are on the phone. If Russian is missing, download it
+    // once; until then the online recognizer and the manual switch are used.
+    private var useOnDevice = false
+    private var languagesChecked = false
+
+    private fun langIntent(lang: String) = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        .putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang)
+
+    private fun setupLanguages() {
+        if (languagesChecked || Build.VERSION.SDK_INT < 34 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) return
+        languagesChecked = true
+        val od = SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+        od.checkRecognitionSupport(langIntent("ru-RU"), mainExecutor, object : android.speech.RecognitionSupportCallback {
+            override fun onSupportResult(s: android.speech.RecognitionSupport) {
+                val have = s.installedOnDeviceLanguages
+                Log.d("TailorCounter", "on-device installed=$have pending=${s.pendingOnDeviceLanguages}")
+                when {
+                    "en-US" in have && "ru-RU" in have -> enableAuto()
+                    "ru-RU" in s.supportedOnDeviceLanguages && "ru-RU" !in s.pendingOnDeviceLanguages -> downloadRussian(od)
+                    else -> od.destroy()
+                }
+                if ("en-US" in have && "ru-RU" in have) od.destroy()
+            }
+            override fun onError(error: Int) { Log.d("TailorCounter", "support check error $error"); od.destroy() }
+        })
+    }
+
+    private fun downloadRussian(od: SpeechRecognizer) {
+        setStatus("Downloading Russian speech (one time)…")
+        od.triggerModelDownload(langIntent("ru-RU"), mainExecutor, object : android.speech.ModelDownloadListener {
+            override fun onProgress(completedPercent: Int) { setStatus("Downloading Russian speech… $completedPercent%") }
+            override fun onSuccess() { Log.d("TailorCounter", "ru-RU downloaded"); od.destroy(); languagesChecked = false; setupLanguages() }
+            override fun onScheduled() { Log.d("TailorCounter", "ru-RU download scheduled"); od.destroy(); setStatus(idleText()) }
+            override fun onError(error: Int) { Log.d("TailorCounter", "ru-RU download error $error"); od.destroy(); setStatus(idleText()) }
+        })
+    }
+
+    private fun enableAuto() {
+        Log.d("TailorCounter", "auto EN/RU on")
+        useOnDevice = true
+        langButton.visibility = View.GONE // manual switch only as a fallback
+        stopListening(); recognizer?.destroy(); recognizer = null
+        if (handsFree) listenSoon(300)
+    }
+
+    private fun disableAuto() {
+        Log.d("TailorCounter", "auto EN/RU off (on-device failed)")
+        useOnDevice = false
+        langButton.visibility = View.VISIBLE
+        recognizer?.destroy(); recognizer = null
     }
 
     override fun onPause() {
@@ -148,10 +203,11 @@ class MainActivity : Activity() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             setStatus("Speech recognition is not available on this phone"); return
         }
-        val r = recognizer ?: SpeechRecognizer.createSpeechRecognizer(this).also {
+        val r = recognizer ?: (if (useOnDevice) SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+            else SpeechRecognizer.createSpeechRecognizer(this)).also {
             it.setRecognitionListener(listener); recognizer = it
         }
-        val primary = if (russianFirst) "ru-RU" else "en-US"
+        val primary = if (russianFirst && !useOnDevice) "ru-RU" else "en-US"
         val other = if (russianFirst) "en-US" else "ru-RU"
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -203,7 +259,8 @@ class MainActivity : Activity() {
                 SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ->
                     setStatus("Microphone is off — allow it in Settings › Apps › Tailor Counter")
                 SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED, SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> {
-                    setStatus("Speech language not available — switching"); russianFirst = !russianFirst; updateLang()
+                    if (useOnDevice) disableAuto()
+                    else { setStatus("Speech language not available — switching"); russianFirst = !russianFirst; updateLang() }
                     if (handsFree) listenSoon(1000)
                 }
                 SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> { recognizer?.destroy(); recognizer = null; if (handsFree) listenSoon(1500) }
