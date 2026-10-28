@@ -24,6 +24,14 @@
         },
         {
           "type": "Text",
+          "when": "${payload.data.properties.missing != ''}",
+          "text": "${payload.data.properties.missing}",
+          "fontSize": "${payload.data.properties.size.title}",
+          "color": "#FFB84D",
+          "paddingBottom": "1vh"
+        },
+        {
+          "type": "Text",
           "when": "${payload.data.properties.message != ''}",
           "text": "${payload.data.properties.message}",
           "fontSize": "${payload.data.properties.size.receipt}",

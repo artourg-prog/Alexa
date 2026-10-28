@@ -1,7 +1,7 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
-const { normalizeLast4, findOrders, payment, smsLabel, prettyPhone, columnMap, speech } = require('../lambda/lookup');
+const { normalizeLast4, findOrders, findMany, payment, smsLabel, prettyPhone, columnMap, speech } = require('../lambda/lookup');
 const { header, row, orders } = require('./fixtures');
 
 const byNum = (last4) => findOrders(last4, orders);
@@ -73,9 +73,17 @@ test('no cut-off: all 51 store orders returned, newest first', () => {
   assert.ok(!('more' in r));
 });
 
-test('speech: count only, no list read out', () => {
-  assert.strictEqual(speech('4417', byNum('4417')), '2 orders for 4 4 1 7.');
-  assert.strictEqual(speech('2222', byNum('2222')), '1 order for 2 2 2 2.');
-  assert.strictEqual(speech('9999', byNum('9999')), 'No orders for 9 9 9 9.');
-  assert.doesNotMatch(speech('4417', byNum('4417')), /33520|Sam/);
+test('several numbers in one request: each matched, shown together, duplicates dropped', () => {
+  const r = findMany(['4417', '2222', '9999', '4417'], orders);
+  assert.deepStrictEqual(r.groups, [{ last4: '4417', count: 2 }, { last4: '2222', count: 1 }, { last4: '9999', count: 0 }]);
+  assert.deepStrictEqual(r.cards.map((c) => [c.last4, c.receipt]), [['4417', '33520'], ['4417', '33515'], ['2222', '33498']]);
+  assert.strictEqual(r.count, 3);
+});
+
+test('speech: counts only, per number, no list read out', () => {
+  assert.strictEqual(speech(findMany(['4417'], orders)), '2 orders for 4 4 1 7.');
+  assert.strictEqual(speech(findMany(['2222'], orders)), '1 order for 2 2 2 2.');
+  assert.strictEqual(speech(findMany(['9999'], orders)), 'No orders for 9 9 9 9.');
+  assert.strictEqual(speech(findMany(['4417', '2222', '9999'], orders)), '2 orders for 4 4 1 7, 1 order for 2 2 2 2, no orders for 9 9 9 9.');
+  assert.doesNotMatch(speech(findMany(['4417'], orders)), /33520|Sam/);
 });

@@ -119,16 +119,34 @@ function findOrders(last4, rows) {
   return { cards, count: matches.length };
 }
 
+// Several last-4 numbers in one request (several clients at once).
+// Duplicates are dropped; results keep the spoken order, newest first within each number.
+function findMany(nums, rows) {
+  const unique = [...new Set(nums.filter(Boolean))];
+  const groups = unique.map((last4) => ({ last4, ...findOrders(last4, rows) }));
+  return {
+    groups: groups.map((g) => ({ last4: g.last4, count: g.count })),
+    cards: groups.flatMap((g) => g.cards.map((c) => ({ ...c, last4: g.last4 }))),
+    count: groups.reduce((n, g) => n + g.count, 0),
+  };
+}
+
 function spokenDigits(s) {
   return String(s).split('').join(' ');
 }
 
-// Screen carries the details; voice only says how many.
-function speech(last4, result, hasScreen = true) {
-  const { count } = result;
-  if (!count) return `No orders for ${spokenDigits(last4)}.`;
-  const n = count === 1 ? '1 order' : `${count} orders`;
-  return hasScreen ? `${n} for ${spokenDigits(last4)}.` : `${n} for ${spokenDigits(last4)}. Look on the Echo Show for details.`;
+function orders(n) {
+  return n === 1 ? '1 order' : `${n} orders`;
 }
 
-module.exports = { FIELDS, normalizeLast4, columnMap, payment, smsLabel, prettyPhone, findOrders, speech };
+// Screen carries the details; voice only says how many, per number.
+function speech(result, hasScreen = true) {
+  const parts = result.groups.map((g) =>
+    g.count ? `${orders(g.count)} for ${spokenDigits(g.last4)}` : `no orders for ${spokenDigits(g.last4)}`,
+  );
+  const said = parts.join(', ') + '.';
+  const text = said[0].toUpperCase() + said.slice(1);
+  return hasScreen || !result.count ? text : `${text} Look on the Echo Show for details.`;
+}
+
+module.exports = { FIELDS, normalizeLast4, columnMap, payment, smsLabel, prettyPhone, findOrders, findMany, speech };

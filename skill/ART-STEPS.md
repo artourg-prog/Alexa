@@ -2,7 +2,11 @@
 
 Already done: words (interaction model), screen on, skill opens in the Test tab.
 
-**Do these only after the builder says the sheet share is confirmed.**
+**0. Update the words (can do now)**
+Build tab → Interaction Model → JSON Editor → delete all → paste our `interactionModels/custom/en-US.json` → **Save** → **Build skill**.
+(Adds 2 or 3 numbers at once: "ask tailor shop 4417 and 2222".)
+
+**Do steps 1–5 only after the builder says the sheet share is confirmed.**
 
 **1. Paste the code**
 Code tab → left side, folder `lambda`.
@@ -18,8 +22,8 @@ Code tab → left side, folder `lambda`.
 Click **Save**, then **Deploy** (top right). Wait for "Deployment successful" (about 1 minute).
 
 **4. Try it**
-Test tab → type `ask tailor shop 4417` (use a real customer's last 4).
-The screen shows: receipt #, name, phone, promised time, PAID / NOT PAID / PART PAID / ON ACCOUNT, and the text status.
+Test tab → type `ask tailor shop 4417` (use a real customer's last 4). Several at once: `ask tailor shop 4417 and 2222 and 9999`.
+The screen shows the receipt number big; under it: name, phone, promised time, PAID / NOT PAID / PART PAID / ON ACCOUNT, and the text status.
 Alexa only says how many orders.
 
 If the screen says:

@@ -18,9 +18,17 @@ function envelope(request, withScreen = true) {
     request: { requestId: 'r', timestamp: new Date().toISOString(), locale: 'en-US', ...request },
   };
 }
-const lookup = (value) => ({
+const lookup = (value, b, c) => ({
   type: 'IntentRequest',
-  intent: { name: 'LookupIntent', confirmationStatus: 'NONE', slots: { lastFour: { name: 'lastFour', value } } },
+  intent: {
+    name: 'LookupIntent',
+    confirmationStatus: 'NONE',
+    slots: {
+      lastFour: { name: 'lastFour', value },
+      lastFourB: { name: 'lastFourB', value: b },
+      lastFourC: { name: 'lastFourC', value: c },
+    },
+  },
 });
 const run = (req, read = async () => orders, screen = true) => buildSkill(read).create().invoke(envelope(req, screen));
 
@@ -58,11 +66,26 @@ test('51 matches → all on a scrollable screen, compact rows, voice count only'
   const props = res.response.directives[0].datasources.data.properties;
   assert.strictEqual(props.cards.length, 51);
   assert.match(props.title, /51 orders · swipe up/);
-  assert.strictEqual(props.size.receipt, '34dp');
+  assert.strictEqual(props.size.receipt, '36dp');
   assert.ok(!('footer' in props));
   assert.match(res.response.outputSpeech.ssml, /51 orders for 9 5 2 8\./);
   const apl = res.response.directives[0].document;
   assert.strictEqual(apl.mainTemplate.item.items.find((i) => i.type === 'Sequence').scrollDirection || 'vertical', 'vertical');
+});
+
+test('"4417 and 2222 and 9999" → all on one screen, receipt huge for ≤3, missing number flagged', async () => {
+  const res = await run(lookup('4417', '2222', '9999'));
+  const props = res.response.directives[0].datasources.data.properties;
+  assert.deepStrictEqual(props.cards.map((c) => c.receipt), ['33520', '33515', '33498']);
+  assert.strictEqual(props.title, 'Phone …4417, …2222, …9999 · 3 orders');
+  assert.strictEqual(props.missing, 'No orders for …9999');
+  assert.strictEqual(props.size.receipt, '88dp');
+  assert.match(res.response.outputSpeech.ssml, /2 orders for 4 4 1 7, 1 order for 2 2 2 2, no orders for 9 9 9 9\./);
+});
+
+test('one order → receipt number at its biggest', async () => {
+  const res = await run(lookup('2222'));
+  assert.strictEqual(res.response.directives[0].datasources.data.properties.size.receipt, '160dp');
 });
 
 test('sheet header changed → says so', async () => {
@@ -98,8 +121,14 @@ test('interaction model and APL are valid JSON with the right names', () => {
   const m = require('../interactionModels/custom/en-US.json').interactionModel.languageModel;
   assert.strictEqual(m.invocationName, 'tailor shop');
   const intent = m.intents.find((i) => i.name === 'LookupIntent');
-  assert.strictEqual(intent.slots[0].type, 'AMAZON.FOUR_DIGIT_NUMBER');
-  assert.doesNotMatch(intent.slots[0].name, /\d/, 'Amazon rejects digits in slot names');
+  for (const slot of intent.slots) {
+    assert.strictEqual(slot.type, 'AMAZON.FOUR_DIGIT_NUMBER');
+    assert.doesNotMatch(slot.name, /\d/, 'Amazon rejects digits in slot names');
+  }
+  for (const s of intent.samples) {
+    for (const [, name] of s.matchAll(/{(\w+)}/g)) assert.ok(intent.slots.some((x) => x.name === name), s);
+  }
+  assert.deepStrictEqual(intent.slots.map((x) => x.name), ['lastFour', 'lastFourB', 'lastFourC']);
   assert.ok(intent.samples.every((s) => s.includes('{lastFour}')));
   const apl = require('../lambda/apl.json');
   assert.strictEqual(apl.type, 'APL');
