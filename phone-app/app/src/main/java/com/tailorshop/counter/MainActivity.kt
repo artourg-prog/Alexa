@@ -254,6 +254,7 @@ class MainActivity : Activity() {
 
     private val listener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
+            busyStreak = 0
             // Hands-free: no listening indicator anywhere on screen (Art).
             if (!handsFree) setStatus((if (russianFirst) "Слушаю…" else "Listening…") + " · ${orders.size} orders")
         }
@@ -286,12 +287,19 @@ class MainActivity : Activity() {
                     else { setStatus("Speech language not available — switching"); russianFirst = !russianFirst; updateLang() }
                     if (handsFree) listenSoon(1000)
                 }
-                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> { recognizer?.destroy(); recognizer = null; if (handsFree) listenSoon(1500) }
+                // Busy: keep the SAME recognizer and wait longer each time (2, 4, 8 … 30 s). Making a new one on
+                // every busy answer leaked sessions until the phone's speech service was full (10-28 night).
+                SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> {
+                    busyStreak++
+                    recognizer?.cancel()
+                    if (handsFree) listenSoon(minOf(30_000L, 1_000L shl minOf(busyStreak, 5)))
+                }
                 else -> { setStatus(idleText()); if (handsFree) listenSoon(400) }
             }
         }
 
         override fun onResults(results: Bundle?) {
+            busyStreak = 0
             live = null
             listening = false
             updateMic()
@@ -812,6 +820,7 @@ class MainActivity : Activity() {
     }
 
     private val HINT = "Say: Sofia, find + last 4 phone digits or receipt #"
+    private var busyStreak = 0      // recognizer "busy" answers in a row (back-off)
     private var wakeUntil = 0L      // her name was just heard: bright listening screen until then
     private var wasListening = false
 
