@@ -305,6 +305,18 @@ class MainActivity : Activity() {
         armedUntil = 0L
         main.removeCallbacks(armedTimeout)
         if (alts.any(Lookup::asksWhoSheIs)) { Log.d("TailorCounter", "heard=$alts intro"); speak(Lookup.INTRO to false); return }
+        // A follow-up about the receipt on screen: in the 15 s after an answer, or any time with "Sofia" in front.
+        val onScreen = shown.getOrNull(index)?.card
+        if (onScreen != null && message == null) {
+            val ask = alts.firstNotNullOfOrNull { a ->
+                Lookup.followUp(a)?.takeIf { System.currentTimeMillis() < followUntil || Lookup.commandTail(a) != null }
+                    ?.takeIf { Lookup.parseQueries(Lookup.commandTail(a) ?: a).none { q -> q !is Query.Name } } // a number = a new lookup
+            }
+            if (ask != null) {
+                Log.d("TailorCounter", "heard=$alts followUp=$ask")
+                speak(Lookup.followUpAnswer(ask, onScreen) to false); answered(); return
+            }
+        }
         val go = {
             // Only a command ("find receipt…", "check…", "найди заказ…") is acted on; a tap
             // counts as a command for whatever was said. Among the recognizer's guesses, a

@@ -181,6 +181,31 @@ class LookupTest {
         assertEquals(null, raw("yesterday I told Sofia to find 8438"))         // her name too late
     }
 
+    @Test fun followUpQuestions() {
+        assertEquals(Topic.TAILOR, Lookup.followUp("who was the tailor?"))
+        assertEquals(Topic.TAILOR, Lookup.followUp("Sofia, кто мастер?"))
+        assertEquals(Topic.AMOUNT, Lookup.followUp("how much is it"))
+        assertEquals(Topic.AMOUNT, Lookup.followUp("сколько?"))
+        assertEquals(Topic.PAY, Lookup.followUp("is it paid?"))
+        assertEquals(Topic.PAY, Lookup.followUp("оплачено?"))
+        assertEquals(Topic.DATE, Lookup.followUp("when was it dropped off"))
+        assertEquals(Topic.DATE, Lookup.followUp("когда сдали"))
+        assertEquals(Topic.WORK, Lookup.followUp("what was the work"))
+        assertEquals(Topic.WORK, Lookup.followUp("что делали"))
+        assertEquals(null, Lookup.followUp("thank you"))
+    }
+
+    @Test fun followUpAnswersFromTheSheetOnly() {
+        val c = Lookup.findAll("26240", orders).first() // from the made-up rows above
+        assertEquals("It was dropped off on October 10.", Lookup.followUpAnswer(Topic.DATE, c))
+        assertEquals("The total is $40.00.", Lookup.followUpAnswer(Topic.AMOUNT, c))
+        assertEquals("The work is: Pants hem.", Lookup.followUpAnswer(Topic.WORK, c))
+        assertEquals("It's not finished yet, there's no tailor on it.", Lookup.followUpAnswer(Topic.TAILOR, c))
+        assertEquals("The tailor was Gor.", Lookup.followUpAnswer(Topic.TAILOR, c.copy(tailor = "Gor")))
+        assertEquals("There is a balance due.", Lookup.followUpAnswer(Topic.PAY, c.copy(pay = Pay.DUE)))
+        for (t in Topic.values()) Lookup.followUpAnswer(t, c).let { assertTrue(!it.contains("Andrea") && !it.contains("555")) }
+    }
+
     @Test fun sheIntroducesHerself() {
         assertTrue(Lookup.asksWhoSheIs("Sofia, who are you?"))
         assertTrue(Lookup.asksWhoSheIs("София, кто ты?"))

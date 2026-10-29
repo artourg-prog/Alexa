@@ -11,10 +11,15 @@ import java.text.Normalizer
 // (Art's rule), so a filled M.T. = ready for pickup, blank = not finished yet.
 
 data class Order(val receipt: String, val customer: String, val phone: String, val date: String, val ready: Boolean = false,
-                 val pay: Pay = Pay.UNKNOWN)
+                 val pay: Pay = Pay.UNKNOWN, val tailor: String = "", val total: String = "", val work: String = "")
 
+// tailor / total / date / work are only for Sofia's follow-up answers (never the customer or phone).
 data class Card(val receipt: String, val customer: String, val phone: String, val ready: Boolean = false,
-                val pay: Pay = Pay.UNKNOWN)
+                val pay: Pay = Pay.UNKNOWN, val tailor: String = "", val total: String = "", val date: String = "",
+                val work: String = "")
+
+/** Follow-up questions about the receipt on screen (Art): tailor, amount, paid or due, drop-off date, work. */
+enum class Topic { TAILOR, AMOUNT, PAY, DATE, WORK }
 
 /** From column "Payment Type": any "Due" (incl. "Zelle + Due") = due; "Account" = billed to the store. */
 enum class Pay { PAID, DUE, ACCOUNT, UNKNOWN }
@@ -34,6 +39,8 @@ object Lookup {
         "date" to listOf("date", "received_date"),
         "tailor" to listOf("m.t.", "m.t", "tailor"),
         "payment" to listOf("payment type", "payment_type", "payment"),
+        "total" to listOf("total"),
+        "work" to listOf("description", "work"),
     )
 
     private val PAID_WORDS = listOf("card", "cash", "zelle", "venmo", "check", "paid")
@@ -74,7 +81,7 @@ object Lookup {
             val receipt = cell(row, r)
             if (receipt.isEmpty()) null
             else Order(receipt, cell(row, idx["customer"]), cell(row, p), cell(row, idx["date"]), cell(row, idx["tailor"]).isNotEmpty(),
-                payOf(cell(row, idx["payment"])))
+                payOf(cell(row, idx["payment"])), cell(row, idx["tailor"]), cell(row, idx["total"]), cell(row, idx["work"]))
         }
     }
 
@@ -186,6 +193,44 @@ object Lookup {
         return null
     }
 
+    // ---- follow-up questions ----
+
+    private val TOPIC_PHRASES = listOf(
+        Topic.TAILOR to listOf("who was the tailor", "who is the tailor", "who did it", "who did the work", "which tailor",
+            "who worked on it", "kto master", "kto byl master", "kto delal", "kto shil", "kakoy master"),
+        Topic.AMOUNT to listOf("how much", "what is the total", "what s the total", "the total", "what is the price", "price",
+            "skolko", "kakaya summa", "summa", "tsena"),
+        Topic.PAY to listOf("paid or due", "is it paid", "was it paid", "is there a balance", "balance", "do they owe",
+            "oplacheno", "oplachen", "est dolg", "dolg"),
+        Topic.DATE to listOf("when was it dropped off", "when did they drop", "drop off date", "dropped off", "when was it brought",
+            "when did they bring", "kogda sdali", "kogda prinesli", "kogda sdan"),
+        Topic.WORK to listOf("what was the work", "what work", "what is the job", "what s the job", "what was done", "what did we do",
+            "description", "chto delali", "kakaya rabota", "chto za rabota", "chto delat"),
+    )
+
+    /** A follow-up question, or null. Works with or without "Sofia" in front. */
+    fun followUp(said: String): Topic? {
+        val text = " " + words(said).filter { it !in SOFIA }.joinToString(" ") + " "
+        return TOPIC_PHRASES.firstOrNull { (_, ps) -> ps.any { text.contains(" $it ") } }?.first
+    }
+
+    private val MONTHS = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September",
+        "October", "November", "December")
+
+    /** Sofia's answer, one natural English sentence. Never the customer, the phone or the account. */
+    fun followUpAnswer(topic: Topic, c: Card): String = when (topic) {
+        Topic.TAILOR -> if (c.tailor.isNotBlank()) "The tailor was ${c.tailor}." else "It's not finished yet, there's no tailor on it."
+        Topic.AMOUNT -> if (c.total.isNotBlank()) "The total is ${c.total}." else "I don't see a total for it."
+        Topic.PAY -> when (c.pay) {
+            Pay.PAID -> "It's paid."; Pay.DUE -> "There is a balance due."; Pay.ACCOUNT -> "It's on the store account."
+            Pay.UNKNOWN -> "I don't see how it was paid."
+        }
+        Topic.DATE -> dateKey(c.date).let { k ->
+            if (k == 0) "I don't see the drop-off date." else "It was dropped off on ${MONTHS[k / 100 % 100 - 1]} ${k % 100}."
+        }
+        Topic.WORK -> if (c.work.isNotBlank()) "The work is: ${c.work}." else "I don't see a description."
+    }
+
     fun didntCatch(russian: Boolean) = if (russian) "Не расслышал номер." else "I didn't catch the number."
 
     // ---- matching ----
@@ -202,7 +247,7 @@ object Lookup {
         }
         return hits
             .sortedWith(compareByDescending<Order> { dateKey(it.date) }.thenByDescending { digits(it.receipt).toLongOrNull() ?: 0L })
-            .map { Card(it.receipt, it.customer, prettyPhone(it.phone), it.ready, it.pay) }
+            .map { Card(it.receipt, it.customer, prettyPhone(it.phone), it.ready, it.pay, it.tailor, it.total, it.date, it.work) }
     }
 
     fun findAll(said: String, orders: List<Order>): List<Card> =
