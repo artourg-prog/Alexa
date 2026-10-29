@@ -95,7 +95,8 @@ class LookupTest {
         assertTrue(q("I'll be there in 5").isEmpty())
     }
 
-    private fun tail(said: String) = Lookup.commandTail(said)
+    private fun tail(said: String) = Lookup.commandTail("Sofia, $said") // every command starts with her name
+    private fun raw(said: String) = Lookup.commandTail(said)
 
     @Test fun onlyCommandsAreActedOn() {
         assertEquals(listOf(Query.Last4("2151")), q(tail("Find receipt for the phone number 2151")!!))
@@ -138,9 +139,9 @@ class LookupTest {
         assertEquals("", tail("Check receipt number"))
         assertEquals("", tail("найди заказ"))
         // Without a trigger a number is taken only right after a command or an answer (MainActivity).
-        assertEquals(null, tail("заказ 4742"))
-        assertEquals(null, tail("Number 8438"))
-        assertEquals(null, tail("у меня был заказ вчера"))
+        assertEquals(null, raw("заказ 4742"))
+        assertEquals(null, raw("Number 8438"))
+        assertEquals(null, raw("у меня был заказ вчера"))
     }
 
     @Test fun triggerWords() {
@@ -164,20 +165,40 @@ class LookupTest {
     @Test fun everydayWordsWithoutANumberDoNothing() {
         for (said in listOf("где", "покажи мне", "where is it", "show me that", "do you have time", "можешь глянуть",
                 "есть ли у нас нитки", "search", "bring up the box"))
-            assertEquals(said, null, tail(said))
+            assertEquals(said, null, raw(said))
+    }
+
+    @Test fun sofiaMustBeAddressed() {
+        for (said in listOf("find 8438", "найди 8438", "look for receipt 26316", "8438", "check number 9933", "где 4417"))
+            assertEquals(said, null, raw(said))                                 // no name: ignored
+        for (said in listOf("Sofia, find receipt 26316", "Sophia find 26316", "София, найди 26316", "Софья найди ресит 26316",
+                "Hey Sofia, look for 26316", "Sofia 26316", "София 26316"))
+            assertEquals(said, listOf(Query.Receipt("26316")), q(raw(said)!!))
+        assertEquals(listOf(Query.Last4("8438")), q(raw("Sofia, find 8438")!!))
+        assertEquals("", raw("Sofia"))                                          // waits for the number
+        assertEquals("", raw("София, найди"))
+        assertEquals(null, raw("Sofia, how is the weather"))
+        assertEquals(null, raw("yesterday I told Sofia to find 8438"))         // her name too late
+    }
+
+    @Test fun sheIntroducesHerself() {
+        assertTrue(Lookup.asksWhoSheIs("Sofia, who are you?"))
+        assertTrue(Lookup.asksWhoSheIs("София, кто ты?"))
+        assertTrue(!Lookup.asksWhoSheIs("who are you"))
+        assertEquals("I'm Sofia, the counter assistant.", Lookup.INTRO)
     }
 
     @Test fun triggerOnlyAtTheStart() {
-        assertEquals(null, tail("я сказал ему что надо посмотреть 4742")) // trigger late, no "receipt"
-        assertEquals(null, tail("we should look up the weather"))
-        assertEquals(null, tail("посмотри какая погода"))
+        assertEquals(null, raw("я сказал ему что надо посмотреть 4742")) // trigger late, no "receipt"
+        assertEquals(null, raw("we should look up the weather"))
+        assertEquals(null, raw("посмотри какая погода"))
     }
 
     @Test fun roomTalkIsIgnored() {
-        assertEquals(null, tail("towards that you should treat the weather"))
-        assertEquals(null, tail("да последние номера телефонов или же весь номер телефона"))
-        assertEquals(null, tail("я найду время 1203")) // number without a command
-        assertEquals(null, tail("I'll find it later"))
+        assertEquals(null, raw("towards that you should treat the weather"))
+        assertEquals(null, raw("да последние номера телефонов или же весь номер телефона"))
+        assertEquals(null, raw("я найду время 1203")) // number without a command
+        assertEquals(null, raw("I'll find it later"))
     }
 
     @Test fun commandWithoutNumberIsDidntCatch() {

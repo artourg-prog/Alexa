@@ -107,9 +107,8 @@ object Lookup {
 
     private val FILLER_N by lazy { FILLER.map(::normalize).toSet() }
 
-    // The command is the wake word (Art's choice): the app acts only on a trigger at the start of
-    // what was said: "find / look up / check …", "найди / посмотри / проверь …" (or "find receipt …"
-    // anywhere). Everything else is ignored and never shown. "fine"/"faynd" and "chek" are how the
+    // After "Sofia", a find phrase at the start of the rest: "find / look up / check …", "найди /
+    // посмотри / проверь …" (or "find receipt …" anywhere). Everything else is ignored and never shown. "fine"/"faynd" and "chek" are how the
     // recognizer often writes "find" and "check".
     private val FIND = setOf("find", "fine", "fined", "define", "faynd", "fayind", "naydi", "nayti", "naydite",
         "lookup", "posmotri", "posmotrite", "check", "chek", "checks", "prover", "proverte")
@@ -125,8 +124,43 @@ object Lookup {
     private val WEAK = setOf("search", "where", "poischi", "pokazhi", "glyan", "gde", "podnimi") +
         WEAK_PHRASES.map { it.replace(' ', '_') }
 
-    /** Text after the command ("" = command without a number yet), or null when there is no command. */
+    // Art: the counter assistant is "Sofia" / "София" and every command starts with her name, so normal
+    // talk is ignored. These are her name as the recognizer writes it (after Cyrillic -> Latin).
+    private val SOFIA = setOf("sofia", "sophia", "sofiya", "sofya", "sofie", "sophie", "sofi", "sofiia", "sofiyu", "soffia")
+    private const val NAME_WITHIN = 2 // "Hey Sofia", "Okay so Sofia": at most 2 words before her name
+
+    private fun words(said: String): List<String> = normalize(said).split(' ').filter { it.isNotEmpty() }
+
+    /** What follows "Sofia" when her name opens the phrase, or null when she wasn't addressed. */
+    private fun afterName(said: String): List<String>? {
+        val w = words(said)
+        val i = w.indexOfFirst { it in SOFIA }
+        return if (i < 0 || i > NAME_WITHIN) null else w.drop(i + 1)
+    }
+
+    /** "Sofia, who are you?" / "София, кто ты?" */
+    fun asksWhoSheIs(said: String): Boolean {
+        val rest = afterName(said)?.joinToString(" ") ?: return false
+        return listOf("who are you", "what is your name", "what s your name", "kto ty", "kto vy", "kak tebya zovut").any { rest.startsWith(it) }
+    }
+
+    const val INTRO = "I'm Sofia, the counter assistant."
+
+    /**
+     * Text after the command ("" = Sofia was called but the number is still to come), or null when Sofia
+     * wasn't addressed. After her name: any find phrase + number, or just the number ("Sofia, 8438").
+     */
     fun commandTail(said: String): String? {
+        val rest = afterName(said) ?: return null
+        if (rest.isEmpty()) return ""
+        val text = rest.joinToString(" ")
+        triggerTail(text)?.let { return it }
+        if (parseQueries(text).any { it !is Query.Name }) return text
+        return if (rest.all { OBJECT_PREFIXES.any { p -> it.startsWith(p) } || it in FILLER_N }) "" else null
+    }
+
+    /** The find phrase rules, applied to what was said after "Sofia". */
+    private fun triggerTail(said: String): String? {
         var text = " " + normalize(said) + " "
         for (ph in WEAK_PHRASES) text = text.replace(" $ph ", " ${ph.replace(' ', '_')} ")
         val words = text.trim().split(' ').filter { it.isNotEmpty() }

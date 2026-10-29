@@ -304,6 +304,7 @@ class MainActivity : Activity() {
         val followUp = System.currentTimeMillis() < followUntil
         armedUntil = 0L
         main.removeCallbacks(armedTimeout)
+        if (alts.any(Lookup::asksWhoSheIs)) { Log.d("TailorCounter", "heard=$alts intro"); speak(Lookup.INTRO to false); return }
         val go = {
             // Only a command ("find receipt…", "check…", "найди заказ…") is acted on; a tap
             // counts as a command for whatever was said. Among the recognizer's guesses, a
@@ -790,7 +791,7 @@ class MainActivity : Activity() {
                 stage.addView(smallLine(java.text.SimpleDateFormat("MM/dd/yyyy", Locale.US).format(java.util.Date()),
                     Color.rgb(170, 170, 170), 44f))
                 if (System.currentTimeMillis() < chromeUntil)
-                    stage.addView(smallLine("Say: find + last 4 phone digits or receipt #", Color.rgb(110, 110, 110), 18f))
+                    stage.addView(smallLine("Say: Sofia, find + last 4 phone digits or receipt #", Color.rgb(110, 110, 110), 18f))
             }
             else -> {
                 val c = shown[index].card
