@@ -10,8 +10,8 @@ android {
         applicationId = "com.tailorshop.counter"
         minSdk = 30
         targetSdk = 36
-        versionCode = 25 // bumped by publish-phone-update.sh
-        versionName = "0.25"
+        versionCode = 26 // bumped by publish-phone-update.sh
+        versionName = "0.26"
     }
 
     buildTypes {
