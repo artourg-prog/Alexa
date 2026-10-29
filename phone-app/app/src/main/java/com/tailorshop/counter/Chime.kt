@@ -20,7 +20,7 @@ object Chime {
 
     private const val RATE = 44_100
     private const val LENGTH_S = 0.85
-    private const val VOLUME = 0.22 // low: a cue, not an alarm
+    private const val VOLUME = 0.35 // soft: a cue, not an alarm
 
     private fun samples(o: Option): ShortArray {
         val n = (RATE * LENGTH_S).toInt()
@@ -42,7 +42,9 @@ object Chime {
         Thread {
             val pcm = samples(o)
             val track = AudioTrack.Builder()
-                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                // Same volume as her voice (media). "Sonification" followed the system volume, which is 0 when
+                // the phone is on silent / vibrate, so the chime was mute on the Fold (10-28).
+                .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())
                 .setAudioFormat(AudioFormat.Builder().setEncoding(AudioFormat.ENCODING_PCM_16BIT).setSampleRate(RATE)
                     .setChannelMask(AudioFormat.CHANNEL_OUT_MONO).build())
