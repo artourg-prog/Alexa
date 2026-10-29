@@ -225,6 +225,16 @@ object Lookup {
         return Finish(worker, heard, receipts, sms)
     }
 
+    enum class Flow { FINISH, LOOKUP, NONE }
+
+    /** Art: two separate functions. Finish words ("запиши / готово / done") = finish only; find words = lookup only. */
+    fun flowOf(said: String): Flow = when {
+        !addressed(said) -> Flow.NONE
+        isFinishPhrase(said) -> Flow.FINISH
+        commandTail(said) != null -> Flow.LOOKUP
+        else -> Flow.NONE
+    }
+
     /** "send the message / отправь сообщение" anywhere in what was said. */
     fun wantsSms(said: String): Boolean = (" " + words(said).joinToString(" ") + " ").let { t -> SMS_WORDS.any { t.contains(" $it ") } }
 

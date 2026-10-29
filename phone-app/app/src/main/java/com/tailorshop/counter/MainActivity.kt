@@ -353,6 +353,8 @@ class MainActivity : Activity() {
         wakeUntil = if (alts.any(Lookup::addressed) || stillTalking) minOf(nowMs + 8_000, wakeStart + MAX_WAKE_MS) else 0L
         // Voice Finish isn't built yet: say so instead of dropping the phrase.
         if (finishes.configured() && handleFinishSpeech(alts, ru, stillTalking)) return
+        // A finish phrase never falls through to a lookup (the two flows never mix).
+        if (finishes.configured() && alts.any { Lookup.flowOf(it) == Lookup.Flow.FINISH }) { if (handsFree) listenSoon(300); return }
         if (alts.any { Lookup.addressed(it) || stillTalking } && alts.any(Lookup::isFinishPhrase)) {
             Log.d("TailorCounter", "heard=$alts finishSoon"); wakeUntil = 0L
             speak((if (ru) "Запись голосом скоро будет." else "Voice finish is coming soon.") to ru); render(); return
@@ -410,6 +412,7 @@ class MainActivity : Activity() {
                     queries.isEmpty() -> if (armedQuiet) { message = null; render(); if (handsFree) listenSoon(300) } else sayDidntCatch(russian)
                     cards.isEmpty() -> { showMessage(Lookup.notFound(russian)); speak(Lookup.notFound(russian) to russian); answered() }
                     else -> {
+                        lines.clear() // a lookup never shows finish lines (Art: the two flows never mix)
                         addResults(cards)
                         finishUntil = 0L // the last answer was a lookup: a bare number now means another lookup
                         speak(Lookup.reply(cards, russian) to russian) // Art: answer in the language asked
@@ -589,6 +592,8 @@ class MainActivity : Activity() {
             asking()?.let { if (now - it.askedAt > ANSWER_MS) timeoutLine(it) } // 30 s, no answer: save, no SMS
             if (!handsFree && now - handsOffAt > 10 * 60_000) { handsFree = true; updateHands(); setStatus(idleText()); listenSoon(300); render() }
             if (wasListening && !isListeningScreen()) { live = null; render() } // quietly back to the clock / result
+            if (finishWasVisible && !finishVisible()) render() // the finish result leaves after 30 s
+            finishWasVisible = finishVisible()
             Updater.confirmIntent?.let { if (resumed) { Updater.confirmIntent = null; startActivity(it) } }
             main.postDelayed(this, 1000)
         }
@@ -708,6 +713,7 @@ class MainActivity : Activity() {
     private fun updatePicked() {
         val ask = asking()
         confirmRow.visibility = if (ask != null && !screenOff) View.VISIBLE else View.GONE
+        if (finishVisible() && ask == null) { pickedButton.visibility = View.GONE; checkButton.visibility = View.GONE; return }
         if (ask != null) {
             sendSmsButton.text = if (ask.russian) "✓  Отправить SMS" else "✓  Send SMS"
             cancelButton.text = if (ask.russian) "✕  Отмена" else "✕  Cancel"
@@ -828,12 +834,16 @@ class MainActivity : Activity() {
     // Art (10-28, first live test): 8 s was far too short to answer. Every Voice Finish wait for an answer
     // (the "верно?" read-back + buttons, "Кто это?", adding "отправь сообщение" after a save) is 30 s.
     private val ANSWER_MS = 30_000L
+    private var finishWasVisible = false
     private var linesShownAt = 0L
     private var finishWorker: String? = null; private var finishSms = false; private var finishUntil = 0L
     private var pendingFinish: Lookup.Finish? = null; private var pendingUntil = 0L
     private var handsOffAt = 0L
 
     private fun asking(): Line? = lines.firstOrNull { it.asking }
+
+    /** Art: a finish result stays 30 s after its last change (always while a question is open), then the screen clears. */
+    private fun finishVisible() = lines.isNotEmpty() && (asking() != null || System.currentTimeMillis() - linesShownAt < 30_000)
 
     /** What a no-number reply may be right now (Cloud 6489296599). */
     private fun finishWaiting(): Lookup.Waiting {
@@ -901,6 +911,7 @@ class MainActivity : Activity() {
     private fun startLines(worker: String, receipts: List<String>, wantSms: Boolean, ru: Boolean) {
         val now = System.currentTimeMillis()
         if (now - linesShownAt > 120_000 || lines.none { it.worker == worker }) lines.clear()
+        shown.clear() // Art: finish and lookup never mix (no lookup card / Picked up button in a finish)
         finishWorker = worker; finishSms = wantSms; finishUntil = now + ANSWER_MS; linesShownAt = now
         val greet = greetOnce(worker, ru)
         val said = mutableListOf<String>()
@@ -991,6 +1002,7 @@ class MainActivity : Activity() {
 
     /** Says each new final answer once: saved / not saved, and "SMS sent" only when the state is SENT. */
     private fun announceFinishes() {
+        if (!finishVisible()) return // later changes (e.g. SMS SENT hours later) are kept in the queue, not spoken
         for (l in lines) {
             val i = l.scanId?.let { finishes.get(it) } ?: continue
             if (i.scan in Finishes.SCAN_FINAL && l.spokenScan != i.scan) {
@@ -1221,7 +1233,7 @@ class MainActivity : Activity() {
                 setTextColor(Color.rgb(255, 120, 120)); textSize = 44f; typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER; text = msg
             }) }
-            lines.isNotEmpty() && System.currentTimeMillis() - linesShownAt < 120_000 -> renderFinish()
+            finishVisible() -> renderFinish()
             live != null && shown.isEmpty() -> { stage.addView(banner()); stage.addView(liveLine(live!!, 48f)) }
             shown.isEmpty() -> {
                 heard.text = ""

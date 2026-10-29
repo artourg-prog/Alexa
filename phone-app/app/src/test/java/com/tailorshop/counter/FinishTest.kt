@@ -66,6 +66,15 @@ class FinishTest {
         assertEquals(1, r.count("addScan"))                                             // the same event, not a second scan
     }
 
+    @Test fun finishAndLookupNeverMix() {
+        assertEquals(Lookup.Flow.FINISH, Lookup.flowOf("София, это Артур, запиши 26316, отправь сообщение"))
+        assertEquals(Lookup.Flow.FINISH, Lookup.flowOf("Sofia, this is Andrey, done 26316"))
+        assertEquals(Lookup.Flow.LOOKUP, Lookup.flowOf("София, найди 26316"))
+        assertEquals(Lookup.Flow.LOOKUP, Lookup.flowOf("Sofia, check 8438"))
+        assertEquals(Lookup.Flow.NONE, Lookup.flowOf("я уже сделал 26316"))       // no "Sofia": nothing
+        assertNull(Lookup.parseFinish("София, найди 26316", workers))            // a lookup is never a finish
+    }
+
     // ---- the Reader contract ----
 
     private class FakeReader {
