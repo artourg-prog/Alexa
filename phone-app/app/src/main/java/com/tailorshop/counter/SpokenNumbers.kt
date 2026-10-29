@@ -118,6 +118,7 @@ object SpokenNumbers {
         if (run.any { it is Tok.Mult || it is Tok.Hundreds }) return listOf(arithmetic(run).toString())
         val out = mutableListOf<String>()
         var pendingDigits = StringBuilder()
+        var digitParts = 0 // how many digit groups (as written, not words) are in pendingDigits
         fun flushDigits() { if (pendingDigits.isNotEmpty()) { out += pendingDigits.toString(); pendingDigits = StringBuilder() } }
         var k = 0
         while (k < run.size) {
@@ -130,15 +131,21 @@ object SpokenNumbers {
                             out += t.s; k++; continue
                         }
                     }
+                    // A receipt said in two parts ("26 314", "262 79") is one 5-digit number: close it there,
+                    // so "26 314 26 315" stays two receipts instead of one long number.
+                    val before = pendingDigits.length
                     pendingDigits.append(t.s)
+                    if (before in 2..3 && pendingDigits.length == 5 && digitParts == 1) { flushDigits(); digitParts = 0; k++; continue }
+                    digitParts = if (before == 0) 1 else digitParts + 1
                 }
                 is Tok.Tens -> {
                     val next = run.getOrNull(k + 1)
                     if (next is Tok.Unit && next.v in 1..9) { pendingDigits.append(t.v + next.v); k++ }
                     else pendingDigits.append(t.v)
+                    digitParts = 99
                 }
-                is Tok.Teen -> pendingDigits.append(t.v)
-                is Tok.Unit -> pendingDigits.append(t.v)
+                is Tok.Teen -> { pendingDigits.append(t.v); digitParts = 99 }
+                is Tok.Unit -> { pendingDigits.append(t.v); digitParts = 99 }
                 else -> {}
             }
             k++

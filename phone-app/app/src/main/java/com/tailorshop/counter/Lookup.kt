@@ -102,6 +102,9 @@ object Lookup {
         if (groups.all { it.length == 4 || it.length == 5 }) {
             return groups.distinct().take(3).map { if (it.length == 4) Query.Last4(it) else Query.Receipt(it) }
         }
+        // Receipts said in parts ("26-279", "twenty-six two seventy-nine") come back as "26 279", "262-79",
+        // "26.314 26.315": put 2+3 / 3+2 / 2+2 groups back together, each into its own number.
+        pairUp(groups)?.let { nums -> return nums.distinct().take(3).map { if (it.length == 4) Query.Last4(it) else Query.Receipt(it) } }
         val all = groups.joinToString("")
         return when {
             all.length == 4 -> listOf(Query.Last4(all))
@@ -110,6 +113,21 @@ object Lookup {
             all.length >= 7 -> listOf(Query.FullPhone(all.takeLast(10)))
             else -> emptyList() // 1-3 digits: not a phone ending or receipt
         }
+    }
+
+    /** Groups -> 4/5-digit numbers when every group fits a pair (2+3, 3+2, 2+2) or stands alone; else null. */
+    private fun pairUp(groups: List<String>): List<String>? {
+        val out = mutableListOf<String>()
+        var i = 0
+        while (i < groups.size) {
+            val g = groups[i]; val n = groups.getOrNull(i + 1)
+            when {
+                g.length == 4 || g.length == 5 -> { out += g; i++ }
+                n != null && (g.length + n.length == 5 || (g.length == 2 && n.length == 2)) && g.length in 2..3 -> { out += g + n; i += 2 }
+                else -> return null
+            }
+        }
+        return out
     }
 
     private val FILLER_N by lazy { FILLER.map(::normalize).toSet() }
@@ -144,6 +162,9 @@ object Lookup {
         val i = w.indexOfFirst { it in SOFIA }
         return if (i < 0 || i > NAME_WITHIN) null else w.drop(i + 1)
     }
+
+    /** Just her name, nothing else after it ("вот София", "Sofia?"): not a command yet. */
+    fun onlyHerName(said: String): Boolean = afterName(said)?.isEmpty() == true
 
     /** "Sofia, who are you?" / "София, кто ты?" */
     fun asksWhoSheIs(said: String): Boolean {

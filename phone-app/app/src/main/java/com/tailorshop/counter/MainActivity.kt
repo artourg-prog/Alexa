@@ -332,7 +332,8 @@ class MainActivity : Activity() {
                 ?: tails.firstOrNull()
             Log.d("TailorCounter", "heard=$alts command=${chosen?.second}")
             if (chosen == null) {
-                if (armed) sayDidntCatch(armedRussian) // asked, but no number followed
+                if (armed && !armedQuiet) sayDidntCatch(armedRussian) // asked, but no number followed
+                else if (armed) { message = null; render(); if (handsFree) listenSoon(300) } // just her name: drop it quietly
                 else if (handsFree) listenSoon(300) // room talk: ignored silently
             } else {
                 val (said, tail) = chosen
@@ -345,11 +346,13 @@ class MainActivity : Activity() {
                         // Wait a few seconds for the number before giving up.
                         armedUntil = System.currentTimeMillis() + 8_000
                         armedRussian = russian
+                        // Only her name (e.g. someone mentions Sofia while talking): wait quietly, never "didn't catch".
+                        armedQuiet = Lookup.onlyHerName(said)
                         main.postDelayed(armedTimeout, 8_000)
                         showMessage(if (russian) "Скажите номер…" else "Say the number…", 8_000)
                         listenSoon(100)
                     }
-                    queries.isEmpty() -> sayDidntCatch(russian)
+                    queries.isEmpty() -> if (armedQuiet) { message = null; render(); if (handsFree) listenSoon(300) } else sayDidntCatch(russian)
                     cards.isEmpty() -> { showMessage(Lookup.notFound(russian)); speak(Lookup.notFound(russian) to russian); answered() }
                     else -> {
                         addResults(cards)
@@ -368,8 +371,12 @@ class MainActivity : Activity() {
     private var followUntil = 0L
     private fun answered() { followUntil = System.currentTimeMillis() + 15_000 }
     private var armedRussian = false
+    private var armedQuiet = false
     private val armedTimeout = Runnable {
-        if (armedUntil != 0L) { armedUntil = 0L; stopListening(); sayDidntCatch(armedRussian) }
+        if (armedUntil != 0L) {
+            armedUntil = 0L
+            if (armedQuiet) { message = null; render() } else { stopListening(); sayDidntCatch(armedRussian) }
+        }
     }
 
     private fun sayDidntCatch(russian: Boolean) {

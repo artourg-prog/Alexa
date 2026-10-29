@@ -206,6 +206,23 @@ class LookupTest {
         for (t in Topic.values()) Lookup.followUpAnswer(t, c).let { assertTrue(!it.contains("Andrea") && !it.contains("555")) }
     }
 
+    @Test fun artsLiveTranscripts() {
+        // Exactly what the Fold heard on 10-28 21:18 ("Sofia, find number 26279", said as "26-279").
+        for (said in listOf("София Найди номер 26 279", "София Найди номер 262-79", "София Найди номер 26279"))
+            assertEquals(said, listOf(Query.Receipt("26279")), q(raw(said)!!))
+        assertEquals(listOf(Query.Receipt("26314"), Query.Receipt("26315"), Query.Receipt("26316")),
+            q("готово 26.314 26.315 и 26.316"))
+        assertEquals(listOf(Query.Receipt("26279")), q("Sofia twenty six two seventy nine"))
+        assertEquals(listOf(Query.FullPhone("7025551034")), q("702 555 1034")) // a phone still reads as a phone
+        assertEquals(listOf(Query.Last4("4847")), q("48 47"))
+    }
+
+    @Test fun herNameAloneIsQuiet() {
+        assertTrue(Lookup.onlyHerName("вот София"))
+        assertTrue(!Lookup.onlyHerName("София, найди"))
+        assertTrue(!Lookup.onlyHerName("we talked about it"))
+    }
+
     @Test fun sheIntroducesHerself() {
         assertTrue(Lookup.asksWhoSheIs("Sofia, who are you?"))
         assertTrue(Lookup.asksWhoSheIs("София, кто ты?"))
