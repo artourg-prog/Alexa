@@ -186,6 +186,60 @@ object Lookup {
     /** A Voice Finish phrase (the tailor reporting finished work), not a lookup. */
     fun isFinishPhrase(said: String): Boolean = words(said).any { it in FINISH }
 
+    // ---- Voice Finish ----
+
+    /** What a finish command said: the matched worker (null = no / unclear name), the receipts, SMS wanted. */
+    data class Finish(val worker: String?, val nameHeard: String?, val receipts: List<String>, val sms: Boolean)
+
+    private val SMS_WORDS = listOf("send the message", "send message", "send a message", "send sms", "send the text", "text the client",
+        "otprav soobschenie", "otpravit soobschenie", "otprav sms", "otpravit sms", "otprav smsku", "otpravi soobschenie")
+    private val INTRO_WORDS = setOf("this", "is", "it", "s", "its", "here", "eto", "ya", "i", "am", "m")
+
+    /** The Approved Workers name the tailor said (one typo allowed, e.g. "Андрей" -> Andrei); null if none or unclear. */
+    fun matchWorker(word: String, workers: List<String>): String? {
+        val w = normalize(word)
+        if (w.length < 3) return null
+        val hits = workers.filter { name ->
+            val n = normalize(name).split(' ').first()
+            n == w || (w.length >= 4 && editDistance(w, n) <= 1) || (w.length >= 4 && n.startsWith(w))
+        }
+        return hits.singleOrNull()
+    }
+
+    /** A finish command after "Sofia" (or while she is still listening): name, receipts, "send the message". */
+    fun parseFinish(said: String, workers: List<String>): Finish? {
+        if (!isFinishPhrase(said)) return null
+        val all = words(said).filter { it !in SOFIA && it !in POLITE }
+        val text = " " + all.joinToString(" ") + " "
+        val sms = SMS_WORDS.any { text.contains(" $it ") }
+        // The name: the first word that matches a worker, among the words before the first finish word.
+        val firstFinish = all.indexOfFirst { it in FINISH }.let { if (it < 0) all.size else it }
+        val candidates = all.take(firstFinish).filter { it !in INTRO_WORDS }
+        val worker = candidates.firstNotNullOfOrNull { matchWorker(it, workers) }
+        val heard = candidates.firstOrNull { it.length >= 3 && it.none(Char::isDigit) }
+        val receipts = parseQueries(all.joinToString(" ")).filterIsInstance<Query.Receipt>().map { it.number }.distinct()
+        return Finish(worker, heard, receipts, sms)
+    }
+
+    private val YES = setOf("yes", "yeah", "yep", "correct", "right", "sure", "da", "verno", "aga", "tochno", "pravilno", "konechno")
+    private val NO = setOf("no", "nope", "cancel", "wrong", "net", "otmena", "ne", "neverno", "otmenit", "stop")
+
+    /** The tailor's answer to "correct?": true = yes, false = no, null = neither. */
+    fun yesNo(said: String): Boolean? {
+        val w = words(said).filter { it !in SOFIA }
+        return when { w.any { it in NO } -> false; w.any { it in YES } -> true; else -> null }
+    }
+
+    fun readBack(worker: String, receipt: String, russian: Boolean): String {
+        val d = digits(receipt).toCharArray().joinToString(" ")
+        return if (russian) "$worker, $d, верно?" else "$worker, $d, correct?"
+    }
+
+    /** First words to a tailor that day: good morning / hello by name, in the speaker's language. */
+    fun greeting(worker: String, hour: Int, russian: Boolean): String = if (russian) {
+        if (hour < 12) "Доброе утро, $worker." else "Здравствуй, $worker."
+    } else { if (hour < 12) "Good morning, $worker." else "Hello, $worker." }
+
     /** Just her name, nothing else after it ("вот София", "Sofia?"): not a command yet. */
     fun onlyHerName(said: String): Boolean = afterName(said)?.isEmpty() == true
 

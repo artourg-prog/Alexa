@@ -37,6 +37,7 @@ class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private lateinit var sheets: Sheets
     private lateinit var pickups: Pickups
+    private lateinit var finishes: Finishes
 
     @Volatile private var orders: List<Order> = emptyList()
     @Volatile private var loadedAt = 0L
@@ -56,6 +57,9 @@ class MainActivity : Activity() {
     private lateinit var rootView: LinearLayout
     private lateinit var micButton: Button
     private lateinit var pickedButton: Button
+    private lateinit var confirmRow: LinearLayout
+    private lateinit var sendSmsButton: Button
+    private lateinit var cancelButton: Button
     private lateinit var checkButton: Button
     private lateinit var langButton: Button
     private lateinit var handsButton: Button
@@ -65,6 +69,7 @@ class MainActivity : Activity() {
         override fun run() {
             refresh(null)
             syncPickups()
+            syncFinishes()
             main.postDelayed(this, refreshEvery)
         }
     }
@@ -74,6 +79,7 @@ class MainActivity : Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sheets = Sheets(File(filesDir, "sheet-key.json"))
         pickups = Pickups(filesDir)
+        finishes = Finishes(filesDir)
         Updater.scheduleNight(this)
         russianFirst = getPreferences(MODE_PRIVATE).getBoolean("russianFirst", true)
         setContentView(buildUi())
@@ -343,6 +349,7 @@ class MainActivity : Activity() {
         if (alts.any(Lookup::addressed) && !stillTalking) wakeStart = nowMs
         wakeUntil = if (alts.any(Lookup::addressed) || stillTalking) minOf(nowMs + 8_000, wakeStart + MAX_WAKE_MS) else 0L
         // Voice Finish isn't built yet: say so instead of dropping the phrase.
+        if (finishes.configured() && handleFinishSpeech(alts, ru, stillTalking)) return
         if (alts.any { Lookup.addressed(it) || stillTalking } && alts.any(Lookup::isFinishPhrase)) {
             Log.d("TailorCounter", "heard=$alts finishSoon"); wakeUntil = 0L
             speak((if (ru) "Запись голосом скоро будет." else "Voice finish is coming soon.") to ru); render(); return
@@ -401,6 +408,7 @@ class MainActivity : Activity() {
                     cards.isEmpty() -> { showMessage(Lookup.notFound(russian)); speak(Lookup.notFound(russian) to russian); answered() }
                     else -> {
                         addResults(cards)
+                        finishUntil = 0L // the last answer was a lookup: a bare number now means another lookup
                         speak(Lookup.reply(cards, russian) to russian) // Art: answer in the language asked
                         answered()
                     }
@@ -474,7 +482,7 @@ class MainActivity : Activity() {
             updateLang(); restartIfListening()
         }
         handsButton = smallButton {
-            handsFree = !handsFree; updateHands(); setStatus(idleText()); render()
+            handsFree = !handsFree; handsOffAt = System.currentTimeMillis(); updateHands(); setStatus(idleText()); render()
             if (handsFree) listenSoon(200) else stopListening()
         }
         holdForSettings(handsButton)
@@ -510,7 +518,25 @@ class MainActivity : Activity() {
                 render()
             }
         }
-        root.addView(top); root.addView(heard); root.addView(stage); root.addView(checkButton); root.addView(pickedButton); root.addView(micButton)
+        // Voice Finish: Send SMS / Cancel for the receipt being read back (Art: voice OR touch, whichever first).
+        sendSmsButton = Button(this).apply {
+            textSize = 28f; setTextColor(Color.WHITE); isAllCaps = false; text = "✓  Send SMS"
+            background = GradientDrawable().apply { setColor(Color.rgb(30, 140, 70)); cornerRadius = dp(20).toFloat() }
+            layoutParams = LinearLayout.LayoutParams(0, dp(96), 1f).apply { rightMargin = dp(8) }
+            setOnClickListener { asking()?.let { confirmLine(it, true) } }
+        }
+        cancelButton = Button(this).apply {
+            textSize = 28f; setTextColor(Color.WHITE); isAllCaps = false; text = "✕  Cancel"
+            background = GradientDrawable().apply { setColor(Color.rgb(90, 90, 90)); cornerRadius = dp(20).toFloat() }
+            layoutParams = LinearLayout.LayoutParams(0, dp(96), 1f)
+            setOnClickListener { asking()?.let { cancelLine(it) } }
+        }
+        confirmRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; visibility = View.GONE
+            addView(sendSmsButton); addView(cancelButton)
+        }
+        root.addView(top); root.addView(heard); root.addView(stage); root.addView(checkButton); root.addView(confirmRow)
+        root.addView(pickedButton); root.addView(micButton)
         updateLang(); updateHands(); updateMic()
         setStatus(if (sheets.hasKey()) "Loading orders…" else "Setup needed: the sheet key is not installed")
         stage.post { render() }
@@ -558,6 +584,8 @@ class MainActivity : Activity() {
             }
             if (now - lastShift >= 60_000) { lastShift = now; shiftContent() }
             updatePicked() // the button goes away once its minute is up
+            asking()?.let { if (now - it.askedAt > 8_000) timeoutLine(it) } // 8 s, no answer: save, no SMS
+            if (!handsFree && now - handsOffAt > 10 * 60_000) { handsFree = true; updateHands(); setStatus(idleText()); listenSoon(300); render() }
             if (wasListening && !isListeningScreen()) { live = null; render() } // quietly back to the clock / result
             Updater.confirmIntent?.let { if (resumed) { Updater.confirmIntent = null; startActivity(it) } }
             main.postDelayed(this, 1000)
@@ -676,6 +704,13 @@ class MainActivity : Activity() {
     }
 
     private fun updatePicked() {
+        val ask = asking()
+        confirmRow.visibility = if (ask != null && !screenOff) View.VISIBLE else View.GONE
+        if (ask != null) {
+            sendSmsButton.text = if (ask.russian) "✓  Отправить SMS" else "✓  Send SMS"
+            cancelButton.text = if (ask.russian) "✕  Отмена" else "✕  Cancel"
+            pickedButton.visibility = View.GONE; checkButton.visibility = View.GONE; return
+        }
         val warn = pickups.warning()
         val open = pickups.toCheck()
         val showCheck = !screenOff && (warn != null || open.isNotEmpty()) && undoReceipts == null
@@ -778,6 +813,194 @@ class MainActivity : Activity() {
             val r = try { Updater.checkAndInstall(applicationContext) } catch (e: Exception) { "Update check failed: ${e.message}" }
             main.post { showMessage(r) }
         }
+    }
+
+    // ---- Voice Finish (Art): "Sofia, this is Andrei, done 26316 [and send the message]" ----
+
+    private class Line(val worker: String, val receipt: String, val total: String, val wantSms: Boolean, val russian: Boolean) {
+        var asking = false; var askedAt = 0L; var cancelled = false; var scanId: String? = null; var notInList = false
+        var spokenScan = ""; var spokenSms = ""
+    }
+    private val lines = mutableListOf<Line>()
+    private var linesShownAt = 0L
+    private var finishWorker: String? = null; private var finishSms = false; private var finishUntil = 0L
+    private var pendingFinish: Lookup.Finish? = null; private var pendingUntil = 0L
+    private var handsOffAt = 0L
+
+    private fun asking(): Line? = lines.firstOrNull { it.asking }
+
+    private fun workerList(): List<String> = finishes.workers().ifEmpty {
+        // Fallback: the names already in the sheet's M.T. column (Receipts only accepts Approved Workers there).
+        (orders.map { it.tailor }.filter { it.isNotBlank() } + "Artour").distinct()
+    }
+
+    /** True when the speech was a Voice Finish step (answer to a read-back, a finish command, or a follow-up number). */
+    private fun handleFinishSpeech(alts: List<String>, ru: Boolean, stillTalking: Boolean): Boolean {
+        val now = System.currentTimeMillis()
+        asking()?.let { line ->
+            alts.firstNotNullOfOrNull(Lookup::yesNo)?.let { yes -> Log.d("TailorCounter", "heard=$alts confirm=$yes"); if (yes) confirmLine(line, true) else cancelLine(line); return true }
+            val other = alts.flatMap { Lookup.parseQueries(it).filterIsInstance<Query.Receipt>() }.map { it.number }.firstOrNull { it != line.receipt }
+            if (other != null) { cancelLine(line, quiet = true); startLines(line.worker, listOf(other), line.wantSms, ru); return true }
+        }
+        val workers = workerList()
+        // The name after "Who is this?"
+        if (now < pendingUntil) pendingFinish?.let { pf ->
+            val w = alts.flatMap { it.split(' ', ',') }.firstNotNullOfOrNull { Lookup.matchWorker(it, workers) }
+            if (w != null) { pendingFinish = null; Log.d("TailorCounter", "heard=$alts finishName=$w"); handleFinish(pf.copy(worker = w), ru); return true }
+        }
+        val f = alts.firstNotNullOfOrNull { a -> if (Lookup.addressed(a) || stillTalking) Lookup.parseFinish(a, workers) else null }
+        if (f != null) { Log.d("TailorCounter", "heard=$alts finish=${f.worker} ${f.receipts} sms=${f.sms}"); handleFinish(f, ru); return true }
+        // A bare number in the 15 s after a finish: the same tailor (Art), its own read-back.
+        if (now < finishUntil) finishWorker?.let { w ->
+            val nums = alts.flatMap { Lookup.parseQueries(it).filterIsInstance<Query.Receipt>() }.map { it.number }.distinct()
+            if (nums.isNotEmpty()) { Log.d("TailorCounter", "heard=$alts finishFollowUp=$w $nums"); startLines(w, nums, finishSms, ru); return true }
+        }
+        return false
+    }
+
+    private fun handleFinish(f: Lookup.Finish, ru: Boolean) {
+        live = null; wakeUntil = 0L
+        val w = f.worker
+        if (w == null) {
+            pendingFinish = f; pendingUntil = System.currentTimeMillis() + 10_000; armedUntil = pendingUntil; armedQuiet = true
+            speak((if (ru) "Кто это?" else "Who is this?") to ru); showMessage(if (ru) "Кто это?" else "Who is this?", 10_000); return
+        }
+        if (f.receipts.isEmpty()) {
+            finishWorker = w; finishSms = f.sms; finishUntil = System.currentTimeMillis() + 15_000
+            speak((if (ru) "$w, скажите номер квитанции." else "$w, say the receipt number.") to ru); return
+        }
+        startLines(w, f.receipts, f.sms, ru)
+    }
+
+    private fun startLines(worker: String, receipts: List<String>, wantSms: Boolean, ru: Boolean) {
+        val now = System.currentTimeMillis()
+        if (now - linesShownAt > 120_000 || lines.none { it.worker == worker }) lines.clear()
+        finishWorker = worker; finishSms = wantSms; finishUntil = now + 15_000; linesShownAt = now
+        val greet = greetOnce(worker, ru)
+        val said = mutableListOf<String>()
+        for (r in receipts) {
+            val o = orders.firstOrNull { Lookup.digits(it.receipt) == r }
+            val line = Line(worker, r, o?.total.orEmpty(), wantSms, ru)
+            lines += line
+            if (o == null) { line.notInList = true; said += if (ru) "Квитанции ${spell(r)} нет в таблице." else "Receipt ${spell(r)} is not in the sheet yet." }
+            else if (!wantSms) save(line, sms = false)
+        }
+        if (wantSms) {
+            greet?.let { speak(it to ru) }
+            if (said.isNotEmpty()) speak(said.joinToString(" ") to ru)
+            askNext()
+        } else {
+            val ok = lines.filter { it.worker == worker && it.scanId != null && it.receipt in receipts }.map { spell(it.receipt) }
+            val msg = (listOfNotNull(greet) + said + (if (ok.isNotEmpty()) listOf(if (ru) "Записываю ${ok.joinToString(", ")}." else "Saving ${ok.joinToString(", ")}.") else emptyList())).joinToString(" ")
+            speak(msg to ru); answered()
+        }
+        render()
+    }
+
+    private fun spell(r: String) = Lookup.digits(r).toCharArray().joinToString(" ")
+
+    /** Asks about the next receipt waiting for its SMS answer (one at a time, Cloud 6488516750). */
+    private fun askNext() {
+        val next = lines.firstOrNull { it.wantSms && !it.cancelled && it.scanId == null && !it.notInList && !it.asking } ?: run { answered(); render(); return }
+        next.asking = true; next.askedAt = System.currentTimeMillis()
+        armedUntil = next.askedAt + 8_000; armedQuiet = true // the answer needs no "Sofia"
+        speak(Lookup.readBack(next.worker, next.receipt, next.russian) to next.russian)
+        render()
+    }
+
+    private fun confirmLine(line: Line, yes: Boolean) {
+        line.asking = false
+        save(line, sms = yes)
+        askNext()
+    }
+
+    private fun cancelLine(line: Line, quiet: Boolean = false) {
+        line.asking = false; line.cancelled = true
+        if (!quiet) speak((if (line.russian) "Отменено. Скажите номер ещё раз." else "Cancelled. Say the number again.") to line.russian)
+        finishUntil = System.currentTimeMillis() + 15_000
+        askNext()
+    }
+
+    /** 8 s without an answer: the job is saved, the SMS is not sent (Art). */
+    private fun timeoutLine(line: Line) {
+        line.asking = false
+        save(line, sms = false)
+        askNext()
+    }
+
+    private fun save(line: Line, sms: Boolean) {
+        val item = finishes.add(line.worker, line.receipt, sms)
+        if (item == null) { showMessage(if (line.russian) "Телефон не может сохранить — запишите на планшете" else "The phone can't save — record it on the tablet", 10_000); return }
+        line.scanId = item.scanId
+        syncFinishesSoon(0)
+    }
+
+    private var finishPolls = 0
+    private val finishSyncer = Runnable { syncFinishes() }
+    private fun syncFinishesSoon(delay: Long) { main.removeCallbacks(finishSyncer); main.postDelayed(finishSyncer, delay) }
+
+    private fun syncFinishes() {
+        if (!finishes.configured()) return
+        io.execute {
+            try { finishes.sync() } catch (e: Exception) { Log.d("TailorCounter", "finish sync failed: ${e.message}") }
+            main.post {
+                announceFinishes()
+                render()
+                val open = lines.any { l -> l.scanId?.let { finishes.get(it) }?.let { it.scan !in Finishes.SCAN_FINAL || (it.sendSms && it.sms !in Finishes.SMS_FINAL) } == true }
+                if (open && finishPolls++ < 40) syncFinishesSoon(3_000) else finishPolls = 0 // every 3 s for 2 min, then the minute refresh
+            }
+        }
+    }
+
+    /** Says each new final answer once: saved / not saved, and "SMS sent" only when the state is SENT. */
+    private fun announceFinishes() {
+        for (l in lines) {
+            val i = l.scanId?.let { finishes.get(it) } ?: continue
+            if (i.scan in Finishes.SCAN_FINAL && l.spokenScan != i.scan) {
+                l.spokenScan = i.scan; linesShownAt = System.currentTimeMillis()
+                speak(Finishes.scanText(i, l.russian) to l.russian)
+            }
+            if (i.sendSms && i.sms == "SENT" && l.spokenSms != "SENT") {
+                l.spokenSms = "SENT"; Sounds.play(this, Sounds.Event.SMS)
+                speak((if (l.russian) "SMS отправлено." else "SMS sent.") to l.russian)
+            }
+        }
+    }
+
+    /** First words to a tailor that day get a greeting by name (Art). */
+    private fun greetOnce(worker: String, ru: Boolean): String? {
+        val day = java.time.LocalDate.now(shopZone).toString()
+        val prefs = getSharedPreferences("greeted", MODE_PRIVATE)
+        if (prefs.getString(worker, "") == day) return null
+        prefs.edit().putString(worker, day).apply()
+        return Lookup.greeting(worker, java.time.ZonedDateTime.now(shopZone).hour, ru)
+    }
+
+    private fun renderFinish() {
+        stage.addView(banner())
+        val l0 = lines.first()
+        stage.addView(smallLine(l0.worker, Color.rgb(120, 220, 140), 44f, bold = true))
+        for (l in lines) {
+            val i = l.scanId?.let { finishes.get(it) }
+            val big = l.asking || lines.size == 1
+            stage.addView(if (big) bigLine(l.receipt, Color.WHITE, 0.32f, drift = dp(NUMBER_DRIFT_DP))
+                else smallLine(l.receipt, Color.WHITE, 40f, bold = true))
+            if (l.total.isNotBlank()) stage.addView(smallLine(l.total, Color.rgb(200, 200, 200), if (big) 36f else 22f, bold = big))
+            val status = when {
+                l.notInList -> if (l.russian) "Нет в таблице" else "Not in the sheet yet"
+                l.cancelled -> if (l.russian) "Отменено" else "Cancelled"
+                l.asking -> if (l.russian) "Отправить SMS клиенту?" else "Send the SMS to the client?"
+                i == null -> if (l.russian) "Ждёт" else "Waiting"
+                else -> Finishes.scanText(i, l.russian) + "  ·  " + Finishes.smsText(i, l.russian)
+            }
+            val color = when { i?.scan == "ADDED" || i?.scan == "ALREADY" -> Color.rgb(90, 210, 120); l.asking -> Color.rgb(255, 210, 90)
+                l.cancelled || l.notInList || i?.scan == "REJECTED" -> Color.rgb(255, 120, 120); else -> Color.rgb(170, 170, 170) }
+            stage.addView(smallLine(status, color, 22f, bold = true))
+        }
+        // Which way a bare number goes now (Cloud 6487781534): to the same tailor for the next 15 s.
+        if (asking() == null && System.currentTimeMillis() < finishUntil)
+            stage.addView(smallLine(if (l0.russian) "Следующий номер → для ${l0.worker}" else "Next number → saved for ${l0.worker}",
+                Color.rgb(140, 140, 140), 18f))
     }
 
     private fun prune() {
@@ -896,7 +1119,8 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
                 .apply { rightMargin = dp(16) }
         })
-        addView(smallLine(HINT, Color.rgb(140, 140, 140), 18f))
+        addView(smallLine(if (handsFree) HINT else "Sofia is OFF — tap Hands-free to turn her on",
+            if (handsFree) Color.rgb(140, 140, 140) else Color.rgb(255, 180, 40), 18f, bold = !handsFree))
     }
 
     private fun liveLine(text: String, size: Float) = TextView(this).apply {
@@ -960,6 +1184,7 @@ class MainActivity : Activity() {
                 setTextColor(Color.rgb(255, 120, 120)); textSize = 44f; typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER; text = msg
             }) }
+            lines.isNotEmpty() && System.currentTimeMillis() - linesShownAt < 120_000 -> renderFinish()
             live != null && shown.isEmpty() -> { stage.addView(banner()); stage.addView(liveLine(live!!, 48f)) }
             shown.isEmpty() -> {
                 heard.text = ""
@@ -980,6 +1205,7 @@ class MainActivity : Activity() {
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
                 })
                 b.addView(dateLine) // Art: the idle block is only Sofia + clock + date (no hint)
+                if (!handsFree) b.addView(smallLine("Sofia is OFF — tap Hands-free to turn her on", Color.rgb(255, 180, 40), 22f, bold = true))
                 stage.addView(b)
                 block = b
                 b.translationX = bounceX; b.translationY = bounceY
