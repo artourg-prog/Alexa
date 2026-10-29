@@ -33,7 +33,7 @@ on the shop line ("phone Sofia").
   parts ("26 279", "262-79", "26.314") are joined; several receipts in one phrase stay separate.
 - **Answer:** one natural sentence, **in the language of the question**:
   - "Receipt 2 6 3 1 5 is ready for pickup, there is a balance due." /
-    "Квитанция 2 6 3 1 5 готова к выдаче, есть долг."
+    "Квитанция 2 6 3 1 5 готова к выдаче, не оплачено."
   - It's paid / balance due / store account / nothing when the payment is unknown.
   - Never "already picked up"; **never the client's phone or name aloud**.
 - **Screen:**
@@ -166,3 +166,7 @@ on the shop line ("phone Sofia").
 ## Recognition recovery (October 29)
 
 A listening session with no callbacks recovers automatically: 15 seconds for initial readiness or a final result after speech end, 60 seconds for lost ongoing callbacks. Silence with continuing callbacks is healthy. Recovery only runs in foreground hands-free mode, during allowed listening hours and outside spoken replies. Existing busy backoff is preserved. This does not guarantee every wake word is recognized.
+
+## Saved-report inquiry (October 29)
+
+An addressed question mentioning Daily Report and checking/saved/recorded routes to a read-only saved-report query before finish or pickup lookup. Require one full receipt number. Return saved worker(s) and dates; unavailable is never not-recorded. Unsaved tablet entries are not covered. A separate Saved in Daily Report sound is configurable and plays on an ADDED transition, never ACCEPTED/queued or an ALREADY result.

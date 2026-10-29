@@ -13,6 +13,7 @@ import android.util.Log
 object Sounds {
     enum class Event(val label: String, val key: String, val default: String) {
         WAKE("Wake (Sofia heard)", "snd_wake", "Crystal"),   // Art asked for "Sequence": not on this Fold
+        SAVED("Saved in Daily Report", "snd_saved", "Voyager"),
         SMS("SMS sent", "snd_sms", "Crescent"),
         PICKED("Picked up", "snd_picked", "Chaos"),
     }

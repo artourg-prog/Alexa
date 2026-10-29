@@ -49,6 +49,7 @@ class MainActivity : Activity() {
     private var handsFree = true
     private var russianFirst = false
     private var resumed = false
+    private var reportCheckRevision = 0L
     private var tapped = false // this listen was started by the button, so always answer
 
     private lateinit var status: TextView
@@ -168,6 +169,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        reportCheckRevision++
         resumed = false
         muteSystemSounds(false)
         main.removeCallbacks(refresher)
@@ -332,6 +334,7 @@ class MainActivity : Activity() {
     // ---- answering ----
 
     private fun answer(alts: List<String>, detectedLang: String?) {
+        val checkRevision = ++reportCheckRevision
         alts.firstOrNull(Lookup::addressed)?.let { signalWake(it, System.currentTimeMillis()) }
         val tappedNow = tapped
         tapped = false
@@ -344,6 +347,25 @@ class MainActivity : Activity() {
         main.removeCallbacks(armedTimeout)
         live = null
         val ru = alts.any(Lookup::isRussian) || (detectedLang?.startsWith("ru") == true)
+        alts.firstNotNullOfOrNull { ReportStatus.parse(it, workerList()) }?.let { request ->
+            wakeUntil = 0L
+            if (request.number == null) {
+                speak((if (ru) "Скажите один полный номер квитанции и спросите про Daily Report." else "Please give one full receipt number and ask about Daily Report.") to ru)
+                answered(); return
+            }
+            showMessage(if (ru) "Проверяю Daily Report…" else "Checking Daily Report…", 30_000)
+            io.execute {
+                val reply = try { ReportStatus.reply(request, finishes.reportStatus(request.number), ru) }
+                    catch (e: Exception) { if (ru) "Сейчас не удалось проверить Daily Report." else "I couldn't check Daily Report right now." }
+                main.post {
+                    if (resumed && reportCheckRevision == checkRevision) {
+                        showMessage("${request.number}: $reply", 60_000)
+                        speak(reply to ru); answered()
+                    }
+                }
+            }
+            return
+        }
         // Keep the listening screen while she waits for the rest: after a bare "Sofia", or "Sofia, this is
         // Arthur" + a pause (Art, 10-28: the screen gave up mid-sentence). Reset below once she acts.
         // Still talking to her: only if this phrase has a number in it (room talk after her name doesn't hold her).
@@ -1022,6 +1044,7 @@ class MainActivity : Activity() {
             val i = l.scanId?.let { finishes.get(it) } ?: continue
             if (i.scan in Finishes.SCAN_FINAL && l.spokenScan != i.scan) {
                 l.spokenScan = i.scan; linesShownAt = System.currentTimeMillis()
+                if (i.scan == "ADDED") Sounds.play(this, Sounds.Event.SAVED)
                 speak(Finishes.scanText(i, l.russian) to l.russian)
             }
             if (i.sendSms && i.sms == "SENT" && l.spokenSms != "SENT") {

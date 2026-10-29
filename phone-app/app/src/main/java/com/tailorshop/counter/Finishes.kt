@@ -165,6 +165,13 @@ class Finishes(
         return JSONObject(text)
     }
 
+    /** Separate read-only endpoint; does not add/change a scan or request SMS. */
+    fun reportStatus(number: String): JSONObject {
+        val cfg = JSONObject(configFile.readText())
+        return post(cfg.getString("url"), JSONObject().put("secret", cfg.getString("secret"))
+            .put("mode", "receiptReportStatus").put("number", number))
+    }
+
     private fun load() {
         if (!queueFile.isFile) return
         try {

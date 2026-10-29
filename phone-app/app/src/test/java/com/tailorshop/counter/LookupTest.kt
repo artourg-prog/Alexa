@@ -237,7 +237,7 @@ class LookupTest {
         assertTrue(Lookup.isRussian("София, проверь номер 26315"))
         assertTrue(!Lookup.isRussian("Sofia, check 26315"))
         val c = Card("26315", "x", "", ready = true, pay = Pay.DUE)
-        assertEquals("Квитанция 2 6 3 1 5 готова к выдаче, есть долг.", Lookup.reply(listOf(c), true))
+        assertEquals("Квитанция 2 6 3 1 5 готова к выдаче, не оплачено.", Lookup.reply(listOf(c), true))
         assertEquals("Receipt 2 6 3 1 5 is ready for pickup, there is a balance due.", Lookup.reply(listOf(c), false))
         assertEquals("Квитанция 2 6 3 1 5 ещё не готова, оплачено.", Lookup.replyRu(listOf(c.copy(ready = false, pay = Pay.PAID))))
         val d = Lookup.findAll("26240", orders).first()

@@ -370,7 +370,7 @@ object Lookup {
         Topic.TAILOR -> if (c.tailor.isNotBlank()) "Мастер — ${c.tailor}." else "Ещё не готово, мастера пока нет."
         Topic.AMOUNT -> if (c.total.isNotBlank()) "Сумма ${c.total}." else "Суммы не вижу."
         Topic.PAY -> when (c.pay) {
-            Pay.PAID -> "Оплачено."; Pay.DUE -> "Есть долг."; Pay.ACCOUNT -> "На счёте магазина."
+            Pay.PAID -> "Оплачено."; Pay.DUE -> "Не оплачено."; Pay.ACCOUNT -> "На счёте магазина."
             Pay.UNKNOWN -> "Не вижу, как оплачено."
         }
         Topic.DATE -> dateKey(c.date).let { k -> if (k == 0) "Не вижу дату сдачи." else "Сдали ${k % 100} ${MONTHS_RU[k / 100 % 100 - 1]}." }
@@ -438,10 +438,10 @@ object Lookup {
      */
     fun reply(cards: List<Card>, russian: Boolean) = if (russian) replyRu(cards) else replyEn(cards)
 
-    /** The same answer in Russian: "Квитанция 2 6 3 1 5 готова к выдаче, есть долг." */
+    /** The same answer in Russian: "Квитанция 2 6 3 1 5 готова к выдаче, не оплачено." */
     fun replyRu(cards: List<Card>): String = cards.take(3).joinToString(" ") {
         val pay = when (it.pay) {
-            Pay.PAID -> ", оплачено"; Pay.DUE -> ", есть долг"; Pay.ACCOUNT -> ", на счёте магазина"; Pay.UNKNOWN -> ""
+            Pay.PAID -> ", оплачено"; Pay.DUE -> ", не оплачено"; Pay.ACCOUNT -> ", на счёте магазина"; Pay.UNKNOWN -> ""
         }
         "Квитанция ${digits(it.receipt).toCharArray().joinToString(" ")} " +
             (if (it.ready) "готова к выдаче" else "ещё не готова") + "$pay."
