@@ -189,9 +189,9 @@ class LookupTest {
 
     @Test fun answerIsReceiptDigitsEnglishOnly() {
         val en = Lookup.replyEn(listOf(Card("26253", "Pat", "(702) 555-1034", ready = true)))
-        assertEquals("Receipt two, six, two, five, three — ready for pickup.", en)
-        assertTrue(!en.contains("1034") && !en.contains("one, zero, three, four"))
-        assertEquals("Receipt two, six, two, five, four — work is not finished yet.",
+        assertEquals("Receipt 2 6 2 5 3 is ready for pickup.", en)
+        assertTrue(!en.contains("1034") && !en.contains("1 0 3 4"))
+        assertEquals("Receipt 2 6 2 5 4 is not finished yet.",
             Lookup.replyEn(listOf(Card("26254", "Sam", "", ready = false))))
     }
 
@@ -208,11 +208,11 @@ class LookupTest {
         val pay = Lookup.findAll("2222", Lookup.parseOrders(rows2)).associate { it.receipt to it.pay }
         assertEquals(mapOf("30001" to Pay.PAID, "30002" to Pay.DUE, "30003" to Pay.ACCOUNT, "30004" to Pay.UNKNOWN,
             "30005" to Pay.DUE, "30006" to Pay.PAID), pay)
-        assertEquals("Receipt two, six, two, five, three — due — ready for pickup.",
+        assertEquals("Receipt 2 6 2 5 3 is ready for pickup, there is a balance due.",
             Lookup.replyEn(listOf(Card("26253", "Pat", "", ready = true, pay = Pay.DUE))))
-        assertEquals("Receipt two, six, two, five, three — paid — work is not finished yet.",
+        assertEquals("Receipt 2 6 2 5 3 is not finished yet, it's paid.",
             Lookup.replyEn(listOf(Card("26253", "Pat", "", pay = Pay.PAID))))
-        assertEquals("Receipt two, six, two, five, three — account — ready for pickup.",
+        assertEquals("Receipt 2 6 2 5 3 is ready for pickup, it's on the store account.",
             Lookup.replyEn(listOf(Card("26253", "Pat", "", ready = true, pay = Pay.ACCOUNT))))
     }
 

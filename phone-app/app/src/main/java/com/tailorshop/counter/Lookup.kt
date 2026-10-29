@@ -192,14 +192,18 @@ object Lookup {
         digits(number).map { (if (russian) RU_DIGITS else EN_DIGITS)[it - '0'] }.joinToString(", ")
 
     /**
-     * Spoken answer: once, in English only (Art: a longer answer made the app miss the next
-     * customer): the receipt number digit by digit and ready / not finished. Never the
-     * phone, never "picked up". Then paid / due / account from the records, nothing when unknown.
-     * Up to 3 receipts; the rest are on screen.
+     * Spoken answer: once, in English only (Art: a longer answer made the app miss the next customer), as ONE
+     * natural sentence per receipt (Art: no word-by-word pauses): the receipt number as quick single digits,
+     * ready / not finished, then paid / due / account from the records (nothing when unknown). Never the
+     * phone, never "picked up". Up to 3 receipts; the rest are on screen. Uses the phone's default voice.
      */
     fun replyEn(cards: List<Card>): String = cards.take(3).joinToString(" ") {
-        val pay = when (it.pay) { Pay.PAID -> " paid —"; Pay.DUE -> " due —"; Pay.ACCOUNT -> " account —"; Pay.UNKNOWN -> "" }
-        "Receipt ${spellDigits(it.receipt, false)} —$pay " + (if (it.ready) "ready for pickup." else "work is not finished yet.")
+        val pay = when (it.pay) {
+            Pay.PAID -> ", it's paid"; Pay.DUE -> ", there is a balance due"; Pay.ACCOUNT -> ", it's on the store account"
+            Pay.UNKNOWN -> ""
+        }
+        "Receipt ${digits(it.receipt).toCharArray().joinToString(" ")} " +
+            (if (it.ready) "is ready for pickup" else "is not finished yet") + "$pay."
     }
 
     fun notFound(russian: Boolean) = if (russian) "Не могу найти этот заказ." else "I can't find this order."
