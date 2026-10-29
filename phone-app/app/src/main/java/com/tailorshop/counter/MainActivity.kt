@@ -548,8 +548,19 @@ class MainActivity : Activity() {
     private val CLOCK_DRIFT_DP = 30
     private val NUMBER_DRIFT_DP = 6
 
+    /**
+     * Test-only (Art): while the Fold is plugged into the Mac with USB debugging active, the closed-hours
+     * limit doesn't apply, so Sofia can be tried at any hour. It ends by itself when unplugged; a wall
+     * charger at the shop is not a debug connection, so shop nights stay mic-off.
+     */
+    private fun usbTestMode(): Boolean {
+        val st = try { registerReceiver(null, android.content.IntentFilter("android.hardware.usb.action.USB_STATE")) } catch (_: Exception) { null }
+        return st?.getBooleanExtra("connected", false) == true && st.getBooleanExtra("adb", false)
+    }
+
     private fun inShopHours(): Boolean {
         if (System.currentTimeMillis() < awakeUntil) return true
+        if (usbTestMode()) return true
         val t = java.time.ZonedDateTime.now(shopZone)
         val m = t.hour * 60 + t.minute
         return m >= 10 * 60 + 45 && m < 19 * 60 + 30
@@ -931,7 +942,8 @@ class MainActivity : Activity() {
     private fun idleText(): String {
         if (!sheets.hasKey()) return "Setup needed: the sheet key is not installed"
         val n = orders.size
-        return if (handsFree) "$n orders" else "$n orders · tap the button to talk"
+        val test = if (usbTestMode()) " · TEST: always on (USB)" else ""
+        return if (handsFree) "$n orders$test" else "$n orders · tap the button to talk$test"
     }
 
     private fun setStatus(s: String) { status.text = s }
