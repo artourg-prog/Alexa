@@ -586,7 +586,7 @@ class MainActivity : Activity() {
             }
             if (now - lastShift >= 60_000) { lastShift = now; shiftContent() }
             updatePicked() // the button goes away once its minute is up
-            asking()?.let { if (now - it.askedAt > 8_000) timeoutLine(it) } // 8 s, no answer: save, no SMS
+            asking()?.let { if (now - it.askedAt > ANSWER_MS) timeoutLine(it) } // 30 s, no answer: save, no SMS
             if (!handsFree && now - handsOffAt > 10 * 60_000) { handsFree = true; updateHands(); setStatus(idleText()); listenSoon(300); render() }
             if (wasListening && !isListeningScreen()) { live = null; render() } // quietly back to the clock / result
             Updater.confirmIntent?.let { if (resumed) { Updater.confirmIntent = null; startActivity(it) } }
@@ -822,8 +822,12 @@ class MainActivity : Activity() {
     private class Line(val worker: String, val receipt: String, val total: String, var wantSms: Boolean, val russian: Boolean) {
         var asking = false; var askedAt = 0L; var cancelled = false; var scanId: String? = null; var notInList = false
         var spokenScan = ""; var spokenSms = ""
+        var smsDone = false // its SMS question was answered (yes / no / timeout)
     }
     private val lines = mutableListOf<Line>()
+    // Art (10-28, first live test): 8 s was far too short to answer. Every Voice Finish wait for an answer
+    // (the "верно?" read-back + buttons, "Кто это?", adding "отправь сообщение" after a save) is 30 s.
+    private val ANSWER_MS = 30_000L
     private var linesShownAt = 0L
     private var finishWorker: String? = null; private var finishSms = false; private var finishUntil = 0L
     private var pendingFinish: Lookup.Finish? = null; private var pendingUntil = 0L
@@ -868,7 +872,7 @@ class MainActivity : Activity() {
             alts.none { Lookup.parseQueries(it).any { q -> q is Query.Receipt } }) {
             lines.lastOrNull { it.scanId != null && !it.wantSms && !it.cancelled }?.let { l ->
                 Log.d("TailorCounter", "heard=$alts lateSms=${l.receipt}")
-                l.wantSms = true; l.asking = true; l.askedAt = now; armedUntil = now + 8_000; armedQuiet = true
+                l.wantSms = true; l.smsDone = false; l.asking = true; l.askedAt = now; armedUntil = now + ANSWER_MS; armedQuiet = true
                 speak(Lookup.readBack(l.worker, l.receipt, l.russian) to l.russian); render(); return true
             }
         }
@@ -884,11 +888,11 @@ class MainActivity : Activity() {
         live = null; wakeUntil = 0L
         val w = f.worker
         if (w == null) {
-            pendingFinish = f; pendingUntil = System.currentTimeMillis() + 10_000; armedUntil = pendingUntil; armedQuiet = true
+            pendingFinish = f; pendingUntil = System.currentTimeMillis() + ANSWER_MS; armedUntil = pendingUntil; armedQuiet = true
             speak((if (ru) "Кто это?" else "Who is this?") to ru); showMessage(if (ru) "Кто это?" else "Who is this?", 10_000); return
         }
         if (f.receipts.isEmpty()) {
-            finishWorker = w; finishSms = f.sms; finishUntil = System.currentTimeMillis() + 15_000
+            finishWorker = w; finishSms = f.sms; finishUntil = System.currentTimeMillis() + ANSWER_MS
             speak((if (ru) "$w, скажите номер квитанции." else "$w, say the receipt number.") to ru); return
         }
         startLines(w, f.receipts, f.sms, ru)
@@ -897,10 +901,16 @@ class MainActivity : Activity() {
     private fun startLines(worker: String, receipts: List<String>, wantSms: Boolean, ru: Boolean) {
         val now = System.currentTimeMillis()
         if (now - linesShownAt > 120_000 || lines.none { it.worker == worker }) lines.clear()
-        finishWorker = worker; finishSms = wantSms; finishUntil = now + 15_000; linesShownAt = now
+        finishWorker = worker; finishSms = wantSms; finishUntil = now + ANSWER_MS; linesShownAt = now
         val greet = greetOnce(worker, ru)
         val said = mutableListOf<String>()
         for (r in receipts) {
+            // Already saved for this tailor a moment ago (Art said it again): no second scan.
+            lines.firstOrNull { it.worker == worker && it.receipt == r && it.scanId != null }?.let { done ->
+                if (wantSms && !done.wantSms) { done.wantSms = true; done.smsDone = false } // its read-back comes next
+                said += if (ru) "${spell(r)} уже записан." else "${spell(r)} is already saved."
+                continue
+            }
             val o = orders.firstOrNull { Lookup.digits(it.receipt) == r }
             val line = Line(worker, r, o?.total.orEmpty(), wantSms, ru)
             lines += line
@@ -923,15 +933,15 @@ class MainActivity : Activity() {
 
     /** Asks about the next receipt waiting for its SMS answer (one at a time, Cloud 6488516750). */
     private fun askNext() {
-        val next = lines.firstOrNull { it.wantSms && !it.cancelled && it.scanId == null && !it.notInList && !it.asking } ?: run { answered(); render(); return }
+        val next = lines.firstOrNull { it.wantSms && !it.smsDone && !it.cancelled && !it.notInList && !it.asking } ?: run { answered(); render(); return }
         next.asking = true; next.askedAt = System.currentTimeMillis()
-        armedUntil = next.askedAt + 8_000; armedQuiet = true // the answer needs no "Sofia"
+        armedUntil = next.askedAt + ANSWER_MS; armedQuiet = true // the answer needs no "Sofia"
         speak(Lookup.readBack(next.worker, next.receipt, next.russian) to next.russian)
         render()
     }
 
     private fun confirmLine(line: Line, yes: Boolean) {
-        line.asking = false
+        line.asking = false; line.smsDone = true
         val id = line.scanId
         if (id != null) { if (yes && finishes.requestSms(id)) syncFinishesSoon(0) } // already saved: same event, SMS now
         else save(line, sms = yes)
@@ -939,17 +949,17 @@ class MainActivity : Activity() {
     }
 
     private fun cancelLine(line: Line, quiet: Boolean = false) {
-        line.asking = false
+        line.asking = false; line.smsDone = true
         if (line.scanId != null) { line.wantSms = false; askNext(); return } // already saved: just no SMS
         line.cancelled = true
         if (!quiet) speak((if (line.russian) "Отменено. Скажите номер ещё раз." else "Cancelled. Say the number again.") to line.russian)
-        finishUntil = System.currentTimeMillis() + 15_000
+        finishUntil = System.currentTimeMillis() + ANSWER_MS
         askNext()
     }
 
     /** 8 s without an answer: the job is saved, the SMS is not sent (Art). */
     private fun timeoutLine(line: Line) {
-        line.asking = false
+        line.asking = false; line.smsDone = true
         if (line.scanId != null) { line.wantSms = false; askNext(); return } // already saved: no SMS
         save(line, sms = false)
         askNext()
