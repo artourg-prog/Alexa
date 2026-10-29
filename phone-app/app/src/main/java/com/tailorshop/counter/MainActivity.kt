@@ -53,6 +53,7 @@ class MainActivity : Activity() {
     private lateinit var heard: TextView
     private lateinit var topBar: View
     private lateinit var stage: LinearLayout
+    private lateinit var rootView: LinearLayout
     private lateinit var micButton: Button
     private lateinit var pickedButton: Button
     private lateinit var checkButton: Button
@@ -264,6 +265,8 @@ class MainActivity : Activity() {
             // Art: once "Sofia" is heard (or while she waits for a number), her words show live; room talk never does.
             val t = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
             val now = System.currentTimeMillis()
+            // Art: the moment her name is heard, the screen switches sharply to the bright listening screen.
+            if (Lookup.addressed(t) && now >= wakeUntil) wakeUntil = now + 8_000
             if (Lookup.addressed(t) || now < armedUntil || now < followUntil) { live = t; render() }
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -312,6 +315,8 @@ class MainActivity : Activity() {
         armedUntil = 0L
         main.removeCallbacks(armedTimeout)
         live = null
+        // Keep the listening screen only while she waits for the number after a bare "Sofia".
+        wakeUntil = if (alts.any(Lookup::onlyHerName)) System.currentTimeMillis() + 8_000 else 0L
         if (alts.any(Lookup::asksWhoSheIs)) { Log.d("TailorCounter", "heard=$alts intro"); speak(Lookup.INTRO to false); render(); return }
         alts.firstNotNullOfOrNull(Lookup::thanksReply)?.let { Log.d("TailorCounter", "heard=$alts thanks"); speak(it); render(); return }
         // A follow-up about the receipt on screen: in the 15 s after an answer, or any time with "Sofia" in front.
@@ -421,7 +426,7 @@ class MainActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     private fun buildUi(): View {
-        val root = LinearLayout(this).apply {
+        val root = LinearLayout(this).also { rootView = it }.apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.BLACK)
             setPadding(dp(8), dp(8), dp(8), dp(10))
@@ -522,6 +527,7 @@ class MainActivity : Activity() {
             }
             if (now - lastShift >= 60_000) { lastShift = now; shiftContent() }
             updatePicked() // the button goes away once its minute is up
+            if (wasListening && !isListeningScreen()) { live = null; render() } // quietly back to the clock / result
             Updater.confirmIntent?.let { if (resumed) { Updater.confirmIntent = null; startActivity(it) } }
             main.postDelayed(this, 1000)
         }
@@ -795,6 +801,13 @@ class MainActivity : Activity() {
     }
 
     private val HINT = "Say: Sofia, find + last 4 phone digits or receipt #"
+    private var wakeUntil = 0L      // her name was just heard: bright listening screen until then
+    private var wasListening = false
+
+    private fun isListeningScreen(): Boolean {
+        val now = System.currentTimeMillis()
+        return !screenOff && (now < wakeUntil || (now < armedUntil && wakeUntil != 0L))
+    }
     private var live: String? = null           // her words while she's being spoken to
     private var block: View? = null            // the idle Sofia + clock + date block
     private var bounceX = 0f; private var bounceY = 0f
@@ -857,8 +870,18 @@ class MainActivity : Activity() {
         stage.removeAllViews()
         val msg = message
         applyMode(clockOnly = msg == null && shown.isEmpty())
+        val listeningNow = isListeningScreen()
+        wasListening = listeningNow
+        rootView.setBackgroundColor(if (listeningNow) Color.rgb(10, 60, 150) else Color.BLACK)
         when {
             screenOff -> {} // black
+            listeningNow -> {
+                // Bright, unmistakable: she heard her name and is listening (until the number comes or 8 s pass).
+                stage.addView(sofiaLine(stageW() * 0.35f).apply { setTextColor(Color.WHITE) })
+                stage.addView(smallLine("Listening…  ·  Слушаю…", Color.WHITE, 44f, bold = true))
+                live?.let { stage.addView(liveLine(it, 40f).apply { setTextColor(Color.rgb(200, 230, 255)) }) }
+                stage.addView(smallLine(HINT, Color.rgb(170, 200, 240), 18f).apply { setPadding(0, dp(24), 0, 0) })
+            }
             msg != null -> stage.addView(banner()).let { stage.addView(TextView(this).apply {
                 setTextColor(Color.rgb(255, 120, 120)); textSize = 44f; typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER; text = msg
@@ -882,8 +905,7 @@ class MainActivity : Activity() {
                 b.addView(bigLine(now, Color.rgb(200, 200, 200), 0.42f, drift = stageW() / 5).apply {
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
                 })
-                b.addView(dateLine)
-                b.addView(smallLine(HINT, Color.rgb(120, 120, 120), 18f))
+                b.addView(dateLine) // Art: the idle block is only Sofia + clock + date (no hint)
                 stage.addView(b)
                 block = b
                 b.translationX = bounceX; b.translationY = bounceY
