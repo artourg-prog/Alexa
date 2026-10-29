@@ -23,3 +23,12 @@ Limitations:
 ## Follow-up: Sofia 0.28
 
 Owner confirmed the longer listening window held during a real speech test, then requested lookup results leave the screen after one minute instead of two. Changed only lookup `keepMs` to 60 seconds and matching rules; finish-result/SMS timers remain unchanged. All 76 local tests and debug build passed again. Device installation is recorded in the coordination follow-up after verification.
+
+## Follow-up: Sofia 0.29
+
+Owner requested immediate installation of two further changes:
+
+- Recover recognizer sessions with missing callbacks. Monotonic deadlines: 15 seconds for initial readiness/final result after end-of-speech, 60 seconds for a lost active callback stream. Healthy silence with callbacks remains active. Recovery is gated by foreground, hands-free, listening hours, no TTS, and an existing active session; intentional busy backoff remains unchanged. Six unit scenarios cover startup stalls, one-hour healthy idle callback traffic, lost callbacks, post-speech deadline despite late RMS, stop/late callback disarming, and fresh session deadlines.
+- Voice finish now durably queues a scan without SMS first, then asks by default: receipt digits + "SMS отправить? / Send SMS?". Explicit save-only commands skip the question. Yes requests SMS for the same event; no/timeout leave the scan intact. A failed local save cannot produce an SMS prompt. Scan announcements no longer interrupt the question. Negative button labelled No SMS. Actual tablet application still requires Reader/tablet acknowledgement. SMS uses the existing Reader, recipient logic, template and quiet-hours policy; no live SMS was sent for tests.
+
+Initial local compilation failed due to an incorrectly placed watchdog hook; corrected before any installation. Final offline tests/build succeeded: 84 tests, zero failures/errors. Original signing certificate verified. Serial-targeted in-place installation returned Success; device package confirmed 0.29/code29; main activity launched. Real question/decline test and long-idle speech reliability are not yet confirmed by the owner. No Wi-Fi feed changes.

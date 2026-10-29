@@ -44,6 +44,7 @@ class MainActivity : Activity() {
 
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
+    private val recognitionWatchdog = RecognitionWatchdog()
     private var listening = false
     private var handsFree = true
     private var russianFirst = false
@@ -245,16 +246,18 @@ class MainActivity : Activity() {
             }
         }
         listening = true
+        recognitionWatchdog.started(android.os.SystemClock.elapsedRealtime())
         updateMic()
         try {
             r.startListening(intent)
         } catch (e: Exception) {
-            listening = false; updateMic(); listenSoon(1500)
+            listening = false; recognitionWatchdog.stopped(); updateMic(); listenSoon(1500)
         }
     }
 
     private fun stopListening() {
         main.removeCallbacks(startRunnable)
+        recognitionWatchdog.stopped()
         if (listening) recognizer?.cancel()
         listening = false
         updateMic()
@@ -262,15 +265,17 @@ class MainActivity : Activity() {
 
     private val listener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) {
+            recognitionWatchdog.heardCallback(android.os.SystemClock.elapsedRealtime())
             busyStreak = 0
             // Hands-free: no listening indicator anywhere on screen (Art).
             if (!handsFree) setStatus((if (russianFirst) "Слушаю…" else "Listening…") + " · ${orders.size} orders")
         }
-        override fun onBeginningOfSpeech() {}
-        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onBeginningOfSpeech() { recognitionWatchdog.heardCallback(android.os.SystemClock.elapsedRealtime()) }
+        override fun onRmsChanged(rmsdB: Float) { recognitionWatchdog.heardCallback(android.os.SystemClock.elapsedRealtime()) }
         override fun onBufferReceived(buffer: ByteArray?) {}
-        override fun onEndOfSpeech() { if (!handsFree) setStatus(if (russianFirst) "Ищу…" else "Looking…") }
+        override fun onEndOfSpeech() { recognitionWatchdog.endedSpeech(android.os.SystemClock.elapsedRealtime()); if (!handsFree) setStatus(if (russianFirst) "Ищу…" else "Looking…") }
         override fun onPartialResults(partial: Bundle?) {
+            recognitionWatchdog.heardCallback(android.os.SystemClock.elapsedRealtime())
             // Art: once "Sofia" is heard (or while she waits for a number), her words show live; room talk never does.
             val t = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
             val now = System.currentTimeMillis()
@@ -285,6 +290,7 @@ class MainActivity : Activity() {
         override fun onEvent(eventType: Int, params: Bundle?) {}
 
         override fun onError(error: Int) {
+            recognitionWatchdog.stopped()
             if (live != null) { live = null; render() }
             listening = false
             tapped = false
@@ -311,6 +317,7 @@ class MainActivity : Activity() {
         }
 
         override fun onResults(results: Bundle?) {
+            recognitionWatchdog.stopped()
             busyStreak = 0
             live = null
             listening = false
@@ -569,6 +576,14 @@ class MainActivity : Activity() {
     private val ticker = object : Runnable {
         override fun run() {
             val now = System.currentTimeMillis()
+            // Recover a lost callback stream, not healthy silence or an intentional retry delay.
+            if (resumed && handsFree && !screenOff && tts?.isSpeaking != true && listening &&
+                recognitionWatchdog.stalled(android.os.SystemClock.elapsedRealtime())) {
+                Log.w("TailorCounter", "recognizer callback deadline expired; recovering session")
+                stopListening()
+                recognizer?.destroy(); recognizer = null
+                listenSoon(1500)
+            }
             val before = shown.size
             prune()
             if (message == null && shown.size > 1 && now >= pausedUntil && now - lastRotate >= rotateMs) {
@@ -709,7 +724,7 @@ class MainActivity : Activity() {
         if (finishVisible() && ask == null) { pickedButton.visibility = View.GONE; checkButton.visibility = View.GONE; return }
         if (ask != null) {
             sendSmsButton.text = if (ask.russian) "✓  Отправить SMS" else "✓  Send SMS"
-            cancelButton.text = if (ask.russian) "✕  Отмена" else "✕  Cancel"
+            cancelButton.text = if (ask.russian) "✕  Без SMS" else "✕  No SMS"
             pickedButton.visibility = View.GONE; checkButton.visibility = View.GONE; return
         }
         val warn = pickups.warning()
@@ -926,7 +941,7 @@ class MainActivity : Activity() {
             val o = orders.firstOrNull { Lookup.digits(it.receipt) == r }
             val line = Line(worker, r, o?.total.orEmpty(), wantSms, ru)
             lines += line
-            if (!wantSms) save(line, sms = false)
+            save(line, sms = false) // Record durably before asking; only a later yes can request SMS.
         }
         if (wantSms) {
             greet?.let { speak(it to ru) }
@@ -944,7 +959,7 @@ class MainActivity : Activity() {
 
     /** Asks about the next receipt waiting for its SMS answer (one at a time, Cloud 6488516750). */
     private fun askNext() {
-        val next = lines.firstOrNull { it.wantSms && !it.smsDone && !it.cancelled && !it.notInList && !it.asking } ?: run { answered(); render(); return }
+        val next = lines.firstOrNull { it.scanId != null && it.wantSms && !it.smsDone && !it.cancelled && !it.notInList && !it.asking } ?: run { answered(); render(); return }
         next.asking = true; next.askedAt = System.currentTimeMillis()
         armedUntil = next.askedAt + ANSWER_MS; armedQuiet = true // the answer needs no "Sofia"
         speak(Lookup.readBack(next.worker, next.receipt, next.russian) to next.russian)
@@ -1002,7 +1017,7 @@ class MainActivity : Activity() {
 
     /** Says each new final answer once: saved / not saved, and "SMS sent" only when the state is SENT. */
     private fun announceFinishes() {
-        if (!finishVisible()) return // later changes (e.g. SMS SENT hours later) are kept in the queue, not spoken
+        if (!finishVisible() || asking() != null) return // do not interrupt the SMS question; later changes (e.g. SMS SENT hours later) are kept in the queue, not spoken
         for (l in lines) {
             val i = l.scanId?.let { finishes.get(it) } ?: continue
             if (i.scan in Finishes.SCAN_FINAL && l.spokenScan != i.scan) {

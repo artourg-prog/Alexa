@@ -29,17 +29,33 @@ class FinishTest {
         val f = Lookup.parseFinish("София, это Артур, запиши, пожалуйста, номер 26315 и отправь сообщение", workers)!!
         assertEquals("Artour", f.worker); assertEquals(listOf("26315"), f.receipts); assertTrue(f.sms)
         val g = Lookup.parseFinish("Sofia, this is Andrey, done 26314, 26315 and 26316", workers)!!
-        assertEquals("Andrei", g.worker); assertEquals(listOf("26314", "26315", "26316"), g.receipts); assertFalse(g.sms)
+        assertEquals("Andrei", g.worker); assertEquals(listOf("26314", "26315", "26316"), g.receipts); assertTrue(g.sms)
         val h = Lookup.parseFinish("Sofia, done 26316, send the message", workers)!!
         assertNull(h.worker); assertTrue(h.sms)                              // no name: she asks "Who is this?"
         assertNull(Lookup.parseFinish("София, найди 26316", workers))        // a lookup, not a finish
+    }
+
+    @Test fun savingPromptsForSmsUnlessExplicitlySaveOnly() {
+        assertTrue(Lookup.parseFinish("София это Артур запиши 26316", workers)!!.sms)
+        assertFalse(Lookup.parseFinish("София это Артур запиши 26316 без SMS", workers)!!.sms)
+        assertFalse(Lookup.parseFinish("Sofia this is Andrei just save 26316", workers)!!.sms)
+    }
+
+    @Test fun saveBeforeSmsQuestionSurvivesNoAnswerWithoutSms() {
+        val d = tmp.newFolder(); setup(d); val r = FakeReader()
+        val f = Finishes(d, poster = r::post)
+        val i = f.add("Andrei", "26316", false)!!
+        f.sync(); r.scanStatus = "ADDED"; f.sync()
+        assertEquals("ADDED", f.get(i.scanId)!!.scan)
+        assertEquals(0, r.count("pickup"))
+        assertEquals(i.scanId, Finishes(d, poster = r::post).get(i.scanId)!!.scanId)
     }
 
     @Test fun yesNoAndReadBack() {
         assertEquals(true, Lookup.yesNo("да")); assertEquals(true, Lookup.yesNo("Yes, correct"))
         assertEquals(false, Lookup.yesNo("нет")); assertEquals(false, Lookup.yesNo("cancel"))
         assertNull(Lookup.yesNo("26317"))
-        assertEquals("Andrei, 2 6 3 1 6, верно?", Lookup.readBack("Andrei", "26316", true))
+        assertEquals("2 6 3 1 6. SMS отправить?", Lookup.readBack("Andrei", "26316", true))
         assertEquals("Доброе утро, Andrei.", Lookup.greeting("Andrei", 9, true))
         assertEquals("Hello, Andrei.", Lookup.greeting("Andrei", 14, false))
     }

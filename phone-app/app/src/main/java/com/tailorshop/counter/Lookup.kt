@@ -215,7 +215,9 @@ object Lookup {
         if (!isFinishPhrase(said)) return null
         val all = words(said).filter { it !in SOFIA && it !in POLITE }
         val text = " " + all.joinToString(" ") + " "
-        val sms = SMS_WORDS.any { text.contains(" $it ") }
+        // Finishing asks about SMS by default; explicit save-only requests stay silent.
+        val sms = listOf("bez sms", "bez soobscheniya", "no sms", "without sms", "just save", "prosto zapishi")
+            .none { text.contains(" $it ") }
         // The name: the first word that matches a worker, among the words before the first finish word.
         val firstFinish = all.indexOfFirst { it in FINISH }.let { if (it < 0) all.size else it }
         val candidates = all.take(firstFinish).filter { it !in INTRO_WORDS }
@@ -265,7 +267,7 @@ object Lookup {
 
     fun readBack(worker: String, receipt: String, russian: Boolean): String {
         val d = digits(receipt).toCharArray().joinToString(" ")
-        return if (russian) "$worker, $d, верно?" else "$worker, $d, correct?"
+        return if (russian) "$d. SMS отправить?" else "$d. Send SMS?"
     }
 
     /** First words to a tailor that day: good morning / hello by name, in the speaker's language. */

@@ -77,19 +77,13 @@ on the shop line ("phone Sofia").
   - several receipts in one phrase = separate lines.
 - **Recording** = exactly a QR scan: Daily Report Reader `addScan` (Sofia's own key), **no amount**. The tablet
   allocates as for a scan, and Art fixes splits on the tablet.
-- **Without "send the message":** no question; saved at once ("Записываю 2 6 3 1 6."). The screen still shows
-  the tailor, the receipt number and the Total LARGE for 30 s, so a misheard number can be seen.
-- **With "send the message":**
-  - the screen shows LARGE: tailor, receipt number, **receipt total**;
-  - she asks **"Andrei, 2 6 3 1 6, верно?"** with **Send SMS / Cancel** buttons;
-  - she accepts **voice or tap**, whichever comes first;
-  - several receipts are asked one at a time.
-- **The answer window is 30 s** for every Voice Finish answer: the "верно?" read-back, "Кто это?", and adding
-  "отправь сообщение" after a save.
-  - yes / да / верно / tap Send → saved + the SMS requested;
-  - no / нет / Cancel → nothing saved, no SMS, "say the number again";
-  - a different number → that line is replaced (with its own read-back);
-  - **30 s with no answer → saved, no SMS**, shown on screen.
+- **Voice Finish:** first persist the scan event locally without SMS, then ask for each receipt: **"2 6 3 1 6. SMS отправить? / 2 6 3 1 6. Send SMS?"**. Only a durable event can receive a question. Tablet acknowledgement still determines when the record is actually applied.
+- **Explicit save-only** ("без SMS", "just save", "просто запиши") skips the SMS question.
+- **The answer window is 30 s**:
+  - yes / да / tap Send → request SMS for the same saved event;
+  - no / нет / No SMS or silence → preserve the record, no SMS;
+  - a different number starts a separate corrected event; it cannot undo an event already sent to the tablet.
+- Scan status announcements do not interrupt an open SMS question.
 - **"отправь сообщение" on its own** within 30 s of a save → a read-back for that saved receipt, then the SMS for
   the same event (no second save).
 - **A bare number** within 30 s of a finish → the **same tailor** ("Next number → saved for Andrei").
@@ -168,3 +162,7 @@ on the shop line ("phone Sofia").
 4. **Follow-up windows:** lookups give 15 s for a bare number / question; finishes give 30 s. Make them the same?
 5. **"да" from someone else:** during the 30 s "верно?" window, anyone's "да" confirms the SMS (the buttons are
    the safe path). Accept as is, or require the tap?
+
+## Recognition recovery (October 29)
+
+A listening session with no callbacks recovers automatically: 15 seconds for initial readiness or a final result after speech end, 60 seconds for lost ongoing callbacks. Silence with continuing callbacks is healthy. Recovery only runs in foreground hands-free mode, during allowed listening hours and outside spoken replies. Existing busy backoff is preserved. This does not guarantee every wake word is recognized.
