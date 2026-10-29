@@ -285,7 +285,8 @@ class MainActivity : Activity() {
             else if (now < wakeUntil) wakeUntil = minOf(now + 8_000, wakeStart + MAX_WAKE_MS)
             // Words show live only when they're for her: her phrase, or a number / finish words while she waits.
             // Other room talk keeps the screen at "Listening…" with no text (Art: never show room talk).
-            val forHer = Lookup.addressed(t) || Lookup.parseQueries(t).any { it !is Query.Name } || Lookup.isFinishPhrase(t)
+            // While she waits, only a number counts as "for her" (finish words alone are common talk: "я уже сделал").
+            val forHer = Lookup.addressed(t) || Lookup.parseQueries(t).any { it !is Query.Name }
             if (forHer && (Lookup.addressed(t) || now < armedUntil || now < followUntil || now < wakeUntil)) { live = t; render() }
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -344,7 +345,8 @@ class MainActivity : Activity() {
         val ru = alts.any(Lookup::isRussian) || (detectedLang?.startsWith("ru") == true)
         // Keep the listening screen while she waits for the rest: after a bare "Sofia", or "Sofia, this is
         // Arthur" + a pause (Art, 10-28: the screen gave up mid-sentence). Reset below once she acts.
-        val stillTalking = System.currentTimeMillis() < wakeUntil
+        // Still talking to her: only if this phrase has a number in it (room talk after her name doesn't hold her).
+        val stillTalking = System.currentTimeMillis() < wakeUntil && alts.any { Lookup.parseQueries(it).any { q -> q !is Query.Name } }
         val nowMs = System.currentTimeMillis()
         if (alts.any(Lookup::addressed) && !stillTalking) wakeStart = nowMs
         wakeUntil = if (alts.any(Lookup::addressed) || stillTalking) minOf(nowMs + 8_000, wakeStart + MAX_WAKE_MS) else 0L
