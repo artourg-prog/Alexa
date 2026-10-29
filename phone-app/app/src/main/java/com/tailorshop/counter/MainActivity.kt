@@ -553,7 +553,7 @@ class MainActivity : Activity() {
     //
     // Every found order is added to a list (a repeat lookup moves it to the end). The list
     // shows one order at a time, full screen, rotating every few seconds; swipe left/right
-    // to flip by hand. Each order drops off 2 minutes after it was looked up; with none left
+    // to flip by hand. Each order drops off 1 minute after it was looked up; with none left
     // the screen is a big clock. Short messages ("I can't find this order") show for a few
     // seconds on top, then the list or clock comes back.
 
@@ -562,7 +562,7 @@ class MainActivity : Activity() {
     private var index = 0
     private var message: String? = null
     private var pausedUntil = 0L
-    private val keepMs = 120_000L
+    private val keepMs = 60_000L
     private val rotateMs = 10_000L
 
     private val endMessage = Runnable { message = null; render() }

@@ -19,3 +19,7 @@ Limitations:
 - No claim that post-idle recognition reliability is fully resolved: OS recognizer busy delays and recognition-engine endpointing remain unchanged.
 - This patch extends application context windows; it does not guarantee 30 seconds of continuous audio capture by the Android recognizer.
 - No new AI service, no real SMS, no receipt edits. Private Wi-Fi feed has not been changed by this direct USB installation.
+
+## Follow-up: Sofia 0.28
+
+Owner confirmed the longer listening window held during a real speech test, then requested lookup results leave the screen after one minute instead of two. Changed only lookup `keepMs` to 60 seconds and matching rules; finish-result/SMS timers remain unchanged. All 76 local tests and debug build passed again. Device installation is recorded in the coordination follow-up after verification.

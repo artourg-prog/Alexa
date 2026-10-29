@@ -41,7 +41,7 @@ on the shop line ("phone Sofia").
   - under it: customer · phone, ready / not finished, the Picked up state;
   - "Sofia + hint" at the top;
   - several results rotate every 10 s (swipe to flip);
-  - each result stays **2 minutes**.
+  - each result stays **1 minute**.
 - **Follow-up questions** for 15 s after an answer, with no name needed, about the receipt on screen, each in the
   question's language:
   - who was the tailor / кто мастер;
@@ -153,7 +153,7 @@ on the shop line ("phone Sofia").
 
 ## 8. Decided (were open)
 
-- Lookup result time: **2 minutes** (Art 6483791626 replaced the "1 minute" note).
+- Lookup result time: **1 minute** (owner requested October 29, after testing the listening update).
 - A receipt not on the phone's pickup list: the finish is still sent, and the Reader decides against the master
   (UNVERIFIED if it's not there). This replaces the earlier phone-side refusal.
 
