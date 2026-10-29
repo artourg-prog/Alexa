@@ -837,7 +837,7 @@ class MainActivity : Activity() {
     private var finishWasVisible = false
     private var linesShownAt = 0L
     private var finishWorker: String? = null; private var finishSms = false; private var finishUntil = 0L
-    private var pendingFinish: Lookup.Finish? = null; private var pendingUntil = 0L
+    private var pendingFinish: Lookup.Finish? = null; private var pendingUntil = 0L; private var pendingReasked = false
     private var handsOffAt = 0L
 
     private fun asking(): Line? = lines.firstOrNull { it.asking }
@@ -874,6 +874,11 @@ class MainActivity : Activity() {
         if (now < pendingUntil) pendingFinish?.let { pf ->
             val w = alts.flatMap { it.split(' ', ',') }.firstNotNullOfOrNull { Lookup.matchWorker(it, workers) }
             if (w != null) { pendingFinish = null; Log.d("TailorCounter", "heard=$alts finishName=$w"); handleFinish(pf.copy(worker = w), ru); return true }
+            // A name that isn't an Approved Worker: ask once more, then let it go (never guess).
+            if (!pendingReasked && alts.any { a -> a.split(' ').size <= 3 && a.none(Char::isDigit) }) {
+                pendingReasked = true; pendingUntil = now + ANSWER_MS; armedUntil = pendingUntil
+                speak((if (ru) "Не знаю такого имени. Кто это?" else "I don't know that name. Who is this?") to ru); return true
+            }
         }
         val f = alts.firstNotNullOfOrNull { a -> if (Lookup.addressed(a) || stillTalking) Lookup.parseFinish(a, workers) else null }
         if (f != null) { Log.d("TailorCounter", "heard=$alts finish=${f.worker} ${f.receipts} sms=${f.sms}"); handleFinish(f, ru); return true }
@@ -898,7 +903,7 @@ class MainActivity : Activity() {
         live = null; wakeUntil = 0L
         val w = f.worker
         if (w == null) {
-            pendingFinish = f; pendingUntil = System.currentTimeMillis() + ANSWER_MS; armedUntil = pendingUntil; armedQuiet = true
+            pendingFinish = f; pendingReasked = false; pendingUntil = System.currentTimeMillis() + ANSWER_MS; armedUntil = pendingUntil; armedQuiet = true
             speak((if (ru) "Кто это?" else "Who is this?") to ru); showMessage(if (ru) "Кто это?" else "Who is this?", 10_000); return
         }
         if (f.receipts.isEmpty()) {
@@ -922,11 +927,13 @@ class MainActivity : Activity() {
                 said += if (ru) "${spell(r)} уже записан." else "${spell(r)} is already saved."
                 continue
             }
+            // The phone's pickup list (a mirror) only gives the Total for the screen; it never decides whether a
+            // finish is recorded. The Reader checks the master and answers UNVERIFIED if it truly isn't there
+            // (Cloud 6489979795: receipts put back in the master weren't in the mirror yet).
             val o = orders.firstOrNull { Lookup.digits(it.receipt) == r }
             val line = Line(worker, r, o?.total.orEmpty(), wantSms, ru)
             lines += line
-            if (o == null) { line.notInList = true; said += if (ru) "Квитанции ${spell(r)} нет в таблице." else "Receipt ${spell(r)} is not in the sheet yet." }
-            else if (!wantSms) save(line, sms = false)
+            if (!wantSms) save(line, sms = false)
         }
         if (wantSms) {
             greet?.let { speak(it to ru) }
@@ -1034,7 +1041,8 @@ class MainActivity : Activity() {
             val big = l.asking || lines.size == 1
             stage.addView(if (big) bigLine(l.receipt, Color.WHITE, 0.32f, drift = dp(NUMBER_DRIFT_DP))
                 else smallLine(l.receipt, Color.WHITE, 40f, bold = true))
-            if (l.total.isNotBlank()) stage.addView(smallLine(l.total, Color.rgb(200, 200, 200), if (big) 36f else 22f, bold = big))
+            stage.addView(smallLine(l.total.ifBlank { if (l.russian) "сумма неизвестна" else "total unknown" },
+                Color.rgb(200, 200, 200), if (big) 36f else 22f, bold = big))
             val status = when {
                 l.notInList -> if (l.russian) "Нет в таблице" else "Not in the sheet yet"
                 l.cancelled -> if (l.russian) "Отменено" else "Cancelled"

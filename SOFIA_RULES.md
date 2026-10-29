@@ -67,14 +67,18 @@ on the shop line ("phone Sofia").
 - **Name:**
   - required, and matched to the **exact Approved Workers name**: Andrei, Artour, Carolina, Emma, Tsegi, Tumur
     (Андрей / Andrey → Andrei, Артур / Arthur → Artour, one typo allowed);
-  - missing or unclear → she asks only **"Кто это? / Who is this?"** and never guesses.
+  - missing or unclear → she asks only **"Кто это? / Who is this?"** and never guesses;
+  - a name that isn't on the list → "Не знаю такого имени. Кто это?" once, then she lets it go.
 - **First words to a tailor that day:** "Доброе утро, Andrei." (before noon) / "Здравствуй, Andrei.".
 - **Receipt:**
-  - must be on the pickup list, else "not in the sheet yet" and nothing is sent;
+  - always sent to the Daily Report Reader, which checks the **master**;
+  - not there → **UNVERIFIED** "Waiting: receipt not in the sheet yet" (kept, not lost);
+  - the phone's pickup list only gives the Total on screen ("total unknown" if it's missing);
   - several receipts in one phrase = separate lines.
 - **Recording** = exactly a QR scan: Daily Report Reader `addScan` (Sofia's own key), **no amount**. The tablet
   allocates as for a scan, and Art fixes splits on the tablet.
-- **Without "send the message":** no question; saved at once ("Записываю 2 6 3 1 6.").
+- **Without "send the message":** no question; saved at once ("Записываю 2 6 3 1 6."). The screen still shows
+  the tailor, the receipt number and the Total LARGE for 30 s, so a misheard number can be seen.
 - **With "send the message":**
   - the screen shows LARGE: tailor, receipt number, **receipt total**;
   - she asks **"Andrei, 2 6 3 1 6, верно?"** with **Send SMS / Cancel** buttons;
@@ -94,12 +98,14 @@ on the shop line ("phone Sofia").
   - "Queued — waiting for the tablet";
   - "Waiting: receipt not in the sheet yet";
   - "Held for owner review";
-  - **"Saved for Andrei"**;
+  - **"Saved for Andrei"**, only once the **Daily Report tablet app is open** and has applied it. Until then it
+    stays "Queued — waiting for the tablet";
   - "Already saved";
   - "Not saved: <reason>".
 - **SMS** via the existing `pickup {choice:"now"}` only:
   - waiting / held (quiet hours) / not confirmed / not sent;
-  - **"SMS sent" + its sound only when the state is SENT**.
+  - **"SMS sent" + its sound only when the state is SENT and the finish is still on screen.** A text held
+    overnight that goes out at 8 AM is recorded silently, with no sound at an empty counter.
 - **On screen 30 s** after its last change (always while a question is open), then back to the floating screen.
   Later changes (e.g. the SMS sent in the morning) are tracked silently.
 - **The customer's name is not shown or spoken** in this flow.
@@ -145,17 +151,20 @@ on the shop line ("phone Sofia").
   Russian), using the phone's default voice (Google).
 - Greeting: in the finish flow, the first time a tailor speaks to her that day (lookups don't identify a tailor).
 
-## 8. Open conflicts between past decisions — Art, please choose
+## 8. Decided (were open)
 
-1. **Lookup result time:** one note said "keep the 1-minute result display"; the code (and an earlier rule)
-   keeps each result **2 minutes**. Which one?
-2. **Client name and phone on the lookup screen:** the card shows "customer · phone" under the number (the
+- Lookup result time: **2 minutes** (Art 6483791626 replaced the "1 minute" note).
+- A receipt not on the phone's pickup list: the finish is still sent, and the Reader decides against the master
+  (UNVERIFIED if it's not there). This replaces the earlier phone-side refusal.
+
+## 9. Open conflicts — Art, please choose
+
+1. **Client name and phone on the lookup screen:** the card shows "customer · phone" under the number (the
    original design). Later rules say never *say* them, and the finish flow doesn't *show* the name. Should the
    lookup screen keep showing them?
-3. **Voices:** an earlier rule said a female voice for paid and a male voice for balance due. Today there is
-   one voice per language (Google), and a free natural voice (Piper) is still to be tested. Keep that rule?
-4. **Wake sound "Sequence":** it isn't on this Fold. Crystal is used. Is there another name to use?
-5. **Follow-up windows:** lookups give 15 s for a bare number / question; finishes give 30 s. Make them the
-   same?
-6. **SMS for a receipt not on the pickup list:** the phone refuses (nothing is saved or sent). Confirm that this
-   is right. A receipt can be put back on the tablet and then be on the list again, as 26314 was tonight.
+2. **Voices:** an earlier rule said a female voice for paid and a male voice for balance due. Today there is one
+   voice per language (Google), and a free natural voice (Piper) is still to be tested. Keep that rule?
+3. **Wake sound "Sequence":** it isn't on this Fold. Crystal is used. Is there another name to use?
+4. **Follow-up windows:** lookups give 15 s for a bare number / question; finishes give 30 s. Make them the same?
+5. **"да" from someone else:** during the 30 s "верно?" window, anyone's "да" confirms the SMS (the buttons are
+   the safe path). Accept as is, or require the tap?
