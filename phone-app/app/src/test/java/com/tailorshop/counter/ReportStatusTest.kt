@@ -11,6 +11,11 @@ class ReportStatusTest {
         assertNull(ReportStatus.parse("София проверь 26372",workers))
         assertNull(ReportStatus.parse("is receipt 26372 saved in daily report",workers))
     }
+    @Test fun conversationalReportAndRepeatedWakeName() {
+        assertEquals("26372",ReportStatus.parse("София София под кем записан репорт ресит номер два шесть три семь два",workers)!!.number)
+        assertEquals("26372",ReportStatus.parse("София под кем записан ресит 26372",workers)!!.number)
+        assertEquals("26372",ReportStatus.parse("Sofia who recorded receipt 26372",workers)!!.number)
+    }
     @Test fun askingWorkerAndUnclearNumbers() {
         assertEquals("Andrei",ReportStatus.parse("Sofia check receipt 26372 in daily report under Andrei",workers)!!.worker)
         assertNull(ReportStatus.parse("Sofia check 2807 in daily report",workers)!!.number)

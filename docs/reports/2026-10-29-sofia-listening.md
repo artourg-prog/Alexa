@@ -40,3 +40,9 @@ Added read-only inquiry routing before finish/lookup for addressed questions men
 Added configurable Saved in Daily Report sound, emitted only when a visible finish transitions to ADDED; not queued/ACCEPTED/ALREADY and not during an open SMS prompt. Existing silent/missing sound selection behavior remains. Owner-requested Russian payment wording changed from "есть долг" to "не оплачено"; payment interpretation unchanged.
 
 Final local tests/build:88 tests, zero failures/errors. Reader source from live version45; all12 Reader fake-only test files passed. Existing Reader deployed as version46 with rollback45; no report/payroll/receipt/SMS mutations. Installation/live read outcome recorded in coordination comments after verification. Private Wi-Fi update feed unchanged. Discussed not-ready-card10s and male voice for not-ready remain unimplemented design work.
+
+## Follow-up: Sofia 0.31
+
+Owner's spoken form used "репорт" rather than "Daily Report". Added conversational report alias and explicit "под кем записан"/"who recorded" patterns, with repeated wake names and spoken receipt digits covered in an added test. Still requires one full number and never records or sends SMS from a report inquiry.
+
+Reader live smoke initially rejected the phone's existing scan capability on v46. Reader v47 narrowly accepts the new read-only method through existing Sofia/scan capabilities. Real smoke now returns ok/source=savedReports and one record for the owner-provided test number, without exposing key/record contents. Reader source a4f31ba on reader/sofia-report-status. Phone installation/physical speech outcome recorded in coordination after confirmation. Private Wi-Fi feed remains unchanged.

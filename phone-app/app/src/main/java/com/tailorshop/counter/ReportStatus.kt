@@ -8,8 +8,10 @@ object ReportStatus {
     fun parse(said: String, workers: List<String>): Request? {
         if (!Lookup.addressed(said)) return null
         val n = Lookup.normalize(said)
-        if (listOf("daily report", "deyli report", "deili report", "otchet").none { it in n }) return null
-        if (listOf("prover", "check", "saved", "recorded", "sokhranen", "zapisan", "pod kem", "under").none { it in n }) return null
+        val mentionsReport = listOf("report", "otchet").any { it in n }
+        val asksRecordedBy = ("pod kem" in n && ("zapisan" in n || "sokhranen" in n)) || "who recorded" in n
+        if (!mentionsReport && !asksRecordedBy) return null
+        if (listOf("prover", "check", "saved", "recorded", "sokhranen", "zapisan", "pod kem", "under", "who recorded").none { it in n }) return null
         val nums = Lookup.parseQueries(said).filterIsInstance<Query.Receipt>().map { it.number }.distinct()
         val under = Regex("(?:pod imenem|pod|under|for) (.+)").find(n)?.groupValues?.get(1)
         val worker = under?.split(' ')?.firstNotNullOfOrNull { Lookup.matchWorker(it, workers) }
