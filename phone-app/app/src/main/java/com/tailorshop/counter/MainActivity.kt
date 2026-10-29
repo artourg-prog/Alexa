@@ -44,6 +44,7 @@ class MainActivity : Activity() {
 
     private var recognizer: SpeechRecognizer? = null
     private var tts: TextToSpeech? = null
+    private val speechContext = SpeechContext()
     private val recognitionWatchdog = RecognitionWatchdog()
     private var listening = false
     private var handsFree = true
@@ -169,6 +170,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        speechContext.clear()
         reportCheckRevision++
         resumed = false
         muteSystemSounds(false)
@@ -333,7 +335,9 @@ class MainActivity : Activity() {
 
     // ---- answering ----
 
-    private fun answer(alts: List<String>, detectedLang: String?) {
+    private fun answer(rawAlts: List<String>, detectedLang: String?) {
+        val alts = speechContext.resolve(rawAlts, workerList(), finishWaiting(), android.os.SystemClock.elapsedRealtime())
+        val readOnlyQuestion = alts.firstOrNull()?.let(Lookup::isReadOnlyQuestion) == true
         val checkRevision = ++reportCheckRevision
         alts.firstOrNull(Lookup::addressed)?.let { signalWake(it, System.currentTimeMillis()) }
         val tappedNow = tapped
@@ -374,10 +378,10 @@ class MainActivity : Activity() {
         if (alts.any(Lookup::addressed) && !stillTalking) wakeStart = nowMs
         wakeUntil = if (alts.any(Lookup::addressed) || stillTalking) minOf(nowMs + LISTEN_WAIT_MS, wakeStart + MAX_WAKE_MS) else 0L
         // Voice Finish isn't built yet: say so instead of dropping the phrase.
-        if (finishes.configured() && handleFinishSpeech(alts, ru, stillTalking)) return
+        if (!readOnlyQuestion && finishes.configured() && handleFinishSpeech(alts, ru, stillTalking)) return
         // A finish phrase never falls through to a lookup (the two flows never mix).
-        if (finishes.configured() && alts.any { Lookup.flowOf(it) == Lookup.Flow.FINISH }) { if (handsFree) listenSoon(300); return }
-        if (alts.any { Lookup.addressed(it) || stillTalking } && alts.any(Lookup::isFinishPhrase)) {
+        if (!readOnlyQuestion && finishes.configured() && alts.any { Lookup.flowOf(it) == Lookup.Flow.FINISH }) { if (handsFree) listenSoon(300); return }
+        if (!readOnlyQuestion && alts.any { Lookup.addressed(it) || stillTalking } && alts.any(Lookup::isFinishPhrase)) {
             Log.d("TailorCounter", "heard=$alts finishSoon"); wakeUntil = 0L
             speak((if (ru) "Запись голосом скоро будет." else "Voice finish is coming soon.") to ru); render(); return
         }
@@ -437,7 +441,10 @@ class MainActivity : Activity() {
                         lines.clear() // a lookup never shows finish lines (Art: the two flows never mix)
                         addResults(cards)
                         finishUntil = 0L // the last answer was a lookup: a bare number now means another lookup
-                        speak(Lookup.reply(cards, russian) to russian) // Art: answer in the language asked
+                        val topic = alts.firstNotNullOfOrNull(Lookup::followUp)
+                        val reply = if (topic == null) Lookup.reply(cards, russian)
+                            else cards.joinToString(" ") { Lookup.followUpAnswer(topic, it, russian) }
+                        speak(reply to russian) // Questions about a numbered receipt remain read-only.
                         answered()
                     }
                 }
@@ -450,7 +457,7 @@ class MainActivity : Activity() {
 
     private var armedUntil = 0L
     private var followUntil = 0L
-    private fun answered() { followUntil = System.currentTimeMillis() + 15_000; wakeUntil = 0L } // she acted: listening screen off
+    private fun answered() { speechContext.clear(); followUntil = System.currentTimeMillis() + 15_000; wakeUntil = 0L } // she acted: listening screen off
     private var armedRussian = false
     private var armedQuiet = false
     private val armedTimeout = Runnable {
@@ -930,6 +937,7 @@ class MainActivity : Activity() {
     }
 
     private fun handleFinish(f: Lookup.Finish, ru: Boolean) {
+        speechContext.clear()
         live = null; wakeUntil = 0L
         val w = f.worker
         if (w == null) {
@@ -1182,7 +1190,12 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     }
 
-    private val HINT = "Say: Sofia, find + last 4 phone digits or receipt #"
+    private val HINT = "Pickup: check a number · Daily Report: save a receipt"
+    private fun commandHints() = TextView(this).apply {
+        text = "Pickup\nSofia, check last four 1234.\nSofia, find receipt 12345.\n\nDaily Report\nSofia, this is Arthur. Save receipt 12345.\nSofia, this is Emma. Save 12345 and send SMS."
+        textSize = 14f; setTextColor(Color.rgb(160, 160, 160)); gravity = Gravity.CENTER
+        maxWidth = dp(320); setPadding(dp(8), dp(14), dp(8), 0)
+    }
     private var busyStreak = 0      // recognizer "busy" answers in a row (back-off)
     private var wakeUntil = 0L      // her name was just heard: bright listening screen until then
     private var wakeStart = 0L      // when her name was heard
@@ -1308,7 +1321,8 @@ class MainActivity : Activity() {
                 b.addView(bigLine(now, Color.rgb(200, 200, 200), 0.42f, drift = stageW() / 5).apply {
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
                 })
-                b.addView(dateLine) // Art: the idle block is only Sofia + clock + date (no hint)
+                b.addView(dateLine)
+                b.addView(commandHints())
                 if (!handsFree) b.addView(smallLine("Sofia is OFF — tap Hands-free to turn her on", Color.rgb(255, 180, 40), 22f, bold = true))
                 stage.addView(b)
                 block = b

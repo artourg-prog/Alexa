@@ -170,3 +170,11 @@ A listening session with no callbacks recovers automatically: 15 seconds for ini
 ## Saved-report inquiry (October 29)
 
 An addressed question mentioning Daily Report and checking/saved/recorded routes to a read-only saved-report query before finish or pickup lookup. Require one full receipt number. Return saved worker(s) and dates; unavailable is never not-recorded. Unsaved tablet entries are not covered. A separate Saved in Daily Report sound is configurable and plays on an ADDED transition, never ACCEPTED/queued or an ALREADY result.
+
+## Two command hints and safe intent separation (October 29 follow-up)
+
+Idle screen has two small English examples per function beneath the date: Pickup (check last four / find receipt) and Daily Report (worker intro + save receipt / save and send SMS). Examples must be accepted by the parser.
+
+Questions (including who did/finished, check, saved status) cannot enter finish/record or SMS confirmation, including when another recognition alternative contains a finish word. A numbered tailor question uses that receipt's tailor field and stays read-only. This is distinct from saved-report ownership.
+
+Preserve wake and approved-worker introduction across separate recognition results for30seconds, hard cap60seconds. Room talk does not renew context; cleared after action, activity pause or entering an answer window. No identity guess without an approved-worker intro. Existing SMS yes/no confirmation and durable save-first behavior remain.

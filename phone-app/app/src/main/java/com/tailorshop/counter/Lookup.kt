@@ -185,10 +185,16 @@ object Lookup {
 
     // "запиши / готово / закончил / сохрани / отправь сообщение", "done / finished / save / send the message"
     private val FINISH = setOf("zapishi", "zapisat", "gotovo", "zakonchil", "zakonchila", "sdelal", "sdelala", "sokhrani",
-        "sohrani", "done", "finished", "save", "otprav", "otpravi")
+        "sohrani", "done", "finished", "save", "record", "otprav", "otpravi")
 
     /** A Voice Finish phrase (the tailor reporting finished work), not a lookup. */
-    fun isFinishPhrase(said: String): Boolean = words(said).any { it in FINISH }
+    fun isReadOnlyQuestion(said: String): Boolean {
+        val w = words(said)
+        return w.any { it in setOf("who", "kto", "check", "prover", "proveri", "find", "naydi", "najdi", "saved", "recorded", "zapisan", "zapisana", "sokhranen", "sokhranena") } || followUp(said) != null
+    }
+
+    fun isFinishPhrase(said: String): Boolean = !isReadOnlyQuestion(said) &&
+        (words(said).any { it in FINISH } || SMS_WORDS.any { (" " + normalize(said) + " ").contains(" $it ") })
 
     // ---- Voice Finish ----
 
@@ -343,7 +349,7 @@ object Lookup {
 
     private val TOPIC_PHRASES = listOf(
         Topic.TAILOR to listOf("who was the tailor", "who is the tailor", "who did it", "who did the work", "which tailor",
-            "who worked on it", "kto master", "kto byl master", "kto delal", "kto shil", "kakoy master"),
+            "who worked on it", "kto master", "kto byl master", "kto sdelal", "kto sdelala", "kto delal", "kto shil", "kakoy master"),
         Topic.AMOUNT to listOf("how much", "what is the total", "what s the total", "the total", "what is the price", "price",
             "skolko", "kakaya summa", "summa", "tsena"),
         Topic.PAY to listOf("paid or due", "is it paid", "was it paid", "is there a balance", "balance", "do they owe",
