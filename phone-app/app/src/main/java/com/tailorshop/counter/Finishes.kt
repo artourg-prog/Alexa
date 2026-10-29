@@ -93,6 +93,13 @@ class Finishes(
         return if (save()) i.copy() else null
     }
 
+    /** "Send the message" confirmed after the job was already saved: same event, the SMS is requested now. */
+    @Synchronized fun requestSms(scanId: String): Boolean {
+        val i = items.firstOrNull { it.scanId == scanId } ?: return false
+        if (!i.sendSms) { i.sendSms = true; i.smsId = UUID.randomUUID().toString() }
+        return save()
+    }
+
     /** Sends / asks about everything not final. Network: off the main thread. Returns the items that changed. */
     fun sync(): List<Item> {
         if (!configured()) return emptyList()

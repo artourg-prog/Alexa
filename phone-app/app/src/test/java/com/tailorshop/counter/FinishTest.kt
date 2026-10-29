@@ -44,6 +44,28 @@ class FinishTest {
         assertEquals("Hello, Andrei.", Lookup.greeting("Andrei", 14, false))
     }
 
+    @Test fun numberlessAnswersGetThroughOnlyWhenExpected() {
+        assertEquals(Lookup.Reply.NAME, Lookup.expectedReply("Андрей", Lookup.Waiting.NAME, workers))          // after "Кто это?"
+        assertEquals(Lookup.Reply.YES_NO, Lookup.expectedReply("да", Lookup.Waiting.YES_NO, workers))          // to "…верно?"
+        assertEquals(Lookup.Reply.YES_NO, Lookup.expectedReply("нет", Lookup.Waiting.YES_NO, workers))
+        assertEquals(Lookup.Reply.SMS, Lookup.expectedReply("отправь сообщение", Lookup.Waiting.FINISH_WINDOW, workers))
+        assertEquals(Lookup.Reply.SMS, Lookup.expectedReply("send the message", Lookup.Waiting.FINISH_WINDOW, workers))
+        assertNull(Lookup.expectedReply("да", Lookup.Waiting.NONE, workers))                                    // not waiting: room talk
+        assertNull(Lookup.expectedReply("Андрей сказал", Lookup.Waiting.YES_NO, workers))
+        assertNull(Lookup.expectedReply("я уже сделал", Lookup.Waiting.FINISH_WINDOW, workers))
+        assertNull(Lookup.expectedReply("Майкл", Lookup.Waiting.NAME, workers))
+    }
+
+    @Test fun smsCanBeAddedToAnAlreadySavedFinish() {
+        val d = tmp.newFolder(); setup(d); val r = FakeReader()
+        val f = Finishes(d, poster = r::post)
+        val i = f.add("Andrei", "26316", sendSms = false)!!; f.sync()
+        assertEquals(0, r.count("pickup"))
+        assertTrue(f.requestSms(i.scanId)); f.sync()                                    // "отправь сообщение" + "да"
+        assertEquals(1, r.count("pickup"))
+        assertEquals(1, r.count("addScan"))                                             // the same event, not a second scan
+    }
+
     // ---- the Reader contract ----
 
     private class FakeReader {

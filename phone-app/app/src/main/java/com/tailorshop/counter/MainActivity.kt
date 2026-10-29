@@ -286,7 +286,8 @@ class MainActivity : Activity() {
             // Words show live only when they're for her: her phrase, or a number / finish words while she waits.
             // Other room talk keeps the screen at "Listening…" with no text (Art: never show room talk).
             // While she waits, only a number counts as "for her" (finish words alone are common talk: "я уже сделал").
-            val forHer = Lookup.addressed(t) || Lookup.parseQueries(t).any { it !is Query.Name }
+            val forHer = Lookup.addressed(t) || Lookup.parseQueries(t).any { it !is Query.Name } ||
+                (finishes.configured() && Lookup.expectedReply(t, finishWaiting(), workerList()) != null)
             if (forHer && (Lookup.addressed(t) || now < armedUntil || now < followUntil || now < wakeUntil)) { live = t; render() }
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -483,10 +484,9 @@ class MainActivity : Activity() {
             getPreferences(MODE_PRIVATE).edit().putBoolean("russianFirst", russianFirst).apply()
             updateLang(); restartIfListening()
         }
-        handsButton = smallButton {
-            handsFree = !handsFree; handsOffAt = System.currentTimeMillis(); updateHands(); setStatus(idleText()); render()
-            if (handsFree) listenSoon(200) else stopListening()
-        }
+        // Art: Sofia is ALWAYS listening (night mode still turns the mic off). No on/off button; a small gear
+        // in the corner opens Settings with a 3 s hold, and a tap does nothing, so nothing switches her off.
+        handsButton = smallButton { }
         holdForSettings(handsButton)
         top.addView(status); top.addView(langButton); top.addView(handsButton)
 
@@ -819,7 +819,7 @@ class MainActivity : Activity() {
 
     // ---- Voice Finish (Art): "Sofia, this is Andrei, done 26316 [and send the message]" ----
 
-    private class Line(val worker: String, val receipt: String, val total: String, val wantSms: Boolean, val russian: Boolean) {
+    private class Line(val worker: String, val receipt: String, val total: String, var wantSms: Boolean, val russian: Boolean) {
         var asking = false; var askedAt = 0L; var cancelled = false; var scanId: String? = null; var notInList = false
         var spokenScan = ""; var spokenSms = ""
     }
@@ -830,6 +830,17 @@ class MainActivity : Activity() {
     private var handsOffAt = 0L
 
     private fun asking(): Line? = lines.firstOrNull { it.asking }
+
+    /** What a no-number reply may be right now (Cloud 6489296599). */
+    private fun finishWaiting(): Lookup.Waiting {
+        val now = System.currentTimeMillis()
+        return when {
+            asking() != null -> Lookup.Waiting.YES_NO
+            now < pendingUntil && pendingFinish != null -> Lookup.Waiting.NAME
+            now < finishUntil -> Lookup.Waiting.FINISH_WINDOW
+            else -> Lookup.Waiting.NONE
+        }
+    }
 
     private fun workerList(): List<String> = finishes.workers().ifEmpty {
         // Fallback: the names already in the sheet's M.T. column (Receipts only accepts Approved Workers there).
@@ -852,6 +863,15 @@ class MainActivity : Activity() {
         }
         val f = alts.firstNotNullOfOrNull { a -> if (Lookup.addressed(a) || stillTalking) Lookup.parseFinish(a, workers) else null }
         if (f != null) { Log.d("TailorCounter", "heard=$alts finish=${f.worker} ${f.receipts} sms=${f.sms}"); handleFinish(f, ru); return true }
+        // "отправь сообщение" on its own right after a finish: read back the last receipt saved without an SMS.
+        if (Lookup.expectedReply(alts.joinToString(" "), finishWaiting(), workers) == Lookup.Reply.SMS &&
+            alts.none { Lookup.parseQueries(it).any { q -> q is Query.Receipt } }) {
+            lines.lastOrNull { it.scanId != null && !it.wantSms && !it.cancelled }?.let { l ->
+                Log.d("TailorCounter", "heard=$alts lateSms=${l.receipt}")
+                l.wantSms = true; l.asking = true; l.askedAt = now; armedUntil = now + 8_000; armedQuiet = true
+                speak(Lookup.readBack(l.worker, l.receipt, l.russian) to l.russian); render(); return true
+            }
+        }
         // A bare number in the 15 s after a finish: the same tailor (Art), its own read-back.
         if (now < finishUntil) finishWorker?.let { w ->
             val nums = alts.flatMap { Lookup.parseQueries(it).filterIsInstance<Query.Receipt>() }.map { it.number }.distinct()
@@ -912,12 +932,16 @@ class MainActivity : Activity() {
 
     private fun confirmLine(line: Line, yes: Boolean) {
         line.asking = false
-        save(line, sms = yes)
+        val id = line.scanId
+        if (id != null) { if (yes && finishes.requestSms(id)) syncFinishesSoon(0) } // already saved: same event, SMS now
+        else save(line, sms = yes)
         askNext()
     }
 
     private fun cancelLine(line: Line, quiet: Boolean = false) {
-        line.asking = false; line.cancelled = true
+        line.asking = false
+        if (line.scanId != null) { line.wantSms = false; askNext(); return } // already saved: just no SMS
+        line.cancelled = true
         if (!quiet) speak((if (line.russian) "Отменено. Скажите номер ещё раз." else "Cancelled. Say the number again.") to line.russian)
         finishUntil = System.currentTimeMillis() + 15_000
         askNext()
@@ -926,6 +950,7 @@ class MainActivity : Activity() {
     /** 8 s without an answer: the job is saved, the SMS is not sent (Art). */
     private fun timeoutLine(line: Line) {
         line.asking = false
+        if (line.scanId != null) { line.wantSms = false; askNext(); return } // already saved: no SMS
         save(line, sms = false)
         askNext()
     }
@@ -1247,7 +1272,7 @@ class MainActivity : Activity() {
     }
 
     private fun updateLang() { langButton.text = if (russianFirst) "RU → EN" else "EN → RU" }
-    private fun updateHands() { handsButton.text = if (handsFree) "Hands-free ON" else "Hands-free OFF" }
+    private fun updateHands() { handsButton.text = "⚙"; handsButton.textSize = 26f }
 
     private fun restartIfListening() { if (listening) { stopListening(); listenSoon(200) } }
 

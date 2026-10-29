@@ -225,6 +225,25 @@ object Lookup {
         return Finish(worker, heard, receipts, sms)
     }
 
+    /** "send the message / отправь сообщение" anywhere in what was said. */
+    fun wantsSms(said: String): Boolean = (" " + words(said).joinToString(" ") + " ").let { t -> SMS_WORDS.any { t.contains(" $it ") } }
+
+    /** What Sofia is waiting for during Voice Finish (none = normal listening). */
+    enum class Waiting { NONE, NAME, YES_NO, FINISH_WINDOW }
+    enum class Reply { NAME, YES_NO, SMS }
+
+    /**
+     * A reply with no number that must still get through while she waits for exactly that answer (Cloud
+     * 6489296599): the tailor's name after "Who is this?", yes/no to "…correct?", and "send the message"
+     * said on its own in the 15 s after a finish. Anything else without a number stays room talk.
+     */
+    fun expectedReply(said: String, waiting: Waiting, workers: List<String>): Reply? = when (waiting) {
+        Waiting.NAME -> if (words(said).any { matchWorker(it, workers) != null }) Reply.NAME else null
+        Waiting.YES_NO -> if (yesNo(said) != null) Reply.YES_NO else null
+        Waiting.FINISH_WINDOW -> if (wantsSms(said)) Reply.SMS else null
+        Waiting.NONE -> null
+    }
+
     private val YES = setOf("yes", "yeah", "yep", "correct", "right", "sure", "da", "verno", "aga", "tochno", "pravilno", "konechno")
     private val NO = setOf("no", "nope", "cancel", "wrong", "net", "otmena", "ne", "neverno", "otmenit", "stop")
 
