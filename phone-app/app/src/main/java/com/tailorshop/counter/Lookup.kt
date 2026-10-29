@@ -151,8 +151,11 @@ object Lookup {
 
     // Art: the counter assistant is "Sofia" / "София" and every command starts with her name, so normal
     // talk is ignored. These are her name as the recognizer writes it (after Cyrillic -> Latin).
-    private val SOFIA = setOf("sofia", "sophia", "sofiya", "sofya", "sofie", "sophie", "sofi", "sofiia", "sofiyu", "soffia")
-    private const val NAME_WITHIN = 2 // "Hey Sofia", "Okay so Sofia": at most 2 words before her name
+    // Only the forms used to call her: "Софии / Софию / о Софье" (talking ABOUT her) don't count.
+    private val SOFIA = setOf("sofia", "sophia", "sofiya", "sofya", "sofie", "sophie", "sofi", "soffia")
+    // Her name must open the phrase, or follow one call word ("Hey Sofia", "Так, София"). On 10-28 Art's
+    // "на стороне Софии лишний звук…" woke her because 2 words before the name were allowed.
+    private val CALL_WORDS = setOf("hey", "hi", "ok", "okay", "so", "and", "tak", "vot", "nu", "slushay", "a", "privet", "ey", "oy")
 
     private fun words(said: String): List<String> = normalize(said).split(' ').filter { it.isNotEmpty() }
 
@@ -163,7 +166,8 @@ object Lookup {
     private fun afterName(said: String): List<String>? {
         val w = words(said)
         val i = w.indexOfFirst { it in SOFIA }
-        return if (i < 0 || i > NAME_WITHIN) null else w.drop(i + 1).filter { it !in POLITE }
+        val opens = i == 0 || (i == 1 && w[0] in CALL_WORDS)
+        return if (i < 0 || !opens) null else w.drop(i + 1).filter { it !in POLITE }
     }
 
     /** She was addressed: her name opens the phrase (used to show the words live). */

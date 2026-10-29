@@ -255,6 +255,16 @@ class LookupTest {
         assertTrue(!Lookup.isFinishPhrase("София, найди 26315"))
     }
 
+    @Test fun talkingAboutHerDoesNotWakeHer() {
+        assertTrue(!Lookup.addressed("на стороне Софии лишний звук уже убрал"))   // Art's exact words, 10-28
+        assertTrue(!Lookup.addressed("на стороне Софи"))                          // the same, as a partial result
+        assertTrue(!Lookup.addressed("я сказал Софии"))
+        assertTrue(!Lookup.addressed("попроси Софию найти"))
+        assertTrue(Lookup.addressed("София, найди 26316"))
+        assertTrue(Lookup.addressed("Так, София, найди 26316"))
+        assertTrue(Lookup.addressed("Hey Sofia, find 26316"))
+    }
+
     @Test fun sheIntroducesHerself() {
         assertTrue(Lookup.asksWhoSheIs("Sofia, who are you?"))
         assertTrue(Lookup.asksWhoSheIs("София, кто ты?"))
