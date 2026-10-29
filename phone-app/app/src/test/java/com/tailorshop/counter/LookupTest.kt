@@ -149,6 +149,24 @@ class LookupTest {
             assertEquals(said, listOf(Query.Last4("4742")), q(tail(said)!!))
     }
 
+    @Test fun artsTriggerPhrases() {
+        for (said in listOf("find 4417", "find it 4417", "look for 4417", "look up 4417", "check 4417", "search 4417",
+                "search for 4417", "pull up 4417", "show me 4417", "where is 4417", "do you have 4417", "get me 4417",
+                "bring up 4417", "can you find 4417", "look for receipt 4417", "find it order number 4417",
+                "найди 4417", "поищи 4417", "посмотри 4417", "проверь 4417", "покажи 4417", "глянь 4417", "где 4417",
+                "есть ли 4417", "подними 4417", "найди-ка 4417", "поищи ресит 4417", "посмотри номер 4417",
+                "покажи телефон клиента 4417", "where is ticket 4417"))
+            assertEquals(said, listOf(Query.Last4("4417")), q(tail(said)!!))
+        assertEquals(listOf(Query.Receipt("26314")), q(tail("find it 26314")!!))
+        assertEquals(listOf(Query.Receipt("26314")), q(tail("поищи ресит 26314")!!))
+    }
+
+    @Test fun everydayWordsWithoutANumberDoNothing() {
+        for (said in listOf("где", "покажи мне", "where is it", "show me that", "do you have time", "можешь глянуть",
+                "есть ли у нас нитки", "search", "bring up the box"))
+            assertEquals(said, null, tail(said))
+    }
+
     @Test fun triggerOnlyAtTheStart() {
         assertEquals(null, tail("я сказал ему что надо посмотреть 4742")) // trigger late, no "receipt"
         assertEquals(null, tail("we should look up the weather"))

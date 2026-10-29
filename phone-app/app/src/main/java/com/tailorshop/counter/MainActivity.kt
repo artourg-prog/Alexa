@@ -790,7 +790,7 @@ class MainActivity : Activity() {
                 stage.addView(smallLine(java.text.SimpleDateFormat("MM/dd/yyyy", Locale.US).format(java.util.Date()),
                     Color.rgb(170, 170, 170), 44f))
                 if (System.currentTimeMillis() < chromeUntil)
-                    stage.addView(smallLine("Say “Find receipt …” or “Check …”  ·  «Найди заказ …»", Color.rgb(110, 110, 110), 18f))
+                    stage.addView(smallLine("Say: find + last 4 phone digits or receipt #", Color.rgb(110, 110, 110), 18f))
             }
             else -> {
                 val c = shown[index].card

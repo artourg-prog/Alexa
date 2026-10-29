@@ -57,6 +57,7 @@ object Lookup {
         "найди", "найти", "покажи", "проверь", "поиск", "заказ", "заказы", "квитанция", "квитанцию",
         "клиент", "клиента", "клиентка", "телефон", "номер", "для", "на", "и", "пожалуйста", "имя",
         "последние", "цифры", "это", "ресит", "ресита", "рисит", "квитанции", "with", "by", "on", "my",
+        "ticket", "me", "you", "have", "квитанцию", "клиента",
     )
 
     // ---- sheet ----
@@ -115,13 +116,29 @@ object Lookup {
     private val OBJECT_PREFIXES = listOf("receipt", "order", "resi", "risi", "zakaz", "kvitan", "nomer", "number", "namber", "phone", "telefon")
     private const val TRIGGER_WITHIN = 2 // "Okay, find …", "Так, найди …": at most 2 words before the trigger
 
+    // Art: many ways to say "find" (people mix words). These count only with a number in the same phrase,
+    // since words like "where" / "где" / "show me" are common in ordinary talk. Phrases are folded to one word.
+    private val WEAK_PHRASES = listOf(
+        "can you find", "do you have", "look for", "search for", "pull up", "show me", "where is", "get me", "bring up",
+        "find it", "est li", "naydi ka",
+    )
+    private val WEAK = setOf("search", "where", "poischi", "pokazhi", "glyan", "gde", "podnimi") +
+        WEAK_PHRASES.map { it.replace(' ', '_') }
+
     /** Text after the command ("" = command without a number yet), or null when there is no command. */
     fun commandTail(said: String): String? {
-        val words = normalize(said).split(' ').filter { it.isNotEmpty() }
+        var text = " " + normalize(said) + " "
+        for (ph in WEAK_PHRASES) text = text.replace(" $ph ", " ${ph.replace(' ', '_')} ")
+        val words = text.trim().split(' ').filter { it.isNotEmpty() }
             .let { w -> w.indices.mapNotNull { i -> if (w[i] == "look" && w.getOrNull(i + 1) == "up") null
                 else if (w[i] == "up" && w.getOrNull(i - 1) == "look") "lookup" else w[i] } }
         fun isObject(n: String) = OBJECT_PREFIXES.any { n.startsWith(it) }
         for (i in words.indices) {
+            if (words[i] in WEAK && i <= TRIGGER_WITHIN) {
+                val tail = words.drop(i + 1).joinToString(" ")
+                if (parseQueries(tail).any { it !is Query.Name }) return tail
+                continue
+            }
             if (words[i] !in FIND) continue
             val rest = words.drop(i + 1)
             val tail = rest.joinToString(" ")
