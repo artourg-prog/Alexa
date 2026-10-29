@@ -277,7 +277,10 @@ class MainActivity : Activity() {
             // Still talking to her: the 8 s count restarts on new words, but never past 25 s from her name,
             // so ongoing room talk can't hold the listening screen (it stuck on 10-28 night).
             else if (now < wakeUntil) wakeUntil = minOf(now + 8_000, wakeStart + MAX_WAKE_MS)
-            if (Lookup.addressed(t) || now < armedUntil || now < followUntil) { live = t; render() }
+            // Words show live only when they're for her: her phrase, or a number / finish words while she waits.
+            // Other room talk keeps the screen at "Listening…" with no text (Art: never show room talk).
+            val forHer = Lookup.addressed(t) || Lookup.parseQueries(t).any { it !is Query.Name } || Lookup.isFinishPhrase(t)
+            if (forHer && (Lookup.addressed(t) || now < armedUntil || now < followUntil || now < wakeUntil)) { live = t; render() }
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
 
@@ -738,10 +741,12 @@ class MainActivity : Activity() {
      * sounds use the media volume, so nothing she plays is lost. Unmuted when the app is left.
      */
     private fun muteSystemSounds(mute: Boolean) {
-        try {
-            getSystemService(android.media.AudioManager::class.java)?.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM,
-                if (mute) android.media.AudioManager.ADJUST_MUTE else android.media.AudioManager.ADJUST_UNMUTE, 0)
-        } catch (e: Exception) { Log.d("TailorCounter", "system mute failed: ${e.message}") }
+        // The start tone comes from Android System Intelligence as a "notification event" (seen in the Fold's
+        // log on 10-28), so the notification volume is muted too; Sofia's sounds play on the media volume.
+        val am = getSystemService(android.media.AudioManager::class.java) ?: return
+        for (stream in listOf(android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.STREAM_NOTIFICATION)) try {
+            am.adjustStreamVolume(stream, if (mute) android.media.AudioManager.ADJUST_MUTE else android.media.AudioManager.ADJUST_UNMUTE, 0)
+        } catch (e: Exception) { Log.d("TailorCounter", "mute stream $stream failed: ${e.message}") }
     }
 
     /** Settings: version, one sound picker per event (Art), Update now. */
