@@ -267,7 +267,7 @@ class MainActivity : Activity() {
             val t = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
             val now = System.currentTimeMillis()
             // Art: the moment her name is heard, the screen switches sharply to the bright listening screen.
-            if (Lookup.addressed(t) && now >= wakeUntil) wakeUntil = now + 8_000
+            if (Lookup.addressed(t) && now >= wakeUntil) { wakeUntil = now + 8_000; Chime.play(chime()) } // + Art's chosen chime
             if (Lookup.addressed(t) || now < armedUntil || now < followUntil) { live = t; render() }
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -713,10 +713,19 @@ class MainActivity : Activity() {
         }
     }
 
+    /** The wake chime Art picked (index into Chime.OPTIONS, -1 = off); "Ding-dong" until he picks. */
+    private fun chime() = getPreferences(MODE_PRIVATE).getInt("chime", 0)
+
     private fun showSettings() {
         android.app.AlertDialog.Builder(this)
-            .setTitle("Settings")
-            .setMessage("Tailor Counter v${Updater.versionName(this)}\n\nNew versions install by themselves at 8:00 AM on Wi-Fi.")
+            .setTitle("Settings — Tailor Counter v${Updater.versionName(this)}")
+            .setSingleChoiceItems((Chime.OPTIONS.map { "Chime: ${it.name}" } + "Chime: off").toTypedArray(),
+                chime().let { if (it < 0) Chime.OPTIONS.size else it }) { _, i ->
+                // Tapping a chime plays it and picks it (Art hears them on the Fold and chooses).
+                val pick = if (i >= Chime.OPTIONS.size) -1 else i
+                getPreferences(MODE_PRIVATE).edit().putInt("chime", pick).apply()
+                Chime.play(pick)
+            }
             .setPositiveButton("Update now") { _, _ -> checkUpdate() }
             .setNegativeButton("Close", null)
             .show()
