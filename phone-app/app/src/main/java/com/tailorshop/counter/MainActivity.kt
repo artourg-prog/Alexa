@@ -95,6 +95,7 @@ class MainActivity : Activity() {
         Wake.clear(this)
         hideSystemBars()
         main.post(refresher)
+        main.post(bouncer)
         main.removeCallbacks(ticker); main.post(ticker)
         screenOff = !inShopHours()
         if (screenOff) scheduleMorningWake()
@@ -160,6 +161,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         resumed = false
         main.removeCallbacks(refresher)
+        main.removeCallbacks(bouncer)
         main.removeCallbacks(ticker)
         stopListening()
         super.onPause()
@@ -259,11 +261,15 @@ class MainActivity : Activity() {
         override fun onBufferReceived(buffer: ByteArray?) {}
         override fun onEndOfSpeech() { if (!handsFree) setStatus(if (russianFirst) "Ищу…" else "Looking…") }
         override fun onPartialResults(partial: Bundle?) {
-            // Never shown: room talk must not appear on screen (Art).
+            // Art: once "Sofia" is heard (or while she waits for a number), her words show live; room talk never does.
+            val t = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
+            val now = System.currentTimeMillis()
+            if (Lookup.addressed(t) || now < armedUntil || now < followUntil) { live = t; render() }
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
 
         override fun onError(error: Int) {
+            if (live != null) { live = null; render() }
             listening = false
             tapped = false
             if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT)
@@ -283,6 +289,7 @@ class MainActivity : Activity() {
         }
 
         override fun onResults(results: Bundle?) {
+            live = null
             listening = false
             updateMic()
             val alts = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION).orEmpty()
@@ -304,7 +311,9 @@ class MainActivity : Activity() {
         val followUp = System.currentTimeMillis() < followUntil
         armedUntil = 0L
         main.removeCallbacks(armedTimeout)
-        if (alts.any(Lookup::asksWhoSheIs)) { Log.d("TailorCounter", "heard=$alts intro"); speak(Lookup.INTRO to false); return }
+        live = null
+        if (alts.any(Lookup::asksWhoSheIs)) { Log.d("TailorCounter", "heard=$alts intro"); speak(Lookup.INTRO to false); render(); return }
+        alts.firstNotNullOfOrNull(Lookup::thanksReply)?.let { Log.d("TailorCounter", "heard=$alts thanks"); speak(it); render(); return }
         // A follow-up about the receipt on screen: in the 15 s after an answer, or any time with "Sofia" in front.
         val onScreen = shown.getOrNull(index)?.card
         if (onScreen != null && message == null) {
@@ -552,6 +561,7 @@ class MainActivity : Activity() {
         val r = java.util.Random()
         // The receipt number is edge to edge, so it mostly moves up/down; the clock moves both ways.
         val clock = shown.isEmpty() && message == null
+        if (clock) { stage.translationX = 0f; stage.translationY = 0f; return } // the idle block bounces instead
         val dx = dp(if (clock) CLOCK_DRIFT_DP else NUMBER_DRIFT_DP)
         stage.translationX = (r.nextInt(2 * dx + 1) - dx).toFloat()
         stage.translationY = (r.nextInt(2 * dp(24) + 1) - dp(24)).toFloat()
@@ -580,7 +590,7 @@ class MainActivity : Activity() {
             setBrightness(0f)
         } else {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            setBrightness(if (clockOnly && !chrome) 0.1f else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE)
+            setBrightness(WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE) // Art: no dimming; the idle block bounces instead
         }
     }
 
@@ -784,6 +794,47 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     }
 
+    private val HINT = "Say: Sofia, find + last 4 phone digits or receipt #"
+    private var live: String? = null           // her words while she's being spoken to
+    private var block: View? = null            // the idle Sofia + clock + date block
+    private var bounceX = 0f; private var bounceY = 0f
+    private var vx = 1f; private var vy = 0.7f // px per frame (~25 frames a second): slow, steady
+
+    private fun stageW() = if (stage.width > 0) stage.width else resources.displayMetrics.widthPixels
+
+    /** Small "Sofia" + the hint, at the top of every non-idle screen. */
+    private fun banner() = LinearLayout(this).apply {
+        orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+        addView(sofiaLine(dp(90).toFloat()).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                .apply { rightMargin = dp(16) }
+        })
+        addView(smallLine(HINT, Color.rgb(140, 140, 140), 18f))
+    }
+
+    private fun liveLine(text: String, size: Float) = TextView(this).apply {
+        setTextColor(Color.rgb(120, 200, 255)); textSize = size; gravity = Gravity.CENTER; maxLines = 3
+        this.text = text
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            .apply { topMargin = dp(24) }
+    }
+
+    /** Moves the idle block a little each frame, bouncing off the stage edges like a ping-pong screensaver. */
+    private val bouncer = object : Runnable {
+        override fun run() {
+            val b = block
+            if (b != null && b.parent === stage && b.width > 0) {
+                val lx = ((stage.width - b.width) / 2f).coerceAtLeast(0f)
+                val ly = ((stage.height - b.height) / 2f).coerceAtLeast(0f)
+                bounceX += vx; bounceY += vy
+                if (bounceX > lx) { bounceX = lx; vx = -kotlin.math.abs(vx) } else if (bounceX < -lx) { bounceX = -lx; vx = kotlin.math.abs(vx) }
+                if (bounceY > ly) { bounceY = ly; vy = -kotlin.math.abs(vy) } else if (bounceY < -ly) { bounceY = -ly; vy = kotlin.math.abs(vy) }
+                b.translationX = bounceX; b.translationY = bounceY
+            }
+            main.postDelayed(this, 40)
+        }
+    }
+
     private fun sofiaLine(width: Float) = TextView(this).apply {
         val face = try { resources.getFont(R.font.great_vibes) } catch (e: Exception) { Typeface.SERIF }
         typeface = face; setTextColor(Color.rgb(200, 200, 200)); gravity = Gravity.CENTER; includeFontPadding = false
@@ -802,34 +853,48 @@ class MainActivity : Activity() {
     private fun render() {
         if (!::stage.isInitialized) return
         prune()
+        block = null
         stage.removeAllViews()
         val msg = message
         applyMode(clockOnly = msg == null && shown.isEmpty())
         when {
             screenOff -> {} // black
-            msg != null -> stage.addView(TextView(this).apply {
+            msg != null -> stage.addView(banner()).let { stage.addView(TextView(this).apply {
                 setTextColor(Color.rgb(255, 120, 120)); textSize = 44f; typeface = Typeface.DEFAULT_BOLD
                 gravity = Gravity.CENTER; text = msg
-            })
+            }) }
+            live != null && shown.isEmpty() -> { stage.addView(banner()); stage.addView(liveLine(live!!, 48f)) }
             shown.isEmpty() -> {
                 heard.text = ""
                 val now = java.text.SimpleDateFormat("h:mm", Locale.US).format(java.util.Date())
                 val date = java.text.SimpleDateFormat("MM/dd/yyyy", Locale.US).format(java.util.Date())
                 val dateLine = smallLine(date, Color.rgb(170, 170, 170), 44f)
                 // Art: her name above the clock in pen-style calligraphy (Great Vibes, OFL, bundled), about as wide
-                // as the date line, so people see who to talk to. Name, clock and date drift together (one stage).
-                stage.addView(sofiaLine(dateLine.paint.measureText(date)))
-                stage.addView(bigLine(now, Color.rgb(200, 200, 200), 0.5f, drift = dp(CLOCK_DRIFT_DP)))
-                // The date under the clock (US month/day/year).
-                stage.addView(dateLine)
-                if (System.currentTimeMillis() < chromeUntil)
-                    stage.addView(smallLine("Say: Sofia, find + last 4 phone digits or receipt #", Color.rgb(110, 110, 110), 18f))
+                // as the date line; then the clock, the date (US month/day/year) and the hint. The block is smaller
+                // than the screen and bounces around it slowly (no dimming) to protect the screen.
+                val b = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                }
+                b.addView(sofiaLine(dateLine.paint.measureText(date)).apply {
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                })
+                b.addView(bigLine(now, Color.rgb(200, 200, 200), 0.42f, drift = stageW() / 5).apply {
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+                })
+                b.addView(dateLine)
+                b.addView(smallLine(HINT, Color.rgb(120, 120, 120), 18f))
+                stage.addView(b)
+                block = b
+                b.translationX = bounceX; b.translationY = bounceY
             }
             else -> {
                 val c = shown[index].card
+                stage.addView(banner()) // Art: Sofia + what to say on every screen
+                live?.let { stage.addView(liveLine(it, 28f)) }
                 // The receipt number edge to edge; everything else small underneath.
                 // Any balance left: the number in red, pulsing once per second. Paid / account / unknown: as before.
-                stage.addView(bigLine(c.receipt, if (c.pay == Pay.DUE) Color.rgb(255, 50, 50) else Color.WHITE, 0.72f,
+                stage.addView(bigLine(c.receipt, if (c.pay == Pay.DUE) Color.rgb(255, 50, 50) else Color.WHITE, 0.6f,
                     drift = dp(NUMBER_DRIFT_DP)).apply { if (c.pay == Pay.DUE) pulse(this) })
                 stage.addView(smallLine(listOf(c.customer, c.phone).filter { it.isNotEmpty() }.joinToString("  ·  "),
                     Color.rgb(190, 190, 190), 22f))

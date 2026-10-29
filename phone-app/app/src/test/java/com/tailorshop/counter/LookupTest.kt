@@ -223,6 +223,16 @@ class LookupTest {
         assertTrue(!Lookup.onlyHerName("we talked about it"))
     }
 
+    @Test fun politeWordsDontBreakCommands() {
+        for (said in listOf("Sofia, can you please find me 26316", "Sofia, please find 26316", "София, найди, пожалуйста, номер 26316",
+                "Sofia, could you find 26316", "Sofia, would you please look up 26316", "София, будь добра, найди 26316"))
+            assertEquals(said, listOf(Query.Receipt("26316")), q(raw(said)!!))
+        assertEquals("You're welcome!" to false, Lookup.thanksReply("Sofia, thank you"))
+        assertEquals("Пожалуйста!" to true, Lookup.thanksReply("София, спасибо"))
+        assertEquals(null, Lookup.thanksReply("Sofia, find 26316 thank you"))
+        assertEquals(null, Lookup.thanksReply("thank you"))
+    }
+
     @Test fun sheIntroducesHerself() {
         assertTrue(Lookup.asksWhoSheIs("Sofia, who are you?"))
         assertTrue(Lookup.asksWhoSheIs("София, кто ты?"))

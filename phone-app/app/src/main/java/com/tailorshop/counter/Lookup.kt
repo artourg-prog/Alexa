@@ -64,7 +64,7 @@ object Lookup {
         "найди", "найти", "покажи", "проверь", "поиск", "заказ", "заказы", "квитанция", "квитанцию",
         "клиент", "клиента", "клиентка", "телефон", "номер", "для", "на", "и", "пожалуйста", "имя",
         "последние", "цифры", "это", "ресит", "ресита", "рисит", "квитанции", "with", "by", "on", "my",
-        "ticket", "me", "you", "have", "квитанцию", "клиента",
+        "ticket", "me", "you", "have", "квитанцию", "клиента", "can", "could", "would", "пожалуйста",
     )
 
     // ---- sheet ----
@@ -156,11 +156,27 @@ object Lookup {
 
     private fun words(said: String): List<String> = normalize(said).split(' ').filter { it.isNotEmpty() }
 
-    /** What follows "Sofia" when her name opens the phrase, or null when she wasn't addressed. */
+    // Art: courtesy words anywhere in a command don't break it ("Sofia, can you please find me 26316").
+    private val POLITE = setOf("please", "pozhaluysta", "pozhalusta", "bud", "dobra", "dobr", "kindly")
+
+    /** What follows "Sofia" when her name opens the phrase (courtesy words dropped), or null when she wasn't addressed. */
     private fun afterName(said: String): List<String>? {
         val w = words(said)
         val i = w.indexOfFirst { it in SOFIA }
-        return if (i < 0 || i > NAME_WITHIN) null else w.drop(i + 1)
+        return if (i < 0 || i > NAME_WITHIN) null else w.drop(i + 1).filter { it !in POLITE }
+    }
+
+    /** She was addressed: her name opens the phrase (used to show the words live). */
+    fun addressed(said: String): Boolean = afterName(said) != null
+
+    private val THANKS = setOf("thank", "thanks", "spasibo")
+
+    /** "Sofia, thank you" / "София, спасибо": the reply, in the speaker's language; else null. */
+    fun thanksReply(said: String): Pair<String, Boolean>? {
+        val rest = afterName(said) ?: return null
+        if (rest.none { it in THANKS } || rest.any { it !in THANKS + setOf("you", "very", "much", "so", "bolshoe", "ochen") }) return null
+        val russian = "spasibo" in rest
+        return if (russian) "Пожалуйста!" to true else "You're welcome!" to false
     }
 
     /** Just her name, nothing else after it ("вот София", "Sofia?"): not a command yet. */
