@@ -777,6 +777,15 @@ class MainActivity : Activity() {
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
     }
 
+    private fun sofiaLine(width: Float) = TextView(this).apply {
+        val face = try { resources.getFont(R.font.great_vibes) } catch (e: Exception) { Typeface.SERIF }
+        typeface = face; setTextColor(Color.rgb(200, 200, 200)); gravity = Gravity.CENTER; includeFontPadding = false
+        val probe = android.graphics.Paint().apply { typeface = face; textSize = 100f }
+        setTextSize(TypedValue.COMPLEX_UNIT_PX, 100f * width / probe.measureText("Sofia"))
+        text = "Sofia"
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+    }
+
     private fun smallLine(text: String, color: Int, size: Float, bold: Boolean = false) = TextView(this).apply {
         setTextColor(color); textSize = size; gravity = Gravity.CENTER_HORIZONTAL; maxLines = 1
         if (bold) typeface = Typeface.DEFAULT_BOLD
@@ -798,10 +807,14 @@ class MainActivity : Activity() {
             shown.isEmpty() -> {
                 heard.text = ""
                 val now = java.text.SimpleDateFormat("h:mm", Locale.US).format(java.util.Date())
-                stage.addView(bigLine(now, Color.rgb(200, 200, 200), 0.62f, drift = dp(CLOCK_DRIFT_DP)))
-                // The date under the clock (US month/day/year); it's in the stage, so it drifts with the clock.
-                stage.addView(smallLine(java.text.SimpleDateFormat("MM/dd/yyyy", Locale.US).format(java.util.Date()),
-                    Color.rgb(170, 170, 170), 44f))
+                val date = java.text.SimpleDateFormat("MM/dd/yyyy", Locale.US).format(java.util.Date())
+                val dateLine = smallLine(date, Color.rgb(170, 170, 170), 44f)
+                // Art: her name above the clock in pen-style calligraphy (Great Vibes, OFL, bundled), about as wide
+                // as the date line, so people see who to talk to. Name, clock and date drift together (one stage).
+                stage.addView(sofiaLine(dateLine.paint.measureText(date)))
+                stage.addView(bigLine(now, Color.rgb(200, 200, 200), 0.5f, drift = dp(CLOCK_DRIFT_DP)))
+                // The date under the clock (US month/day/year).
+                stage.addView(dateLine)
                 if (System.currentTimeMillis() < chromeUntil)
                     stage.addView(smallLine("Say: Sofia, find + last 4 phone digits or receipt #", Color.rgb(110, 110, 110), 18f))
             }
