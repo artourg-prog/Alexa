@@ -233,6 +233,22 @@ class LookupTest {
         assertEquals(null, Lookup.thanksReply("thank you"))
     }
 
+    @Test fun sheAnswersInTheLanguageAsked() {
+        assertTrue(Lookup.isRussian("София, проверь номер 26315"))
+        assertTrue(!Lookup.isRussian("Sofia, check 26315"))
+        val c = Card("26315", "x", "", ready = true, pay = Pay.DUE)
+        assertEquals("Квитанция 2 6 3 1 5 готова к выдаче, есть долг.", Lookup.reply(listOf(c), true))
+        assertEquals("Receipt 2 6 3 1 5 is ready for pickup, there is a balance due.", Lookup.reply(listOf(c), false))
+        assertEquals("Квитанция 2 6 3 1 5 ещё не готова, оплачено.", Lookup.replyRu(listOf(c.copy(ready = false, pay = Pay.PAID))))
+        val d = Lookup.findAll("26240", orders).first()
+        assertEquals("Сдали 10 октября.", Lookup.followUpAnswer(Topic.DATE, d, true))
+        assertEquals("Ещё не готово, мастера пока нет.", Lookup.followUpAnswer(Topic.TAILOR, d, true))
+        assertTrue(Lookup.asksIfSheHears("София, ты меня слышишь?"))
+        assertTrue(Lookup.asksIfSheHears("Sofia, can you hear me"))
+        assertEquals("Да, слушаю.", Lookup.hearsReply(true))
+        assertEquals(listOf(Query.Receipt("26315")), q(raw("София, проверь номер 26315")!!))
+    }
+
     @Test fun sheIntroducesHerself() {
         assertTrue(Lookup.asksWhoSheIs("Sofia, who are you?"))
         assertTrue(Lookup.asksWhoSheIs("София, кто ты?"))

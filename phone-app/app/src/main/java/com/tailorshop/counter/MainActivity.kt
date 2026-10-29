@@ -325,7 +325,9 @@ class MainActivity : Activity() {
         live = null
         // Keep the listening screen only while she waits for the number after a bare "Sofia".
         wakeUntil = if (alts.any(Lookup::onlyHerName)) System.currentTimeMillis() + 8_000 else 0L
-        if (alts.any(Lookup::asksWhoSheIs)) { Log.d("TailorCounter", "heard=$alts intro"); speak(Lookup.INTRO to false); render(); return }
+        val ru = alts.any(Lookup::isRussian) || (detectedLang?.startsWith("ru") == true)
+        if (alts.any(Lookup::asksWhoSheIs)) { Log.d("TailorCounter", "heard=$alts intro"); speak((if (ru) Lookup.INTRO_RU else Lookup.INTRO) to ru); render(); return }
+        if (alts.any(Lookup::asksIfSheHears)) { Log.d("TailorCounter", "heard=$alts hears"); speak(Lookup.hearsReply(ru) to ru); answered(); render(); return }
         alts.firstNotNullOfOrNull(Lookup::thanksReply)?.let { Log.d("TailorCounter", "heard=$alts thanks"); speak(it); render(); return }
         // A follow-up about the receipt on screen: in the 15 s after an answer, or any time with "Sofia" in front.
         val onScreen = shown.getOrNull(index)?.card
@@ -336,7 +338,7 @@ class MainActivity : Activity() {
             }
             if (ask != null) {
                 Log.d("TailorCounter", "heard=$alts followUp=$ask")
-                speak(Lookup.followUpAnswer(ask, onScreen) to false); answered(); return
+                speak(Lookup.followUpAnswer(ask, onScreen, ru) to ru); answered(); return
             }
         }
         val go = {
@@ -378,7 +380,7 @@ class MainActivity : Activity() {
                     cards.isEmpty() -> { showMessage(Lookup.notFound(russian)); speak(Lookup.notFound(russian) to russian); answered() }
                     else -> {
                         addResults(cards)
-                        speak(Lookup.replyEn(cards) to false)
+                        speak(Lookup.reply(cards, russian) to russian) // Art: answer in the language asked
                         answered()
                     }
                 }
@@ -936,7 +938,7 @@ class MainActivity : Activity() {
                 live?.let { stage.addView(liveLine(it, 28f)) }
                 // The receipt number edge to edge; everything else small underneath.
                 // Any balance left: the number in red, pulsing once per second. Paid / account / unknown: as before.
-                stage.addView(bigLine(c.receipt, if (c.pay == Pay.DUE) Color.rgb(255, 50, 50) else Color.WHITE, 0.6f,
+                stage.addView(bigLine(c.receipt, if (c.pay == Pay.DUE) Color.rgb(255, 50, 50) else Color.WHITE, 0.5f,
                     drift = dp(NUMBER_DRIFT_DP)).apply { if (c.pay == Pay.DUE) pulse(this) })
                 stage.addView(smallLine(listOf(c.customer, c.phone).filter { it.isNotEmpty() }.joinToString("  ·  "),
                     Color.rgb(190, 190, 190), 22f))

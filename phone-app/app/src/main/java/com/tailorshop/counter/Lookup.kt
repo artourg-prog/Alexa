@@ -182,6 +182,9 @@ object Lookup {
     /** Just her name, nothing else after it ("вот София", "Sofia?"): not a command yet. */
     fun onlyHerName(said: String): Boolean = afterName(said)?.isEmpty() == true
 
+    /** Art: she answers in the language she was asked in. Cyrillic letters = Russian. */
+    fun isRussian(said: String) = said.any { it in 'а'..'я' || it in 'А'..'Я' || it == 'ё' || it == 'Ё' }
+
     /** "Sofia, who are you?" / "София, кто ты?" */
     fun asksWhoSheIs(said: String): Boolean {
         val rest = afterName(said)?.joinToString(" ") ?: return false
@@ -189,6 +192,16 @@ object Lookup {
     }
 
     const val INTRO = "I'm Sofia, the counter assistant."
+    const val INTRO_RU = "Я София, помощница на приёмке."
+
+    /** "Sofia, can you hear me?" / "София, ты меня слышишь?" -> a short "yes, listening". */
+    fun asksIfSheHears(said: String): Boolean {
+        val rest = afterName(said)?.joinToString(" ") ?: return false
+        return listOf("can you hear me", "do you hear me", "are you there", "are you listening", "ty menya slyshish",
+            "ty slyshish", "vy menya slyshite", "ty tut", "slyshish").any { rest.startsWith(it) }
+    }
+
+    fun hearsReply(russian: Boolean) = if (russian) "Да, слушаю." else "Yes, I'm listening."
 
     /**
      * Text after the command ("" = Sofia was called but the number is still to come), or null when Sofia
@@ -254,6 +267,20 @@ object Lookup {
     private val MONTHS = listOf("January", "February", "March", "April", "May", "June", "July", "August", "September",
         "October", "November", "December")
 
+    private val MONTHS_RU = listOf("января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября",
+        "октября", "ноября", "декабря")
+
+    fun followUpAnswer(topic: Topic, c: Card, russian: Boolean): String = if (!russian) followUpAnswer(topic, c) else when (topic) {
+        Topic.TAILOR -> if (c.tailor.isNotBlank()) "Мастер — ${c.tailor}." else "Ещё не готово, мастера пока нет."
+        Topic.AMOUNT -> if (c.total.isNotBlank()) "Сумма ${c.total}." else "Суммы не вижу."
+        Topic.PAY -> when (c.pay) {
+            Pay.PAID -> "Оплачено."; Pay.DUE -> "Есть долг."; Pay.ACCOUNT -> "На счёте магазина."
+            Pay.UNKNOWN -> "Не вижу, как оплачено."
+        }
+        Topic.DATE -> dateKey(c.date).let { k -> if (k == 0) "Не вижу дату сдачи." else "Сдали ${k % 100} ${MONTHS_RU[k / 100 % 100 - 1]}." }
+        Topic.WORK -> if (c.work.isNotBlank()) "Работа: ${c.work}." else "Описания не вижу."
+    }
+
     /** Sofia's answer, one natural English sentence. Never the customer, the phone or the account. */
     fun followUpAnswer(topic: Topic, c: Card): String = when (topic) {
         Topic.TAILOR -> if (c.tailor.isNotBlank()) "The tailor was ${c.tailor}." else "It's not finished yet, there's no tailor on it."
@@ -313,6 +340,17 @@ object Lookup {
      * ready / not finished, then paid / due / account from the records (nothing when unknown). Never the
      * phone, never "picked up". Up to 3 receipts; the rest are on screen. Uses the phone's default voice.
      */
+    fun reply(cards: List<Card>, russian: Boolean) = if (russian) replyRu(cards) else replyEn(cards)
+
+    /** The same answer in Russian: "Квитанция 2 6 3 1 5 готова к выдаче, есть долг." */
+    fun replyRu(cards: List<Card>): String = cards.take(3).joinToString(" ") {
+        val pay = when (it.pay) {
+            Pay.PAID -> ", оплачено"; Pay.DUE -> ", есть долг"; Pay.ACCOUNT -> ", на счёте магазина"; Pay.UNKNOWN -> ""
+        }
+        "Квитанция ${digits(it.receipt).toCharArray().joinToString(" ")} " +
+            (if (it.ready) "готова к выдаче" else "ещё не готова") + "$pay."
+    }
+
     fun replyEn(cards: List<Card>): String = cards.take(3).joinToString(" ") {
         val pay = when (it.pay) {
             Pay.PAID -> ", it's paid"; Pay.DUE -> ", there is a balance due"; Pay.ACCOUNT -> ", it's on the store account"
