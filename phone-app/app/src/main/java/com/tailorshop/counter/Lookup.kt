@@ -179,6 +179,13 @@ object Lookup {
         return if (russian) "Пожалуйста!" to true else "You're welcome!" to false
     }
 
+    // "запиши / готово / закончил / сохрани / отправь сообщение", "done / finished / save / send the message"
+    private val FINISH = setOf("zapishi", "zapisat", "gotovo", "zakonchil", "zakonchila", "sdelal", "sdelala", "sokhrani",
+        "sohrani", "done", "finished", "save", "otprav", "otpravi")
+
+    /** A Voice Finish phrase (the tailor reporting finished work), not a lookup. */
+    fun isFinishPhrase(said: String): Boolean = words(said).any { it in FINISH }
+
     /** Just her name, nothing else after it ("вот София", "Sofia?"): not a command yet. */
     fun onlyHerName(said: String): Boolean = afterName(said)?.isEmpty() == true
 

@@ -249,6 +249,12 @@ class LookupTest {
         assertEquals(listOf(Query.Receipt("26315")), q(raw("София, проверь номер 26315")!!))
     }
 
+    @Test fun finishPhrasesAreRecognized() {
+        assertTrue(Lookup.isFinishPhrase("София, это Артур, запиши, пожалуйста, номер 26315 и отправь сообщение"))
+        assertTrue(Lookup.isFinishPhrase("Sofia, this is Arthur, done 26314, send the message and save"))
+        assertTrue(!Lookup.isFinishPhrase("София, найди 26315"))
+    }
+
     @Test fun sheIntroducesHerself() {
         assertTrue(Lookup.asksWhoSheIs("Sofia, who are you?"))
         assertTrue(Lookup.asksWhoSheIs("София, кто ты?"))

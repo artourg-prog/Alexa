@@ -268,6 +268,7 @@ class MainActivity : Activity() {
             val now = System.currentTimeMillis()
             // Art: the moment her name is heard, the screen switches sharply to the bright listening screen.
             if (Lookup.addressed(t) && now >= wakeUntil) { wakeUntil = now + 8_000; Chime.play(chime()) } // + Art's chosen chime
+            else if (now < wakeUntil) wakeUntil = now + 8_000 // still talking to her: the 8 s count from the last word
             if (Lookup.addressed(t) || now < armedUntil || now < followUntil) { live = t; render() }
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -323,12 +324,19 @@ class MainActivity : Activity() {
         armedUntil = 0L
         main.removeCallbacks(armedTimeout)
         live = null
-        // Keep the listening screen only while she waits for the number after a bare "Sofia".
-        wakeUntil = if (alts.any(Lookup::onlyHerName)) System.currentTimeMillis() + 8_000 else 0L
         val ru = alts.any(Lookup::isRussian) || (detectedLang?.startsWith("ru") == true)
-        if (alts.any(Lookup::asksWhoSheIs)) { Log.d("TailorCounter", "heard=$alts intro"); speak((if (ru) Lookup.INTRO_RU else Lookup.INTRO) to ru); render(); return }
+        // Keep the listening screen while she waits for the rest: after a bare "Sofia", or "Sofia, this is
+        // Arthur" + a pause (Art, 10-28: the screen gave up mid-sentence). Reset below once she acts.
+        val stillTalking = System.currentTimeMillis() < wakeUntil
+        wakeUntil = if (alts.any(Lookup::onlyHerName) || alts.any(Lookup::addressed) || stillTalking) System.currentTimeMillis() + 8_000 else 0L
+        // Voice Finish isn't built yet: say so instead of dropping the phrase.
+        if (alts.any { Lookup.addressed(it) || stillTalking } && alts.any(Lookup::isFinishPhrase)) {
+            Log.d("TailorCounter", "heard=$alts finishSoon"); wakeUntil = 0L
+            speak((if (ru) "Запись голосом скоро будет." else "Voice finish is coming soon.") to ru); render(); return
+        }
+        if (alts.any(Lookup::asksWhoSheIs)) { Log.d("TailorCounter", "heard=$alts intro"); speak((if (ru) Lookup.INTRO_RU else Lookup.INTRO) to ru); answered(); render(); return }
         if (alts.any(Lookup::asksIfSheHears)) { Log.d("TailorCounter", "heard=$alts hears"); speak(Lookup.hearsReply(ru) to ru); answered(); render(); return }
-        alts.firstNotNullOfOrNull(Lookup::thanksReply)?.let { Log.d("TailorCounter", "heard=$alts thanks"); speak(it); render(); return }
+        alts.firstNotNullOfOrNull(Lookup::thanksReply)?.let { Log.d("TailorCounter", "heard=$alts thanks"); speak(it); answered(); render(); return }
         // A follow-up about the receipt on screen: in the 15 s after an answer, or any time with "Sofia" in front.
         val onScreen = shown.getOrNull(index)?.card
         if (onScreen != null && message == null) {
@@ -347,7 +355,7 @@ class MainActivity : Activity() {
             // command whose number finds an order wins, then any command with a number,
             // then the first command.
             val tails = alts.mapNotNull { a ->
-                (Lookup.commandTail(a) ?: a.takeIf { tappedNow || ((armed || followUp) && Lookup.parseQueries(it).any { q -> q !is Query.Name }) })
+                (Lookup.commandTail(a) ?: a.takeIf { tappedNow || ((armed || followUp || stillTalking) && Lookup.parseQueries(it).any { q -> q !is Query.Name }) })
                     ?.let { a to it }
             }
             fun hasNumber(t: String) = Lookup.parseQueries(t).any { it !is Query.Name }
@@ -393,7 +401,7 @@ class MainActivity : Activity() {
 
     private var armedUntil = 0L
     private var followUntil = 0L
-    private fun answered() { followUntil = System.currentTimeMillis() + 15_000 }
+    private fun answered() { followUntil = System.currentTimeMillis() + 15_000; wakeUntil = 0L } // she acted: listening screen off
     private var armedRussian = false
     private var armedQuiet = false
     private val armedTimeout = Runnable {
