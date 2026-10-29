@@ -270,11 +270,13 @@ class MainActivity : Activity() {
             val now = System.currentTimeMillis()
             // Art: the moment her name is heard, the screen switches sharply to the bright listening screen.
             if (Lookup.addressed(t) && now >= wakeUntil) {
-                wakeUntil = now + 8_000
+                wakeUntil = now + 8_000; wakeStart = now
                 Log.d("TailorCounter", "wake sound for: $t") // every wake sound is logged with what triggered it
                 Sounds.play(this@MainActivity, Sounds.Event.WAKE)
             }
-            else if (now < wakeUntil) wakeUntil = now + 8_000 // still talking to her: the 8 s count from the last word
+            // Still talking to her: the 8 s count restarts on new words, but never past 25 s from her name,
+            // so ongoing room talk can't hold the listening screen (it stuck on 10-28 night).
+            else if (now < wakeUntil) wakeUntil = minOf(now + 8_000, wakeStart + MAX_WAKE_MS)
             if (Lookup.addressed(t) || now < armedUntil || now < followUntil) { live = t; render() }
         }
         override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -334,7 +336,9 @@ class MainActivity : Activity() {
         // Keep the listening screen while she waits for the rest: after a bare "Sofia", or "Sofia, this is
         // Arthur" + a pause (Art, 10-28: the screen gave up mid-sentence). Reset below once she acts.
         val stillTalking = System.currentTimeMillis() < wakeUntil
-        wakeUntil = if (alts.any(Lookup::onlyHerName) || alts.any(Lookup::addressed) || stillTalking) System.currentTimeMillis() + 8_000 else 0L
+        val nowMs = System.currentTimeMillis()
+        if (alts.any(Lookup::addressed) && !stillTalking) wakeStart = nowMs
+        wakeUntil = if (alts.any(Lookup::addressed) || stillTalking) minOf(nowMs + 8_000, wakeStart + MAX_WAKE_MS) else 0L
         // Voice Finish isn't built yet: say so instead of dropping the phrase.
         if (alts.any { Lookup.addressed(it) || stillTalking } && alts.any(Lookup::isFinishPhrase)) {
             Log.d("TailorCounter", "heard=$alts finishSoon"); wakeUntil = 0L
@@ -865,6 +869,8 @@ class MainActivity : Activity() {
     private val HINT = "Say: Sofia, find + last 4 phone digits or receipt #"
     private var busyStreak = 0      // recognizer "busy" answers in a row (back-off)
     private var wakeUntil = 0L      // her name was just heard: bright listening screen until then
+    private var wakeStart = 0L      // when her name was heard
+    private val MAX_WAKE_MS = 25_000L
     private var wasListening = false
 
     private fun isListeningScreen(): Boolean {
