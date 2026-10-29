@@ -10,27 +10,30 @@ import kotlin.math.sin
 // The soft "I heard you" chime when Sofia hears her name (Art). Made in code, no sound files: short
 // two-note bell tones with a gentle fade, under 1 s, at low volume. Art picks one in Settings.
 object Chime {
-    data class Option(val name: String, val notes: List<Pair<Double, Double>>) // (frequency Hz, start s)
+    // overtone = how much of the 2nd harmonic (glassy) and 4th (marimba "tok"); all notes 400–800 Hz (Art: warm, not sharp).
+    data class Option(val name: String, val notes: List<Pair<Double, Double>>, val second: Double = 0.12, val fourth: Double = 0.0)
 
     val OPTIONS = listOf(
-        Option("Ding-dong", listOf(659.25 to 0.0, 523.25 to 0.28)),   // E5 then C5, like a door / elevator chime
-        Option("Rising", listOf(523.25 to 0.0, 783.99 to 0.18)),      // C5 then G5, bright "yes?"
-        Option("Soft bell", listOf(880.0 to 0.0, 1318.5 to 0.06)),    // A5 + E6 together, one gentle bell
+        Option("Warm ding-dong", listOf(587.33 to 0.0, 440.0 to 0.30)),               // D5 then A4, soft doorbell
+        Option("Marimba", listOf(523.25 to 0.0, 659.25 to 0.16), second = 0.0, fourth = 0.25), // C5 then E5, wooden
+        Option("Glass", listOf(698.46 to 0.0), second = 0.2),                          // one soft glass tone, F5
+        Option("Low bell", listOf(440.0 to 0.0, 659.25 to 0.0), second = 0.05),        // A4 + E5 together, calm
     )
 
     private const val RATE = 44_100
     private const val LENGTH_S = 0.85
-    private const val VOLUME = 0.35 // soft: a cue, not an alarm
+    private const val VOLUME = 0.2 // soft: a cue, not an alarm (Art: the first ones were too aggressive)
 
     private fun samples(o: Option): ShortArray {
         val n = (RATE * LENGTH_S).toInt()
         val out = DoubleArray(n)
         for ((f, start) in o.notes) {
+            // gentle ~40 ms fade-in, then a slow bell fade; the 4th harmonic fades fast (marimba attack only)
             val s0 = (start * RATE).toInt()
             for (i in s0 until n) {
                 val t = (i - s0).toDouble() / RATE
-                val env = (1 - exp(-t * 200)) * exp(-t * 5.5) // soft attack, bell-like fade
-                out[i] += env * (sin(2 * PI * f * t) + 0.3 * sin(4 * PI * f * t))
+                val env = (1 - exp(-t * 25)) * exp(-t * 4.5)
+                out[i] += env * (sin(2 * PI * f * t) + o.second * sin(4 * PI * f * t) + o.fourth * exp(-t * 30) * sin(8 * PI * f * t))
             }
         }
         val peak = out.maxOf { kotlin.math.abs(it) }.coerceAtLeast(1e-9)
