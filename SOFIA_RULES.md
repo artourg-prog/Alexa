@@ -13,13 +13,13 @@ on the shop line ("phone Sofia").
   - forms used when talking *about* her ("Софии", "Софию");
   - anything without her name.
 - **Listening screen:** the moment her name is heard (while the person is still speaking), the screen turns
-  **bright blue**: "Sofia" + "Listening… · Слушаю…" + the hint. The wake sound plays.
+  **bright blue**: "Sofia" + "Listening… · Слушаю…" + the hint. The wake sound plays, including when recognition supplies only a final result. Complete commands execute immediately; the window is not a mandatory delay.
 - **How long:**
-  - 8 s from the last word that is *for her*, never more than **25 s** after her name;
+  - 30 s from the last new recognition that is *for her*, never more than **60 s** after her name;
   - after her name, a following phrase holds her only if it contains a **number** (or the exact Voice Finish
     answer she is waiting for, section 3);
   - no number → she goes quietly back (no voice).
-- **Only her name** ("София?"): she waits 8 s quietly; nothing comes → back to the clock, nothing said.
+- **Only her name** ("София?"): she waits 30 s quietly; nothing comes → back to the clock, nothing said.
 - **Polite words** (please / пожалуйста / будь добра / could you / can you) are ignored inside a command.
 - "Sofia, thank you" / "София, спасибо" → "You're welcome!" / "Пожалуйста!".
 - "Sofia, who are you?" → "I'm Sofia, the counter assistant." / "Я София, помощница на приёмке."

@@ -274,15 +274,7 @@ class MainActivity : Activity() {
             // Art: once "Sofia" is heard (or while she waits for a number), her words show live; room talk never does.
             val t = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
             val now = System.currentTimeMillis()
-            // Art: the moment her name is heard, the screen switches sharply to the bright listening screen.
-            if (Lookup.addressed(t) && now >= wakeUntil) {
-                wakeUntil = now + 8_000; wakeStart = now
-                Log.d("TailorCounter", "wake sound for: $t") // every wake sound is logged with what triggered it
-                Sounds.play(this@MainActivity, Sounds.Event.WAKE)
-            }
-            // Still talking to her: the 8 s count restarts on new words, but never past 25 s from her name,
-            // so ongoing room talk can't hold the listening screen (it stuck on 10-28 night).
-            else if (now < wakeUntil) wakeUntil = minOf(now + 8_000, wakeStart + MAX_WAKE_MS)
+            signalWake(t, now)
             // Words show live only when they're for her: her phrase, or a number / finish words while she waits.
             // Other room talk keeps the screen at "Listening…" with no text (Art: never show room talk).
             // While she waits, only a number counts as "for her" (finish words alone are common talk: "я уже сделал").
@@ -333,6 +325,7 @@ class MainActivity : Activity() {
     // ---- answering ----
 
     private fun answer(alts: List<String>, detectedLang: String?) {
+        alts.firstOrNull(Lookup::addressed)?.let { signalWake(it, System.currentTimeMillis()) }
         val tappedNow = tapped
         tapped = false
         // Right after "find receipt…" with no number, the next phrase is taken as the number
@@ -350,7 +343,7 @@ class MainActivity : Activity() {
         val stillTalking = System.currentTimeMillis() < wakeUntil && alts.any { Lookup.parseQueries(it).any { q -> q !is Query.Name } }
         val nowMs = System.currentTimeMillis()
         if (alts.any(Lookup::addressed) && !stillTalking) wakeStart = nowMs
-        wakeUntil = if (alts.any(Lookup::addressed) || stillTalking) minOf(nowMs + 8_000, wakeStart + MAX_WAKE_MS) else 0L
+        wakeUntil = if (alts.any(Lookup::addressed) || stillTalking) minOf(nowMs + LISTEN_WAIT_MS, wakeStart + MAX_WAKE_MS) else 0L
         // Voice Finish isn't built yet: say so instead of dropping the phrase.
         if (finishes.configured() && handleFinishSpeech(alts, ru, stillTalking)) return
         // A finish phrase never falls through to a lookup (the two flows never mix).
@@ -401,12 +394,12 @@ class MainActivity : Activity() {
                 when {
                     queries.isEmpty() && !armed -> {
                         // Wait a few seconds for the number before giving up.
-                        armedUntil = System.currentTimeMillis() + 8_000
+                        armedUntil = System.currentTimeMillis() + LISTEN_WAIT_MS
                         armedRussian = russian
                         // Only her name (e.g. someone mentions Sofia while talking): wait quietly, never "didn't catch".
                         armedQuiet = Lookup.onlyHerName(said)
-                        main.postDelayed(armedTimeout, 8_000)
-                        showMessage(if (russian) "Скажите номер…" else "Say the number…", 8_000)
+                        main.postDelayed(armedTimeout, LISTEN_WAIT_MS)
+                        showMessage(if (russian) "Скажите номер…" else "Say the number…", LISTEN_WAIT_MS)
                         listenSoon(100)
                     }
                     queries.isEmpty() -> if (armedQuiet) { message = null; render(); if (handsFree) listenSoon(300) } else sayDidntCatch(russian)
@@ -1155,7 +1148,23 @@ class MainActivity : Activity() {
     private var busyStreak = 0      // recognizer "busy" answers in a row (back-off)
     private var wakeUntil = 0L      // her name was just heard: bright listening screen until then
     private var wakeStart = 0L      // when her name was heard
-    private val MAX_WAKE_MS = 25_000L
+    private val LISTEN_WAIT_MS = 30_000L
+    private val MAX_WAKE_MS = 60_000L
+    private var lastWakeWords = ""
+
+    private fun signalWake(text: String, now: Long) {
+        val addressed = Lookup.addressed(text)
+        if (addressed && now >= wakeUntil) {
+            wakeStart = now
+            wakeUntil = now + LISTEN_WAIT_MS
+            lastWakeWords = text
+            Sounds.play(this, Sounds.Event.WAKE)
+        } else if (now < wakeUntil && text != lastWakeWords &&
+            (addressed || Lookup.parseQueries(text).any { it !is Query.Name })) {
+            lastWakeWords = text
+            wakeUntil = minOf(now + LISTEN_WAIT_MS, wakeStart + MAX_WAKE_MS)
+        }
+    }
     private var wasListening = false
 
     private fun isListeningScreen(): Boolean {
