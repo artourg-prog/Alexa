@@ -94,6 +94,7 @@ class MainActivity : Activity() {
         super.onResume()
         resumed = true
         Wake.clear(this)
+        muteSystemSounds(true)
         hideSystemBars()
         main.post(refresher)
         main.post(bouncer)
@@ -161,6 +162,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         resumed = false
+        muteSystemSounds(false)
         main.removeCallbacks(refresher)
         main.removeCallbacks(bouncer)
         main.removeCallbacks(ticker)
@@ -267,7 +269,11 @@ class MainActivity : Activity() {
             val t = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
             val now = System.currentTimeMillis()
             // Art: the moment her name is heard, the screen switches sharply to the bright listening screen.
-            if (Lookup.addressed(t) && now >= wakeUntil) { wakeUntil = now + 8_000; Chime.play(chime()) } // + Art's chosen chime
+            if (Lookup.addressed(t) && now >= wakeUntil) {
+                wakeUntil = now + 8_000
+                Log.d("TailorCounter", "wake sound for: $t") // every wake sound is logged with what triggered it
+                Sounds.play(this@MainActivity, Sounds.Event.WAKE)
+            }
             else if (now < wakeUntil) wakeUntil = now + 8_000 // still talking to her: the 8 s count from the last word
             if (Lookup.addressed(t) || now < armedUntil || now < followUntil) { live = t; render() }
         }
@@ -657,6 +663,7 @@ class MainActivity : Activity() {
         val group = currentGroup().filter { Lookup.digits(it) !in pickups.pending() }
         if (group.isEmpty()) return
         undoReceipts = group
+        Sounds.play(this, Sounds.Event.PICKED)
         main.postDelayed(commitPickup, 5_000)
         render()
     }
@@ -721,21 +728,38 @@ class MainActivity : Activity() {
         }
     }
 
-    /** The wake chime Art picked (index into Chime.OPTIONS, -1 = off); "Ding-dong" until he picks. */
-    private fun chime() = getPreferences(MODE_PRIVATE).getInt("chime", 0)
+    /**
+     * The speech recognizer beeps on the "system sounds" volume every time it restarts (Art heard random
+     * beeps once that volume was up). While the counter is open that volume is muted; Sofia's voice and her
+     * sounds use the media volume, so nothing she plays is lost. Unmuted when the app is left.
+     */
+    private fun muteSystemSounds(mute: Boolean) {
+        try {
+            getSystemService(android.media.AudioManager::class.java)?.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM,
+                if (mute) android.media.AudioManager.ADJUST_MUTE else android.media.AudioManager.ADJUST_UNMUTE, 0)
+        } catch (e: Exception) { Log.d("TailorCounter", "system mute failed: ${e.message}") }
+    }
 
+    /** Settings: version, one sound picker per event (Art), Update now. */
     private fun showSettings() {
+        val events = Sounds.Event.values()
         android.app.AlertDialog.Builder(this)
             .setTitle("Settings — Tailor Counter v${Updater.versionName(this)}")
-            .setSingleChoiceItems((Chime.OPTIONS.map { "Chime: ${it.name}" } + "Chime: off").toTypedArray(),
-                chime().let { if (it < 0) Chime.OPTIONS.size else it }) { _, i ->
-                // Tapping a chime plays it and picks it (Art hears them on the Fold and chooses).
-                val pick = if (i >= Chime.OPTIONS.size) -1 else i
-                getPreferences(MODE_PRIVATE).edit().putInt("chime", pick).apply()
-                Chime.play(pick)
-            }
+            .setItems(events.map { "${it.label} sound: ${Sounds.choice(this, it)}" }.toTypedArray()) { _, i -> pickSound(events[i]) }
             .setPositiveButton("Update now") { _, _ -> checkUpdate() }
             .setNegativeButton("Close", null)
+            .show()
+    }
+
+    /** Tapping a sound plays it and picks it; Close goes back to Settings. */
+    private fun pickSound(e: Sounds.Event) {
+        val names = Sounds.available(this).keys.toList() + Sounds.OFF
+        android.app.AlertDialog.Builder(this)
+            .setTitle("${e.label} sound")
+            .setSingleChoiceItems(names.toTypedArray(), names.indexOf(Sounds.choice(this, e))) { _, i ->
+                Sounds.choose(this, e, names[i]); Sounds.playTitle(this, names[i])
+            }
+            .setNegativeButton("Back") { _, _ -> showSettings() }
             .show()
     }
 
