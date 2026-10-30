@@ -155,7 +155,7 @@ class MainActivity:Activity() {
                         dialog.progress(lastAudio);lastProgress=text;segmentRevision++
                         if(pendingPrompt!=null) { main.removeCallbacks(speakPrompt);main.postDelayed(speakPrompt,2000) }
                     }
-                    lastRaw=text;heard.text="Heard · $text"
+                    lastRaw=text;heard.text="Heard · ${SpokenNumbers.display(text)}"
                 }
                 updateStatus()
             } }
@@ -168,7 +168,7 @@ class MainActivity:Activity() {
             } }
             override fun onSegment(text:String,russian:Boolean,confidence:Double) { main.post {
                 if(!resumed || speaking) return@post
-                lastRaw=text;heard.text="Heard · $text"
+                lastRaw=text;heard.text="Heard · ${SpokenNumbers.display(text)}"
                 if(!dialog.awake) return@post
                 dialog.progress(SystemClock.elapsedRealtime());segmentRevision++
                 segments+=Segment(text,russian,confidence)
@@ -261,7 +261,7 @@ class MainActivity:Activity() {
         val now=SystemClock.elapsedRealtime()
         if(chosen.text==lastSegment && now-lastSegmentAt<2000)return
         lastSegment=chosen.text;lastSegmentAt=now;russian=chosen.ru
-        heard.text="Heard · ${chosen.text}"
+        heard.text="Heard · ${SpokenNumbers.display(chosen.text)}"
         val words=Lookup.normalize(chosen.text).split(' ')
         if(words.all { it in setOf("sofia","sophia","sofiya","sofya","sophie","sofi","this","is","i","am","eto","ya","pozhaluysta","please") })return
         Lookup.thanksReply(chosen.text)?.let { cancelPrompt();say(it.first);return }
@@ -592,7 +592,7 @@ class MainActivity:Activity() {
         return ScrollView(this).apply { isFillViewport=true;addView(root) }
     }
     override fun onConfigurationChanged(config:android.content.res.Configuration) {
-        super.onConfigurationChanged(config);night=null;activeTheme=null;boardStyle=-1;setContentView(buildUi());heard.text="Heard · $lastRaw";renderCards();renderQueue();updateStatus()
+        super.onConfigurationChanged(config);night=null;activeTheme=null;boardStyle=-1;setContentView(buildUi());heard.text="Heard · ${SpokenNumbers.display(lastRaw)}";renderCards();renderQueue();updateStatus()
     }
     private fun seedAnnouncements() {
         val prefs=getSharedPreferences("announcements",MODE_PRIVATE)

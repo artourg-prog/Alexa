@@ -132,6 +132,12 @@ class ConversationTest {
         assertFalse(WakeCandidate.needsVerification("мы работаем в магазине"))
         assertFalse(WakeCandidate.needsVerification("please check receipt one two three"))
     }
+    @Test fun visibleTranscriptUsesDigitsWhileKeepingOriginalLanguage() {
+        assertEquals("Sofia, check receipt 26383",SpokenNumbers.display("Sofia, check receipt two six three eight three"))
+        assertEquals("София, проверь ресит 26383",SpokenNumbers.display("София, проверь ресит два шесть три восемь три"))
+        assertEquals("last 4 digits 0034",SpokenNumbers.display("last four digits zero zero three four"))
+        assertEquals("Please check for Tester",SpokenNumbers.display("Please check for Tester"))
+    }
     @Test fun reportQuestionRetainsReadOnlyIntentWhenReceiptComesLaterInFragments() {
         val e=engine();e.accept("Sofia who did the work",now=1)
         assertEquals(Conversation.Phase.REPORT_RECEIPT,e.phase)

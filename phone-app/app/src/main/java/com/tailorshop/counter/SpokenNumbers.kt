@@ -98,6 +98,23 @@ object SpokenNumbers {
         return out.joinToString(" ")
     }
 
+    /** Readable transcript: preserve original language/case outside recognized number-word runs. */
+    fun display(text:String):String {
+        val words=Regex("[\\p{L}\\p{N}]+").findAll(text).toList()
+        val out=StringBuilder();var cursor=0;var i=0
+        while(i<words.size) {
+            if(!isNumber(classify(Lookup.normalize(words[i].value)))) { i++;continue }
+            var j=i+1
+            while(j<words.size && isNumber(classify(Lookup.normalize(words[j].value))))j++
+            val start=words[i].range.first;val end=words[j-1].range.last+1
+            val original=text.substring(start,end)
+            val digits=toDigits(Lookup.normalize(original))
+            if(digits.any(Char::isDigit)) { out.append(text.substring(cursor,start));out.append(digits);cursor=end }
+            i=j
+        }
+        return out.append(text.substring(cursor)).toString()
+    }
+
     private fun softWord(t: Tok): String = (t as Tok.Unit).word
 
     private fun render(run: List<Tok>): List<String> {
