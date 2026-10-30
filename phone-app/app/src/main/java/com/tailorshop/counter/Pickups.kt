@@ -132,6 +132,13 @@ class Pickups(
     /** A person checked it on the tablet. A sent tap keeps its id and is still asked about. */
     @Synchronized fun dismiss(id: String) { reqs.firstOrNull { it.id == id }?.resolved = true; save() }
 
+    /** A repeat tap retries the same durable request; a failed save never creates a second id. */
+    @Synchronized fun addOrReuse(receipt:String):Boolean {
+        val number=Lookup.digits(receipt)
+        val prior=reqs.lastOrNull { it.receipt==number && !it.resolved && it.status !in UNRESOLVED }
+        return if(prior!=null) prior.durable || save() else add(listOf(number))
+    }
+
     /** Saves the taps; false = couldn't save (the warning is shown). */
     @Synchronized fun add(receipts: List<String>): Boolean {
         val now = System.currentTimeMillis()

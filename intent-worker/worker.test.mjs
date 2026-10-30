@@ -1,0 +1,16 @@
+import {validPayload,validResult} from './worker.mjs';
+import assert from 'node:assert/strict';
+const p={tokens:['assistant','W1','finished','receipt','N1'],waiting:'command',hasCurrentWorker:false,numberKinds:{N1:'receipt'}};
+assert(validPayload(p));
+for(const tokens of [['realCustomer'],['12345'],['W0'],['N1','raw transcript'],['assistant','W1','secret'],Array(97).fill('unknown')]) assert(!validPayload({...p,tokens}));
+assert(!validPayload({...p,transcript:'private'}));
+assert(!validPayload({...p,numberKinds:{N1:'12345'}}));
+assert(!validPayload({...p,tokens:['N2']}));
+assert(validResult({action:'finish',numbers:['N1'],worker:'W1',askSms:true},p));
+assert(!validResult({action:'finish',numbers:['12345'],worker:'W1'},p));
+assert(!validResult({action:'finish',numbers:['N2'],worker:'W1'},p));
+assert(!validResult({action:'finish',numbers:['N1'],worker:'realName'},p));
+assert(!validResult({action:'finish',worker:'current'},p));
+assert(!validResult({action:'lookup',numbers:['N1'],explanation:'leak'},p));
+assert(!validResult({action:'sms_sent'},p));
+console.log('Worker schema/privacy checks passed');

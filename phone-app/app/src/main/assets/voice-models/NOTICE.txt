@@ -1,0 +1,12 @@
+Sofia uses Vosk speech recognition (Apache License 2.0).
+https://github.com/alphacep/vosk-api
+
+Bundled model archives:
+vosk-model-small-en-us-0.15
+vosk-model-small-ru-0.22
+Both are listed as Apache 2.0 by the official model catalogue:
+https://alphacephei.com/vosk/models
+
+Original model authors: Alpha Cephei / Vosk contributors.
+Exact archive hashes and download sources are in scripts/fetch-voice-models.py.
+The original archives are bundled unchanged. They are unpacked into private storage.

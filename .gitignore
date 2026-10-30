@@ -1,0 +1,6 @@
+phone-app/app/src/main/assets/voice-models/*.zip
+phone-app/app/src/androidTest/assets/voice-fixtures/*.wav
+*.apk
+*.aab
+docs/VOICE_REWRITE_CHECKPOINT.txt
+phone-app/app/src/main/assets/private-channel.json

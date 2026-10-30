@@ -27,7 +27,9 @@ import java.time.ZonedDateTime
 // match their SHA-256, and the APK is signed with the same certificate as the installed app.
 // Installs without a tap once the app is its own installer (Android shows "Update?" the first time).
 object Updater {
-    const val FOLDER_ID = "1tTaF7BNC_9muhWbmI0bWy5LN5NhePNGp" // Tailor Counter Builds (Art's Drive, private)
+    private fun folderId(ctx:Context):String = ctx.assets.open("private-channel.json").bufferedReader().use {
+        JSONObject(it.readText()).getString("folder").also { id->require(id.matches(Regex("[A-Za-z0-9_-]{10,100}"))) }
+    }
     private const val SCOPE = "https://www.googleapis.com/auth/drive.readonly"
     private const val DRIVE = "https://www.googleapis.com/drive/v3/files"
     private const val TAG = "TailorCounter"
@@ -49,13 +51,13 @@ object Updater {
     fun checkAndInstall(ctx: Context): String {
         val auth = GoogleAuth(File(ctx.filesDir, "sheet-key.json"), SCOPE)
         val bearer = "Bearer ${auth.accessToken()}"
-        val latestId = findFile(bearer, FOLDER_ID, "latest.json") ?: return done("No build published yet")
+        val latestId = findFile(bearer, folderId(ctx), "latest.json") ?: return done("No build published yet")
         val m = JSONObject(String(download(bearer, latestId)))
         val code = m.getLong("versionCode")
         if (!isNewer(m.optString("package"), code, ctx.packageName, installedVersion(ctx)))
             return done("Up to date (v${versionName(ctx)})")
 
-        val partsFolder = findFile(bearer, FOLDER_ID, "parts") ?: return done("Update failed: no parts folder")
+        val partsFolder = findFile(bearer, folderId(ctx), "parts") ?: return done("Update failed: no parts folder")
         val names = m.getJSONArray("parts"); val sums = m.getJSONArray("partSha256")
         val apk = File(ctx.cacheDir, "update.apk")
         apk.outputStream().use { out ->
@@ -79,6 +81,15 @@ object Updater {
 
         install(ctx, apk)
         return done("Installing v${m.optString("versionName")}…")
+    }
+
+    /** Private service configuration travels through the same authenticated read-only channel. */
+    fun intentConfig(ctx:Context):JSONObject? {
+        val bearer="Bearer ${GoogleAuth(File(ctx.filesDir,"sheet-key.json"),SCOPE).accessToken()}"
+        val id=findFile(bearer,folderId(ctx),"intent-config.json") ?: return null
+        val bytes=download(bearer,id)
+        require(bytes.size<=4096)
+        return JSONObject(String(bytes))
     }
 
     private fun done(s: String): String { lastResult = s; Log.d(TAG, "update: $s"); return s }

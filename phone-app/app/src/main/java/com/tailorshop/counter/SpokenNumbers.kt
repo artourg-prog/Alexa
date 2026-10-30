@@ -105,12 +105,17 @@ object SpokenNumbers {
         // dropping them leaves fewer than 4 digits ("for eight three eight" = 4838).
         var start = 0
         while (start < run.size && (run[start] as? Tok.Unit)?.let { it.soft && it.word in GLUE } == true) start++
-        val trimmed = render2(run.subList(start, run.size))
+        var end=run.size
+        // A trailing preposition after a complete number belongs to the sentence:
+        // "receipt 12345 for Alex" must not become receipt 123454.
+        while(end>start && (run[end-1] as? Tok.Unit)?.let { it.soft && it.word in GLUE }==true &&
+            render2(run.subList(start,end-1)).joinToString("").length>=4) end--
+        val trimmed = render2(run.subList(start, end))
         if (start > 0 && trimmed.joinToString("").length < 4) {
             val full = render2(run)
             if (full.joinToString("").length >= 4) return full
         }
-        return run.subList(0, start).map(::softWord) + trimmed
+        return run.subList(0, start).map(::softWord) + trimmed + run.subList(end,run.size).map(::softWord)
     }
 
     private fun render2(run: List<Tok>): List<String> {

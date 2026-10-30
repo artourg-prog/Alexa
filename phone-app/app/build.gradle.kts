@@ -10,8 +10,9 @@ android {
         applicationId = "com.tailorshop.counter"
         minSdk = 30
         targetSdk = 36
-        versionCode = 32 // bumped by publish-phone-update.sh
-        versionName = "0.32"
+        versionCode = 40 // bumped by publish-phone-update.sh
+        versionName = "0.40"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -26,6 +27,10 @@ android {
 }
 
 dependencies {
+    implementation("com.alphacephei:vosk-android:0.3.75@aar")
+    implementation("net.java.dev.jna:jna:5.13.0@aar")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("junit:junit:4.13.2")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303") // real org.json for the queue-file tests (Android's is a stub on the JVM)
 }

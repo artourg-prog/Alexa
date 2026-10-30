@@ -83,7 +83,19 @@ class Finishes(
         JSONObject(configFile.readText()).optJSONArray("workers")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty()
     } catch (_: Exception) { emptyList() }
 
+    @Synchronized fun all():List<Item> = items.map { it.copy() }
+
     @Synchronized fun get(scanId: String): Item? = items.firstOrNull { it.scanId == scanId }?.copy()
+
+    /** Repeated speech reuses today's durable event, including its SMS request id. */
+    @Synchronized fun addOrReuse(worker:String,receipt:String,nowMs:Long=System.currentTimeMillis()):Item? {
+        val zone=java.time.ZoneId.of("America/Los_Angeles")
+        val day=java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+        val existing=items.lastOrNull { it.worker==worker && it.receipt==Lookup.digits(receipt) &&
+            java.time.Instant.ofEpochMilli(it.createdMs).atZone(zone).toLocalDate()==day && it.scan!="REJECTED" }
+        if(existing!=null) return if(existing.durable || save()) existing.copy() else null
+        return add(worker,receipt,false,nowMs)
+    }
 
     /** Creates the event and saves it before anything is sent. Null = couldn't save (nothing will be sent). */
     @Synchronized fun add(worker: String, receipt: String, sendSms: Boolean, nowMs: Long = System.currentTimeMillis()): Item? {

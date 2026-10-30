@@ -7,8 +7,8 @@
 # Uploads use Art's own Google sign-in on this Mac (gcloud). Prints no secrets.
 set -euo pipefail
 cd "$(dirname $0)"
-FOLDER=1tTaF7BNC_9muhWbmI0bWy5LN5NhePNGp   # Tailor Counter Builds
-PARTS=10vZr0hdT8G70sli4JSVF6bXh0mTVQqOx    # Tailor Counter Builds/parts
+FOLDER=${SOFIA_UPDATES_FOLDER:?Set SOFIA_UPDATES_FOLDER from private release configuration}
+PARTS=${SOFIA_UPDATES_PARTS:?Set SOFIA_UPDATES_PARTS from private release configuration}
 GRADLE=app/build.gradle.kts
 
 TOKEN=$(gcloud auth print-access-token 2>/dev/null) || { echo "Not signed in to Google on this Mac. Run: gcloud auth login --enable-gdrive-access"; exit 1; }
