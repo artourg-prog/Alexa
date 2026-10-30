@@ -23,7 +23,7 @@ data class IntentContext(val workers:List<String>,val worker:String?=null,val wa
 object SafeIntent {
     fun numericText(text:String):String {
         val normalized=Lookup.normalize(text)
-            .replace(Regex("\\blast (?:four|4)\\b"),"last")
+            .replace(Regex("\\blast (?:four|for|fore|fo|4)\\b"),"last")
             .replace(Regex("\\bposledni[a-z]* (?:chetyre|4)\\b"),"poslednie")
             .replace(Regex("\\b(this|that) one\\b"),"$1")
         return SpokenNumbers.toDigits(normalized)

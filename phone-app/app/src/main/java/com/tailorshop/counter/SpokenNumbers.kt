@@ -27,6 +27,11 @@ object SpokenNumbers {
     )
     // Sentence glue that often leads a number ("order for 6824") and isn't part of it.
     private val GLUE = setOf("for", "to", "too", "tu", "fo", "fore")
+    private val FOUR_SOUNDS = setOf("for", "fo", "fore")
+    private val FOR_PREPOSITIONS = setOf("order", "orders", "receipt", "receipts", "number", "numbers",
+        "phone", "telephone", "customer", "client", "alterations", "alteration", "work", "job", "look", "search")
+    private val NUMBER_PROMPTS = FOR_PREPOSITIONS + setOf("find", "check", "sofia", "sophia", "digits")
+    private val POLITE_ENDINGS = setOf("please", "thanks", "thank", "spasibo", "pozhaluysta")
 
     private val TEENS = mapOf(
         "ten" to 10, "eleven" to 11, "twelve" to 12, "thirteen" to 13, "fourteen" to 14, "fifteen" to 15,
@@ -87,11 +92,15 @@ object SpokenNumbers {
             var j = i
             while (j < toks.size && isNumber(toks[j])) j++
             val run = toks.subList(i, j)
-            if (run.none(::isHard) && run.size < 4) {
-                // "for" / "to" alone are just words; four or more in a row are a number
+            val before = (toks.getOrNull(i - 1) as? Tok.Word)?.w
+            val after = (toks.getOrNull(j) as? Tok.Word)?.w
+            val isolatedFour = run.size == 1 && (run[0] as? Tok.Unit)?.word in FOUR_SOUNDS &&
+                (toks.size == 1 || (before in NUMBER_PROMPTS && after == null))
+            if (run.none(::isHard) && run.size < 4 && !isolatedFour) {
+                // Short soft runs are words unless "for" is an isolated dictated digit.
                 run.forEach { out += softWord(it) }
             } else {
-                out += render(run)
+                out += render(run, before !in FOR_PREPOSITIONS, after == null || after in POLITE_ENDINGS)
             }
             i = j
         }
@@ -108,7 +117,12 @@ object SpokenNumbers {
             while(j<words.size && isNumber(classify(Lookup.normalize(words[j].value))))j++
             val start=words[i].range.first;val end=words[j-1].range.last+1
             val original=text.substring(start,end)
-            val digits=toDigits(Lookup.normalize(original))
+            val before = words.getOrNull(i - 1)?.value?.let(Lookup::normalize).orEmpty()
+            val after = words.getOrNull(j)?.value?.let(Lookup::normalize).orEmpty()
+            val framed = listOf(before, Lookup.normalize(original), after).filter { it.isNotBlank() }.joinToString(" ")
+            var digits = toDigits(framed)
+            if (before.isNotEmpty()) digits = digits.removePrefix("$before ")
+            if (after.isNotEmpty()) digits = digits.removeSuffix(" $after")
             if(digits.any(Char::isDigit)) { out.append(text.substring(cursor,start));out.append(digits);cursor=end }
             i=j
         }
@@ -117,16 +131,24 @@ object SpokenNumbers {
 
     private fun softWord(t: Tok): String = (t as Tok.Unit).word
 
-    private fun render(run: List<Tok>): List<String> {
+    private fun render(run: List<Tok>, leadingFourIsDigit: Boolean, trailingFourIsDigit: Boolean): List<String> {
         // Leading "for"/"to" usually belong to the sentence ("order for 6824"), unless
         // dropping them leaves fewer than 4 digits ("for eight three eight" = 4838).
         var start = 0
-        while (start < run.size && (run[start] as? Tok.Unit)?.let { it.soft && it.word in GLUE } == true) start++
+        while (start < run.size && (run[start] as? Tok.Unit)?.let { it.soft && it.word in GLUE } == true) {
+            val word = (run[start] as Tok.Unit).word
+            // Prefer 4 in a dictated sequence. A grammatical "order for …" consumes at most one preposition.
+            if (word in FOUR_SOUNDS && (leadingFourIsDigit || start > 0 || run.size == 1)) break
+            start++
+        }
         var end=run.size
         // A trailing preposition after a complete number belongs to the sentence:
         // "receipt 12345 for Alex" must not become receipt 123454.
         while(end>start && (run[end-1] as? Tok.Unit)?.let { it.soft && it.word in GLUE }==true &&
-            render2(run.subList(start,end-1)).joinToString("").length>=4) end--
+            render2(run.subList(start,end-1)).joinToString("").length>=4) {
+            if ((run[end-1] as Tok.Unit).word in FOUR_SOUNDS && trailingFourIsDigit) break
+            end--
+        }
         val trimmed = render2(run.subList(start, end))
         if (start > 0 && trimmed.joinToString("").length < 4) {
             val full = render2(run)
