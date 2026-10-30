@@ -9,7 +9,7 @@ import java.net.URLEncoder
 //   2. only values.get (a GET) is ever called. There is no write code here.
 // The service-account key lives in the app's private storage (put there over USB),
 // never in the APK or in git.
-class Sheets(keyFile: File) {
+class Sheets(keyFile: File, private val reader:(()->List<List<String>>)?=null) {
     companion object {
         const val SPREADSHEET_ID = "14NLtaKEBKPLU-lM6SSpXuJx-Wog-qmXltMIjsimh0as" // Order Ready For Pickup
         const val RANGE = "'All Receipts'!A1:Z"
@@ -20,15 +20,17 @@ class Sheets(keyFile: File) {
 
     private val auth = GoogleAuth(keyFile, SCOPE)
 
-    fun hasKey() = auth.hasKey()
+    fun hasKey() = reader!=null || auth.hasKey()
 
     /** Header row first. Throws on any failure; the caller keeps the last good copy. */
     fun readRows(): List<List<String>> {
+        reader?.let { return it() }
         val url = "https://sheets.googleapis.com/v4/spreadsheets/$SPREADSHEET_ID/values/" +
             URLEncoder.encode(RANGE, "UTF-8").replace("+", "%20")
         val token = try { auth.accessToken() } catch (e: GoogleAuth.KeyMissing) { throw KeyMissing() }
         val body = String(GoogleAuth.http(url, null, "Bearer $token"))
-        val values = JSONObject(body).optJSONArray("values") ?: return emptyList()
+        val values = JSONObject(body).optJSONArray("values") ?: throw IllegalStateException("Order headers unavailable")
+        require(values.length()>0) { "Order headers unavailable" }
         return (0 until values.length()).map { i ->
             val row = values.getJSONArray(i)
             (0 until row.length()).map { j -> row.optString(j, "") }

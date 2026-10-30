@@ -20,6 +20,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.ScrollView
 import com.tailorshop.counter.conversation.Conversation
+import com.tailorshop.counter.conversation.ConversationIndicator
+import com.tailorshop.counter.conversation.HoldSettingsControl
 import com.tailorshop.counter.conversation.CardDeck
 import com.tailorshop.counter.conversation.Intent as VoiceIntent
 import com.tailorshop.counter.conversation.OfflineSpeech
@@ -48,6 +50,9 @@ class MainActivity:Activity() {
     private lateinit var intentService:SemanticClient
     private lateinit var dialog:Conversation
     private lateinit var root:LinearLayout
+    private var settingsDialog:AlertDialog?=null
+    private lateinit var settingsGear:HoldSettingsControl
+    private lateinit var logo:ConversationIndicator
     private lateinit var clock:TextView
     private lateinit var date:TextView
     private lateinit var heard:TextView
@@ -58,6 +63,7 @@ class MainActivity:Activity() {
     private lateinit var queue:TextView
     private lateinit var smsYes:Button
     private lateinit var smsNo:Button
+    private lateinit var hints:TextView
     private lateinit var picked:Button
     private lateinit var problem:Button
     private var orders:List<Order> = emptyList()
@@ -71,6 +77,8 @@ class MainActivity:Activity() {
     private var refreshAt=0L
     private var syncAt=0L
     private var refreshing=false
+    private var lastRefreshFailed=false
+    private var waitingLookup:Pair<Conversation.Effect.Find,Long>?=null
     private var syncing=false
     private var russian=true
     private var micState="Preparing local speech…"
@@ -93,6 +101,9 @@ class MainActivity:Activity() {
         main.postDelayed(speakPrompt,2000)
     }
     private val deck=CardDeck()
+    private var lookupNumbers:List<String> = emptyList()
+    private var lookupMessage=""
+    private var lookupUntil=0L
     private var pickupCommitting=false
     private var undo:String?=null
     private var undoDeadline=0L
@@ -109,11 +120,12 @@ class MainActivity:Activity() {
     private var voiceWarning=false
     private var night:Boolean?=null
     private var activeTheme:Boolean?=null
+    private var boardStyle=-1
     private var screenHeld=false
     private var readyCue=false
     private fun tapToTalk()=getSharedPreferences("power",MODE_PRIVATE).getBoolean("tapToTalk",true)
     private fun beginListening() {
-        manualUntil=SystemClock.elapsedRealtime()+300_000
+        manualUntil=SystemClock.elapsedRealtime()+300_000;refreshAt=0
         dialog.wake(SystemClock.elapsedRealtime());retryAt=0
         readyCue=true
         if(running && micState.startsWith("Microphone ready") && !speaking) { readyCue=false;Sounds.play(this,Sounds.Event.WAKE) }
@@ -136,7 +148,7 @@ class MainActivity:Activity() {
                 updateStatus()
             } }
             override fun onPartial(ru:String,en:String,level:Float) { main.post {
-                lastAudio=SystemClock.elapsedRealtime();errorCount=0
+                lastAudio=SystemClock.elapsedRealtime();errorCount=0;logo.energy(level)
                 val text=if(russian) ru.ifBlank { en } else en.ifBlank { ru }
                 if(text.isNotBlank()) {
                     if(text!=lastProgress) {
@@ -182,10 +194,11 @@ class MainActivity:Activity() {
         super.onResume();resumed=true;Wake.clear(this)
         window.insetsController?.apply { hide(android.view.WindowInsets.Type.systemBars());systemBarsBehavior=android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE }
         if(tapToTalk() && shopHours()) { dialog.wake(SystemClock.elapsedRealtime());readyCue=true }
+        refreshAt=0 // A newly awakened counter must not wait out an old polling interval.
         main.post(tick)
     }
     override fun onPause() {
-        resumed=false;readyCue=false;cancelPrompt();main.removeCallbacks(tick);main.removeCallbacks(flushSegments);segments.clear();segmentRevision++
+        resumed=false;readyCue=false;waitingLookup=null;settingsGear.cancelHold();logo.cancelSettingsHold();logo.show(ConversationIndicator.Mode.REST);cancelPrompt();main.removeCallbacks(tick);main.removeCallbacks(flushSegments);segments.clear();segmentRevision++
         dialog.cancel();undo=null;speech.stop();running=false;stopVoice()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);screenHeld=false
         super.onPause()
@@ -221,6 +234,7 @@ class MainActivity:Activity() {
             } else if(running) { speech.stop();running=false;if(!shop)dialog.cancel();micState=if(shop)"Tap Listen · microphone off" else "Microphone off · outside shop hours" }
             if(speaking && now>speechDeadline) { stopVoice();answer.text="Voice playback interrupted · listening resumed" }
             Updater.confirmIntent?.let { Updater.confirmIntent=null;startActivity(it) }
+            if(lookupNumbers.isNotEmpty() && now>=lookupUntil) { lookupNumbers=emptyList();renderCards() }
             if(deck.expire(now,undo))renderCards()
             if(undo!=null && now>=undoDeadline) commitPickup()
             if(now>=refreshAt) { refreshAt=now+60_000;refresh() }
@@ -229,7 +243,11 @@ class MainActivity:Activity() {
             val drift=((t.minute%7)-3)*resources.displayMetrics.density*5
             if(clock.translationX!=drift) { clock.translationX=drift;date.translationX=-drift }
             clock.showText(t.format(DateTimeFormatter.ofPattern("h:mm a")));date.showText(t.format(DateTimeFormatter.ofPattern("EEEE, MMMM d")))
-            dataState.showText(if(loadedAt==0L) "Orders not loaded" else "Orders · ${orders.size} · ${((System.currentTimeMillis()-loadedAt)/60_000).coerceAtLeast(0)} min old")
+            dataState.showText(when {
+                refreshing->"Refreshing orders…"
+                loadedAt==0L->if(lastRefreshFailed)"Offline · orders unavailable" else "Orders not loaded"
+                else->(if(lastRefreshFailed)"Offline · cached orders" else "Orders")+" · ${orders.size} · ${((System.currentTimeMillis()-loadedAt)/60_000).coerceAtLeast(0)} min old"
+            })
             updateStatus();main.postDelayed(this,if(shop)250 else 1000)
         }
     }
@@ -291,7 +309,7 @@ class MainActivity:Activity() {
                 }
             }
             is Conversation.Effect.Save -> {
-                deck.clear();renderCards()
+                deck.clear();lookupNumbers=emptyList();renderCards()
                 val rev=dialog.revision
                 if(!finishes.configured()) { dispatch(dialog.saved(null,SystemClock.elapsedRealtime()));return@forEach }
                 storage.execute {
@@ -310,12 +328,44 @@ class MainActivity:Activity() {
             }
         } }
     }
-    private fun find(request:Conversation.Effect.Find) {
+    private fun find(request:Conversation.Effect.Find) { findInOrders(request,false) }
+    private fun findInOrders(request:Conversation.Effect.Find,rechecked:Boolean,refreshFailed:Boolean=false) {
+        if(!rechecked && refreshing) {
+            waitingLookup=request to dialog.revision
+            deck.clear();lookupNumbers=request.numbers;lookupUntil=SystemClock.elapsedRealtime()+30_000
+            lookupMessage=if(russian)"Обновляю список перед поиском…" else "Updating the order list before searching…"
+            answer.text=lookupMessage;renderCards();return
+        }
         val pending=pickups.pending()
         val results=request.numbers.flatMap { n -> Lookup.find(when(n.length) { 4->Query.Last4(n);5,6->Query.Receipt(n);else->Query.FullPhone(n) },orders) }
             .filter { Lookup.digits(it.receipt) !in pending }.distinctBy { it.receipt }
-        if(results.isEmpty()) { say(if(loadedAt==0L) if(russian)"Список пока недоступен." else "The order list isn't available yet." else if(russian)"В последней копии списка не найдено." else "Not found in the latest available list.");return }
-        val now=SystemClock.elapsedRealtime()
+        if(results.isEmpty()) {
+            deck.clear();lookupNumbers=request.numbers;lookupUntil=SystemClock.elapsedRealtime()+10_000
+            if(!rechecked && sheets.hasKey()) {
+                val rev=dialog.revision
+                lookupMessage=if(russian)"Проверяю обновлённый список…" else "Checking the updated order list…"
+                answer.text=lookupMessage;renderCards()
+                reads.execute {
+                    val fresh=try {
+                        val rows=sheets.readRows();val parsed=Lookup.parseOrders(rows);val at=System.currentTimeMillis()
+                        cache.save(rows,at);parsed to at
+                    } catch(_:Exception) { null }
+                    main.post {
+                        lastRefreshFailed=fresh==null
+                        if(fresh!=null) { orders=fresh.first;loadedAt=fresh.second }
+                        if(resumed && rev==dialog.revision)findInOrders(request,true,fresh==null)
+                    }
+                }
+                return
+            }
+            lookupMessage=if(loadedAt==0L) if(russian)"Список пока недоступен." else "The order list isn't available yet."
+                else if(refreshFailed) if(russian)"Обновить список не удалось. В сохранённой копии не найдено." else "Couldn't refresh the list. Not found in the cached copy."
+                else if(russian)"В последней копии списка не найдено." else "Not found in the latest available list."
+            renderCards()
+            say(request.numbers.joinToString(". ") { it.toCharArray().joinToString(" ") }+". "+lookupMessage)
+            return
+        }
+        val now=SystemClock.elapsedRealtime();lookupNumbers=emptyList()
         deck.add(results,now);renderCards()
         val speech=results.take(4).flatMap { c ->
             if(request.topic!=null) listOf(Spoken(Lookup.followUpAnswer(request.topic,c,russian),request.topic==Topic.TAILOR && !c.ready))
@@ -332,9 +382,13 @@ class MainActivity:Activity() {
         reads.execute {
             try {
                 val rows=sheets.readRows();val parsed=Lookup.parseOrders(rows);val at=System.currentTimeMillis();cache.save(rows,at)
-                main.post { orders=parsed;loadedAt=at;dataState.text="Orders up to date" }
-            } catch(_:Exception) { main.post { dataState.text="Offline · keeping last available orders" } }
-            finally { main.post { refreshing=false } }
+                main.post { orders=parsed;loadedAt=at;lastRefreshFailed=false;dataState.text="Orders up to date" }
+            } catch(_:Exception) { main.post { lastRefreshFailed=true;dataState.text="Offline · keeping last available orders" } }
+            finally { main.post {
+                refreshing=false
+                val pending=waitingLookup;waitingLookup=null
+                if(resumed && pending!=null && pending.second==dialog.revision)findInOrders(pending.first,true,lastRefreshFailed)
+            } }
         }
     }
     private fun sync() {
@@ -436,14 +490,22 @@ class MainActivity:Activity() {
             window.attributes=window.attributes.apply { screenBrightness=if(shop)-1f else 0.02f }
         }
         val active=dialog.engaged && shop
-        val hold=resumed && (if(tapToTalk()) shop && (dialog.awake || speaking || deck.size>0 || undo!=null || pickupCommitting) else true)
+        logo.show(when {
+            !resumed || !shop->ConversationIndicator.Mode.REST
+            speaking->ConversationIndicator.Mode.SPEAKING
+            dialog.phase in setOf(Conversation.Phase.SAVING,Conversation.Phase.PROCESSING) || waitingLookup!=null || lookupNumbers.isNotEmpty() && lookupMessage.contains("…")->ConversationIndicator.Mode.THINKING
+            dialog.awake && running && micState.startsWith("Microphone ready")->ConversationIndicator.Mode.LISTENING
+            dialog.awake->if(errorCount>0)ConversationIndicator.Mode.PROBLEM else ConversationIndicator.Mode.THINKING
+            else->ConversationIndicator.Mode.REST
+        })
+        val hold=resumed && (if(tapToTalk()) shop && (dialog.awake || speaking || deck.size>0 || lookupNumbers.isNotEmpty() || undo!=null || pickupCommitting) else true)
         if(screenHeld!=hold) {
             screenHeld=hold
             if(hold)window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
         if(::speech.isInitialized)speech.attending(active)
-        if(activeTheme!=active) { activeTheme=active;root.setBackgroundColor(if(active)Color.rgb(12,40,62) else Color.BLACK) }
-        mic.showText(when {
+        activeTheme=active;applyBoardAppearance()
+        mic.showText((dialog.worker?.let { "$it · " }?:"")+when {
             !shopHours()->"Microphone off · outside shop hours · tap Listen to test"
             speaking->"Sofia is speaking · microphone paused"
             tapToTalk() && !dialog.awake->"Tap Listen · microphone off · screen may sleep"
@@ -455,14 +517,40 @@ class MainActivity:Activity() {
         smsYes.visibility=if(shop && dialog.phase==Conversation.Phase.SMS)View.VISIBLE else View.GONE
         smsNo.visibility=smsYes.visibility
     }
+    private fun applyBoardAppearance() {
+        if(!::logo.isInitialized)return
+        val presenting=deck.current!=null || lookupNumbers.isNotEmpty()
+        val communicating=dialog.awake || speaking || presenting
+        val style=(if(presenting)1 else 0)+(if(communicating)2 else 0)+(if(dialog.engaged)4 else 0)+(if(shopHours())8 else 0)
+        if(boardStyle==style)return
+        boardStyle=style
+        root.setBackgroundColor(if(presenting || !dialog.engaged)Color.BLACK else Color.rgb(12,40,62))
+        clock.textSize=if(communicating)16f else 34f;date.textSize=if(communicating)12f else 16f
+        logo.textSize=if(presenting)38f else 52f
+        heard.textSize=if(presenting)14f else 20f;heard.minLines=if(presenting)1 else 2;heard.maxLines=2
+        answer.textSize=if(presenting)14f else 18f;answer.maxLines=if(presenting)2 else 4
+        if(::hints.isInitialized)hints.visibility=if(communicating || !shopHours())View.GONE else View.VISIBLE
+        if(::queue.isInitialized)queue.visibility=if(presenting || !shopHours())View.GONE else View.VISIBLE
+    }
+    private fun receiptNumber(value:String,color:Int)=label(value,56f,color).apply {
+        typeface=android.graphics.Typeface.create("sans-serif-condensed",android.graphics.Typeface.BOLD)
+        maxLines=1;setAutoSizeTextTypeUniformWithConfiguration(32,260,2,android.util.TypedValue.COMPLEX_UNIT_SP)
+    }
     private fun renderCards() {
-        cards.removeAllViews()
+        cards.removeAllViews();applyBoardAppearance()
         val c=deck.current
-        if(c==null) { picked.visibility=View.GONE;return }
-        val color=if(c.pay==Pay.DUE)Color.rgb(255,95,95) else Color.WHITE
-        cards.addView(label("#${c.receipt}",56f,color))
-        cards.addView(label(c.customer,25f,color));cards.addView(label(c.total.ifBlank { "Amount unavailable" },30f,color))
-        cards.addView(label((if(c.ready)"READY" else "NOT READY")+" · "+when(c.pay) { Pay.PAID->"PAID";Pay.DUE->"NOT PAID";Pay.ACCOUNT->"STORE ACCOUNT";else->"PAYMENT UNKNOWN" },18f,color))
+        if(c==null) {
+            picked.visibility=View.GONE
+            if(lookupNumbers.isNotEmpty()) {
+                cards.addView(receiptNumber(lookupNumbers.joinToString(" · "),Color.WHITE),LinearLayout.LayoutParams(-1,0,1f))
+                cards.addView(label(lookupMessage,19f,Color.LTGRAY))
+            }
+            return
+        }
+        val color=when(c.pay) { Pay.PAID->Color.rgb(80,240,135);Pay.DUE->Color.rgb(255,95,95);else->Color.WHITE }
+        cards.addView(receiptNumber(c.receipt,color),LinearLayout.LayoutParams(-1,0,1f))
+        cards.addView(label(c.customer,18f).apply { maxLines=1 });cards.addView(label(c.total.ifBlank { "Amount unavailable" },22f))
+        cards.addView(label((if(c.ready)"READY" else "NOT READY")+" · "+when(c.pay) { Pay.PAID->"PAID";Pay.DUE->"NOT PAID";Pay.ACCOUNT->"STORE ACCOUNT";else->"PAYMENT UNKNOWN" },14f,color))
         if(deck.size>1) cards.addView(label("‹   ${deck.index+1} / ${deck.size}   ›   Swipe to browse",16f))
         picked.visibility=if(shopHours() && pickups.configured() && (undo!=null || c.ready && Lookup.digits(c.receipt) !in pickups.pending()))View.VISIBLE else View.GONE
         picked.isEnabled=!pickupCommitting
@@ -476,7 +564,7 @@ class MainActivity:Activity() {
     private fun button(value:String,action:()->Unit)=Button(this).apply { text=value;setOnClickListener { action() } }
     private fun buildUi():View {
         root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;setPadding(16,12,16,12);setBackgroundColor(Color.BLACK) }
-        root.addView(label("Sofia",28f).apply { setOnLongClickListener { settings();true } })
+        logo=ConversationIndicator(this).apply { settingsEntry { settings() } };root.addView(logo)
         clock=label("",34f).apply { setOnClickListener { beginListening() } };root.addView(clock);date=label("",16f);root.addView(date)
         mic=label("Preparing local speech…",16f,Color.CYAN);root.addView(mic)
         heard=label("Heard · say Sofia to begin",20f);heard.minLines=2;root.addView(heard)
@@ -497,14 +585,14 @@ class MainActivity:Activity() {
         sms.addView(smsYes);sms.addView(smsNo);root.addView(sms)
         picked=button("Confirm picked up") { onPicked() };picked.visibility=View.GONE;root.addView(picked)
         problem=button("") { reviewProblems() };problem.visibility=View.GONE;root.addView(problem)
-        root.addView(label("Pickup: “Sofia, find last four 1234” / “check receipt 12345”\nWork: “Sofia, this is [name], finished receipt 12345”\nOr: “Sofia, this is [name], just save receipt 12345”",13f,Color.LTGRAY))
+        hints=label("Pickup: “Sofia, find last four 1234” / “check receipt 12345”\nWork: “Sofia, this is [name], finished receipt 12345”\nOr: “Sofia, this is [name], just save receipt 12345”",13f,Color.LTGRAY);root.addView(hints)
         val controls=LinearLayout(this).apply { gravity=Gravity.CENTER }
         controls.addView(button("Listen") { beginListening() })
-        controls.addView(button("Settings") { settings() });root.addView(controls)
+        settingsGear=HoldSettingsControl(this) { settings() };controls.addView(settingsGear);root.addView(controls)
         return ScrollView(this).apply { isFillViewport=true;addView(root) }
     }
     override fun onConfigurationChanged(config:android.content.res.Configuration) {
-        super.onConfigurationChanged(config);night=null;setContentView(buildUi());heard.text="Heard · $lastRaw";renderCards();renderQueue();updateStatus()
+        super.onConfigurationChanged(config);night=null;activeTheme=null;boardStyle=-1;setContentView(buildUi());heard.text="Heard · $lastRaw";renderCards();renderQueue();updateStatus()
     }
     private fun seedAnnouncements() {
         val prefs=getSharedPreferences("announcements",MODE_PRIVATE)
@@ -518,8 +606,9 @@ class MainActivity:Activity() {
         if(prefs.edit().putStringSet("seen",seen.toList().takeLast(512).toSet()).commit()) Sounds.play(this,event)
     }
     private fun settings() {
+        if(settingsDialog?.isShowing==true)return
         val items=Sounds.Event.entries.map { "${it.label}: ${Sounds.choice(this,it)}" }+listOf("Restart listening","Choose voices"+(if(voiceWarning)" · male voice needs selection" else ""),"Refresh orders",if(tapToTalk())"Listening mode · tap to talk (battery saver)" else "Listening mode · hands-free")
-        AlertDialog.Builder(this).setTitle("Sofia ${Updater.versionName(this)}")
+        settingsDialog=AlertDialog.Builder(this).setTitle("Sofia ${Updater.versionName(this)}")
             .setItems(items.toTypedArray()) { _,i -> when {
                 i<4->soundSettings(Sounds.Event.entries[i])
                 i==4->{speech.stop();running=false;beginListening()}

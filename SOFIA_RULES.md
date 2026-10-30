@@ -1,4 +1,4 @@
-# Sofia — counter assistant rules, rewrite 0.40
+# Sofia — counter assistant rules, rewrite 0.41
 
 Owner-approved replacement of the phone voice/UI implementation. This document supersedes the previous Android SpeechRecognizer session-loop rules. Existing package, signing identity, private configuration files and durable delivery queues are retained. The application is the counter assistant, not the separate business-line telephone agent.
 
@@ -19,7 +19,7 @@ Owner-approved replacement of the phone voice/UI implementation. This document s
 
 - Natural EN/RU variants of find/check/look up/search/show/посмотри/проверь/найди are read-only. A bare number after waking is a safe lookup, never an implicit work recording. Last-four labels are excluded from the number itself.
 - Search accepts four phone-ending digits, one five/six-digit receipt or a full phone. Uncertain or incomplete numbers cause clarification. A six-digit receipt is never silently truncated into phone-ending digits.
-- Cards show receipt, customer, amount, readiness and payment. Unpaid is red; paid is white. Say “Not paid / Не оплачено”, never the old debt wording. Never speak customer names or phone numbers aloud.
+- Cards show receipt, customer, amount, readiness and payment. Unpaid digits are red; paid digits are green. Both use a black background. The receipt number is the dominant auto-sized element; supporting text, clock and date are compact during dialogue. Say “Not paid / Не оплачено”, never the old debt wording. Never speak customer names or phone numbers aloud.
 - Not-ready cards expire after 10 seconds; ready cards after 60 seconds. Multiple cards can be swiped in stable order. Expiry of another card does not change the selected receipt. Card expiry never confirms pickup.
 - Pickup requires its explicit button and retains the existing five-second Undo. The request captures that exact receipt even if another card is browsed. Durable outbox, tablet acknowledgement and visible unresolved-warning safeguards remain.
 - Only “not ready” is assigned the male voice. Payment and other responses use the female selection. Android voice gender is not portable metadata: actual installed voices must be checked on the owner's phone, with Settings voice selection available.
@@ -46,3 +46,9 @@ Owner-approved replacement of the phone voice/UI implementation. This document s
 ## Acceptance boundaries
 
 Emulator tests establish software behavior with synthesized speech and fake delivery transports. Real shop noise, recognition accuracy, target-phone TTS gender, Samsung AOD/double-tap behavior, battery drain and actual Wi-Fi installation still require device observation. No claim of unlimited conversation, perfect hearing or a guaranteed battery-life improvement follows from emulator tests.
+
+## 0.41 interaction follow-up
+
+Wake/resume and Listen immediately trigger a source refresh. A lookup arriving during that refresh waits for its result instead of speaking stale readiness. A cache miss rereads the same cloud mirror once and retries automatically; a failed read retains the last good copy and explicitly labels it cached/offline. A missing result still shows and reads back the exact searched digits, clearing any previous customer's card. This does not manufacture data the tablet has not yet published.
+
+The animated script Sofia name distinguishes listening, processing and speaking; it responds gently to microphone energy only during active listening. Animation stops in idle/night/background and respects the system animation setting. The gear and Sofia name both open Settings only after a continuous three-second hold; tap, movement, release, detach or backgrounding cancels entry. No openly clickable Settings text remains. Pickup remains its existing exact-receipt confirmation API, separate from SMS, and never directly deletes a source-sheet row.

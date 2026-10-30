@@ -32,6 +32,123 @@ class ConversationUiTest {
         while(SystemClock.elapsedRealtime()<until) { ins.waitForIdleSync();if(test())return;Thread.sleep(40) }
         assertTrue("Asynchronous adapter did not finish",test())
     }
+    @Test fun settingsRequiresThreeSecondsAndCancelledHoldDoesNotOpen() {
+        val activity=launch()
+        try {
+            lateinit var gear:HoldSettingsControl
+            fun touch(action:Int) { val t=SystemClock.uptimeMillis();val e=android.view.MotionEvent.obtain(t,t,action,10f,10f,0);gear.onTouchEvent(e);e.recycle() }
+            ins.runOnMainSync {
+                gear=field(activity,"settingsGear") as HoldSettingsControl
+                assertEquals("⚙",gear.text.toString());gear.performClick();touch(android.view.MotionEvent.ACTION_DOWN)
+            }
+            Thread.sleep(350)
+            ins.runOnMainSync { assertTrue(gear.isPressed);touch(android.view.MotionEvent.ACTION_UP) }
+            Thread.sleep(350)
+            ins.runOnMainSync { assertFalse((field(activity,"settingsDialog") as? android.app.AlertDialog)?.isShowing==true) }
+            ins.runOnMainSync { assertFalse(gear.isPressed);touch(android.view.MotionEvent.ACTION_DOWN) }
+            Thread.sleep(3100)
+            ins.runOnMainSync { assertFalse(gear.isPressed) }
+            ins.runOnMainSync {
+                val dialog=field(activity,"settingsDialog") as? android.app.AlertDialog
+                assertTrue("Three-second hold did not open Settings",dialog?.isShowing==true)
+                dialog?.dismiss()
+            }
+        } finally { ins.runOnMainSync { activity.finish() } }
+    }
+    @Test fun paymentNumbersDominateBoardAndUseOwnerColorsOnBlack() {
+        val activity=launch()
+        try {
+            for(pay in listOf(Pay.PAID,Pay.DUE)) {
+                ins.runOnMainSync {
+                    set(activity,"refreshAt",Long.MAX_VALUE)
+                    val deck=field(activity,"deck") as CardDeck
+                    deck.clear();deck.add(listOf(Card("12345","Synthetic customer","0000",true,pay,total="$65.00")),SystemClock.elapsedRealtime())
+                    call(activity,"renderCards");call(activity,"updateStatus")
+                    val number=(field(activity,"cards") as android.widget.LinearLayout).getChildAt(0) as TextView
+                    assertEquals("12345",number.text.toString())
+                    assertEquals(if(pay==Pay.PAID)android.graphics.Color.rgb(80,240,135) else android.graphics.Color.rgb(255,95,95),number.currentTextColor)
+                    assertEquals(android.graphics.Color.BLACK,((field(activity,"root") as View).background as android.graphics.drawable.ColorDrawable).color)
+                    assertEquals(260,(number.autoSizeMaxTextSize/activity.resources.displayMetrics.scaledDensity).toInt())
+                }
+                ins.waitForIdleSync();Thread.sleep(180)
+                val bitmap=ins.uiAutomation.takeScreenshot()
+                File(ins.targetContext.cacheDir,"board-${pay.name}.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };bitmap.recycle()
+            }
+        } finally { ins.runOnMainSync { activity.finish() } }
+    }
+    @Test fun indicatorReflectsListeningProcessingAndStopsWhenIdle() {
+        val activity=launch()
+        try {
+            ins.runOnMainSync {
+                val logo=field(activity,"logo") as ConversationIndicator
+                val dialog=field(activity,"dialog") as Conversation
+                dialog.wake(SystemClock.elapsedRealtime());set(activity,"running",true);set(activity,"micState","Microphone ready · waiting for Sofia")
+                call(activity,"updateStatus");assertEquals(ConversationIndicator.Mode.LISTENING,logo.mode)
+                dialog.accept("who did receipt 12345",now=SystemClock.elapsedRealtime())
+                call(activity,"updateStatus");assertEquals(ConversationIndicator.Mode.THINKING,logo.mode)
+                dialog.cancel();call(activity,"stopVoice");call(activity,"updateStatus")
+                assertEquals(ConversationIndicator.Mode.REST,logo.mode);assertFalse(logo.animating)
+                set(activity,"wallClock",java.time.Clock.fixed(java.time.Instant.parse("2026-10-30T03:00:00Z"),java.time.ZoneId.of("America/Los_Angeles")))
+                set(activity,"manualUntil",0L);call(activity,"updateStatus")
+                assertEquals(ConversationIndicator.Mode.REST,logo.mode);assertFalse(logo.animating)
+            }
+        } finally { ins.runOnMainSync { activity.finish() } }
+    }
+    @Test fun missingLookupRefreshesOnceAndShowsFoundReceipt() {
+        val activity=launch();val dir=File(ins.targetContext.cacheDir,"lookup-fake");dir.mkdirs()
+        val calls=java.util.concurrent.atomic.AtomicInteger(0)
+        val rows=listOf(listOf("Receipt #","Phone","M.T.","Customer","Total"),listOf("12345","00001234","Tester","Synthetic","65.00"))
+        try {
+            ins.runOnMainSync {
+                set(activity,"refreshAt",Long.MAX_VALUE);set(activity,"loadedAt",System.currentTimeMillis());set(activity,"orders",emptyList<Order>())
+                set(activity,"sheets",Sheets(File(dir,"none"),reader={calls.incrementAndGet();rows}));set(activity,"cache",OrderCache(dir))
+                val dialog=field(activity,"dialog") as Conversation;dialog.wake(SystemClock.elapsedRealtime())
+                call(activity,"dispatch",dialog.accept("check receipt 12345",now=SystemClock.elapsedRealtime()))
+            }
+            waitFor { (field(activity,"deck") as CardDeck).current?.receipt=="12345" }
+            assertEquals(1,calls.get())
+        } finally { ins.runOnMainSync { activity.finish() };dir.deleteRecursively() }
+    }
+    @Test fun failedLookupStillShowsDigitsAndRemovesPreviousCustomerCard() {
+        val activity=launch();val dir=File(ins.targetContext.cacheDir,"lookup-missing");dir.mkdirs()
+        try {
+            ins.runOnMainSync {
+                set(activity,"refreshAt",Long.MAX_VALUE);set(activity,"loadedAt",System.currentTimeMillis());set(activity,"orders",emptyList<Order>())
+                set(activity,"sheets",Sheets(File(dir,"none"),reader={listOf(listOf("Receipt #","Phone"))}));set(activity,"cache",OrderCache(dir))
+                (field(activity,"deck") as CardDeck).add(listOf(Card("54321","Previous synthetic customer","0000",true)),SystemClock.elapsedRealtime())
+                val dialog=field(activity,"dialog") as Conversation;dialog.wake(SystemClock.elapsedRealtime())
+                call(activity,"dispatch",dialog.accept("check receipt 12345",now=SystemClock.elapsedRealtime()))
+            }
+            waitFor { (field(activity,"lookupMessage") as String).let { "не найдено" in it || "Not found" in it } }
+            ins.runOnMainSync {
+                val cards=field(activity,"cards") as android.widget.LinearLayout
+                assertEquals("12345",(cards.getChildAt(0) as TextView).text.toString())
+                assertNull((field(activity,"deck") as CardDeck).current)
+                assertEquals(View.GONE,(field(activity,"picked") as View).visibility)
+            }
+        } finally { ins.runOnMainSync { activity.finish() };dir.deleteRecursively() }
+    }
+    @Test fun lookupWaitsForWakeRefreshInsteadOfAnsweringOldReadiness() {
+        val activity=launch();val dir=File(ins.targetContext.cacheDir,"lookup-wake");dir.mkdirs()
+        val start=java.util.concurrent.CountDownLatch(1);val finish=java.util.concurrent.CountDownLatch(1)
+        val calls=java.util.concurrent.atomic.AtomicInteger(0)
+        try {
+            ins.runOnMainSync {
+                set(activity,"refreshAt",Long.MAX_VALUE);set(activity,"loadedAt",System.currentTimeMillis())
+                set(activity,"orders",listOf(Order("12345","Synthetic","00001234","",false)))
+                set(activity,"sheets",Sheets(File(dir,"none"),reader={
+                    calls.incrementAndGet();start.countDown();check(finish.await(4,java.util.concurrent.TimeUnit.SECONDS))
+                    listOf(listOf("Receipt #","Phone","M.T."),listOf("12345","00001234","Tester"))
+                }));set(activity,"cache",OrderCache(dir));call(activity,"refresh")
+                val dialog=field(activity,"dialog") as Conversation;dialog.wake(SystemClock.elapsedRealtime())
+                call(activity,"dispatch",dialog.accept("check receipt 12345",now=SystemClock.elapsedRealtime()))
+                assertNotNull(field(activity,"waitingLookup"));assertNull((field(activity,"deck") as CardDeck).current)
+            }
+            assertTrue(start.await(2,java.util.concurrent.TimeUnit.SECONDS));finish.countDown()
+            waitFor { (field(activity,"deck") as CardDeck).current?.ready==true }
+            assertEquals(1,calls.get())
+        } finally { finish.countDown();ins.runOnMainSync { activity.finish() };dir.deleteRecursively() }
+    }
     @Test fun tapModeStopsCaptureAndReleasesScreenWithoutLosingQueuedWork() {
         val ctx=ins.targetContext
         ctx.getSharedPreferences("power",0).edit().putBoolean("tapToTalk",true).commit()
