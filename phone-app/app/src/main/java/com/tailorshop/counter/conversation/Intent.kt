@@ -65,10 +65,17 @@ object SafeIntent {
         Lookup.yesNo(text)?.let { return it }
         return if(words.any { it in setOf("send","otprav","otpravi","otpravlyay") } || " go ahead " in n)true else null
     }
+    fun endsConversation(text:String):Boolean {
+        val words=Lookup.normalize(text).split(' ').filter(String::isNotBlank)
+        val thanks=setOf("thanks","thank","spasibo")
+        val polite=setOf("you","very","much","so","bolshoe","ochen","vse","all","that","s","it","sofia","sophia","sofiya","sofya","please","pozhaluysta")
+        return words.any { it in thanks } && words.all { it in thanks || it in polite }
+    }
     fun local(text:String,c:IntentContext):Intent {
         val n=" "+Lookup.normalize(text)+" "
         val nums=numbers(text)
         val name=worker(text,c.workers)
+        if(endsConversation(text))return Intent.Cancel
         if(c.waiting=="sms" || c.waiting=="pickup") confirmation(text,c)?.let { return Intent.Answer(it) }
         if(listOf(" cancel "," stop "," otmena "," otmeni "," ne nado ").any { it in n }) return Intent.Cancel
         if(c.waiting=="worker" && name!=null && nums.isEmpty()) return Intent.Introduce(name)

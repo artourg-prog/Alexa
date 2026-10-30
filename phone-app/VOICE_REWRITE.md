@@ -23,3 +23,7 @@ The optional semantic service is not a release prerequisite. Its deployment is c
 The public source intentionally excludes model blobs, synthesized audio and private channel/service configuration. Existing on-device runtime config files and atomic queues are preserved across an in-place update. Physical shop speech and installed voice gender remain device acceptance tests, not claims established by emulator tests.
 
 The default listening mode is tap-to-talk. The app releases its screen-on request and microphone between conversations; it uses the phone's existing screen timeout, AOD and wake/unlock settings. Continuous hands-free operation remains a Settings choice. Real phone battery measurements are pending; do not claim emulator performance as measured battery savings.
+
+## 0.43 bounded dialogue follow-up
+
+Completed lookup/report results end the tap-mode session. Capture stops while processing, saving and speaking; it resumes only for incomplete instructions / the pending SMS decision. Standalone EN/RU thanks or cancellation closes the session. SMS decisions ignore unrelated query/work instructions. A free-area tap/Listen starts the next request; late wake callbacks do not reopen a completed tap session. Result cards remain available for explicit pickup but no longer keep the display awake. Existing queues and private APIs are retained. Upgrade defaults to tap mode once; no target-phone battery-life improvement is claimed without measurement.

@@ -1,12 +1,12 @@
-# Sofia — counter assistant rules, rewrite 0.42
+# Sofia — counter assistant rules, rewrite 0.43
 
 Owner-approved replacement of the phone voice/UI implementation. This document supersedes the previous Android SpeechRecognizer session-loop rules. Existing package, signing identity, private configuration files and durable delivery queues are retained. The application is the counter assistant, not the separate business-line telephone agent.
 
 ## Wake, sleep and visible listening
 
-- Default is **tap to talk**, as requested after the owner reported near-total battery drain during a working day. Wake the phone with its existing Samsung gesture/unlock behavior, or tap Listen while Sofia is visible. A visible daytime resume starts a conversation. System Always On Display and double-tap settings remain phone settings; the app does not simulate AOD or claim those settings were configured remotely.
+- Default is **tap to talk**, as requested after the owner reported near-total battery drain during a working day. Wake the phone with its existing Samsung gesture/unlock behavior, or tap Listen / a free area while Sofia is visible. A visible daytime resume starts a conversation. System Always On Display and double-tap settings remain phone settings; the app does not simulate AOD or claim those settings were configured remotely.
 - The wake chime for a tap/resume waits for the local microphone/decoder to report readiness. The listening background and microphone status distinguish preparing, listening, speaking, processing and off.
-- Microphone capture stops between conversations and on activity pause. The screen is held awake only for an active conversation, speech, visible result cards or pickup confirmation. Afterwards Android's existing screen timeout is allowed; no new device-admin/accessibility permissions are required and no lock credentials are bypassed.
+- Microphone capture stops between conversations and on activity pause. The screen is held awake only for an active conversation, speech or pickup confirmation; a displayed result alone no longer prevents sleep. Afterwards Android's existing screen timeout is allowed; no new device-admin/accessibility permissions are required and no lock credentials are bypassed.
 - An optional Settings mode retains continuous foreground listening during shop hours. In that mode the wake name is detected locally. No microphone listening takes place while the screen/activity is asleep.
 - The recognized partial/final words remain visible while the shop screen is awake. They are not discarded between ASR segments. No ambient audio recordings are saved.
 - New speech extends a 30-second silence window; there is no 8-second or 60-second hard conversation cutoff while new words continue. Decoder segment boundaries do not end the dialogue. Short digit fragments are joined while a number is explicitly awaited. Incomplete-command speech prompts wait for continued speech rather than immediately interrupting the speaker.
@@ -58,3 +58,11 @@ The visible heard line uses digits for EN/RU spoken number runs (including parti
 ## 0.42 clean communication board
 
 Listen is at the upper left and the three-second hold settings gear at the upper right; the Sofia name retains its hold entry. Heard words appear in turquoise without the technical Heard prefix. Clock, date and microphone diagnostics are hidden, while offline order-source warnings remain visible. A full-width green Confirm Pickup button, at least 104dp tall, sits at the bottom and names the selected receipt; the existing durable confirmation and five-second Undo flow are retained. The top controls remain accessible outside shop hours for the temporary manual Listen session. A short tap on the free visible idle board restarts listening without waiting for AOD; action controls, drags and long holds retain their own behavior. Recognition accuracy and wake-name detection were not changed by this UI release.
+
+## 0.43 bounded conversation (owner approved)
+
+The upgrade switches the default to tap-to-talk once, preserving all delivery queues and private connections. A completed lookup (including no match) or report answer ends the dialogue and releases microphone capture. The result card stays visible, but no longer holds the display awake by itself. A short free-area tap / Listen starts the next request; unaddressed follow-up chatter after an answer cannot create another lookup. In tap mode, late wake callbacks cannot reopen a completed session. Capture is suspended while processing a read, saving, or playing TTS and resumes only for an unfinished command or pending SMS choice. New words continue to extend the incomplete-command window.
+
+“Спасибо”, “София, спасибо”, “спасибо, всё”, “thanks” and “thank you” end an active session without undoing stored work or sending SMS. Gratitude embedded in a new work instruction is not treated as cancellation. SMS choice accepts a strict yes/no or cancellation; unrelated lookups, work instructions and background conversation cannot leave that prompt or authorize sending. No or silence keeps the durable work record.
+
+This changes dialogue and capture lifecycle, not microphone hardware, recognition accuracy, source synchronization/readiness rules or target-phone battery measurements.

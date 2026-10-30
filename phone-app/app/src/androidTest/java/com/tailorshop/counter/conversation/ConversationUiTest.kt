@@ -63,6 +63,30 @@ class ConversationUiTest {
             waitFor { field(activity,"running")==true }
         } finally { ins.runOnMainSync { activity.finish() } }
     }
+    @Test fun answerStopsMicrophoneKeepsReceiptAndThanksEndsNextSession() {
+        val activity=launch()
+        try {
+            lateinit var dialog:Conversation
+            ins.runOnMainSync {
+                set(activity,"refreshAt",Long.MAX_VALUE);set(activity,"loadedAt",System.currentTimeMillis())
+                set(activity,"orders",listOf(Order("12345","Synthetic","00001234","",true)))
+                dialog=field(activity,"dialog") as Conversation;dialog.wake(SystemClock.elapsedRealtime())
+                call(activity,"dispatch",dialog.accept("find 12345",now=SystemClock.elapsedRealtime()))
+                assertFalse(dialog.awake);assertFalse(field(activity,"running") as Boolean)
+                assertEquals("12345",(field(activity,"deck") as CardDeck).current?.receipt)
+                call(activity,"stopVoice");call(activity,"updateStatus")
+                assertEquals(0,activity.window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                call(activity,"beginListening")
+            }
+            waitFor { field(activity,"running")==true }
+            ins.runOnMainSync {
+                dialog.accept("спасибо",now=SystemClock.elapsedRealtime())
+                call(activity,"updateStatus")
+            }
+            waitFor { field(activity,"running")==false }
+            assertEquals("12345",(field(activity,"deck") as CardDeck).current?.receipt)
+        } finally { ins.runOnMainSync { activity.finish() } }
+    }
     @Test fun settingsRequiresThreeSecondsAndCancelledHoldDoesNotOpen() {
         val activity=launch()
         try {

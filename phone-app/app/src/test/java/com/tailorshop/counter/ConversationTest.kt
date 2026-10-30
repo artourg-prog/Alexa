@@ -8,6 +8,28 @@ import org.json.JSONObject
 class ConversationTest {
     private val workers=listOf("WorkerAlpha","WorkerBeta")
     private fun engine()=Conversation { workers }.also { it.wake(0) }
+    @Test fun completedLookupRequiresNewTouchBeforeAnyFurtherAction() {
+        val e=engine();e.accept("find 12345",now=1);e.queryFinished()
+        assertFalse(e.awake)
+        assertTrue(e.accept("check 54321",now=2).isEmpty())
+        e.wake(3);assertTrue(e.accept("check 54321",now=4).single() is Conversation.Effect.Find)
+    }
+    @Test fun thanksEndsIncompleteCommandAndSmsWithoutSending() {
+        for(phrase in listOf("спасибо","София спасибо","спасибо всё","thank you","thanks Sofia","thank you that's all")) {
+            val e=engine();e.accept("find",now=1);assertTrue(e.accept(phrase,now=2).isEmpty());assertFalse(phrase,e.awake)
+            e.wake(3);e.accept("WorkerAlpha finished 12345",now=4);e.saved("saved-event",5)
+            assertTrue(e.accept(phrase,now=6).isEmpty());assertFalse(phrase,e.awake)
+        }
+        assertFalse(SafeIntent.endsConversation("thanks please save receipt 12345"))
+    }
+    @Test fun smsQuestionRejectsUnrelatedLookupAndWorkCommands() {
+        val e=engine();e.accept("WorkerAlpha finished 12345",now=1);e.saved("saved-event",2)
+        for(phrase in listOf("find 54321","who did 12345","WorkerBeta finished 54321","some television conversation")) {
+            assertTrue(e.accept(phrase,now=3).isEmpty());assertEquals(Conversation.Phase.SMS,e.phase)
+        }
+        assertEquals(Conversation.Effect.Sms("saved-event"),e.accept("yes",now=4).single())
+        assertFalse(e.awake)
+    }
     @Test fun introSurvivesSeparateSegmentsAndLongActiveSpeech() {
         val e=engine();e.accept("Sofia this is WorkerAlpha",now=100)
         for(t in 1..100) { e.progress(t*10_000L);e.tick(t*10_000L);assertTrue(e.awake) }
@@ -95,8 +117,9 @@ class ConversationTest {
     }
     @Test fun ambientCompletionAfterLookupCannotWriteWithoutNewWake() {
         val e=engine();e.accept("check 12345",now=1)
-        assertEquals(Conversation.Phase.FOLLOWUP,e.phase)
-        assertFalse(e.engaged)
+        assertEquals(Conversation.Phase.PROCESSING,e.phase)
+        e.queryFinished()
+        assertFalse(e.awake)
         assertTrue(e.accept("WorkerAlpha finished 54321",now=2).isEmpty())
         e.wake(3)
         assertTrue(e.accept("WorkerAlpha finished 54321",now=4).single() is Conversation.Effect.Save)

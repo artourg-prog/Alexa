@@ -155,6 +155,8 @@ class MainActivity:Activity() {
 
     override fun onCreate(state:Bundle?) {
         super.onCreate(state)
+        val power=getSharedPreferences("power",MODE_PRIVATE)
+        if(!power.getBoolean("bounded-dialogue-v43",false))power.edit().putBoolean("tapToTalk",true).putBoolean("bounded-dialogue-v43",true).apply()
         finishes=Finishes(filesDir);pickups=Pickups(filesDir);sheets=Sheets(File(filesDir,"sheet-key.json"));cache=OrderCache(filesDir)
         intentService=SemanticClient(applicationContext)
         dialog=Conversation { finishes.workers() }
@@ -169,6 +171,7 @@ class MainActivity:Activity() {
                 updateStatus()
             } }
             override fun onPartial(ru:String,en:String,level:Float) { main.post {
+                if(!running || speaking || tapToTalk() && !dialog.awake)return@post
                 lastAudio=SystemClock.elapsedRealtime();errorCount=0;logo.energy(level)
                 val text=if(russian) ru.ifBlank { en } else en.ifBlank { ru }
                 if(text.isNotBlank()) {
@@ -181,14 +184,14 @@ class MainActivity:Activity() {
                 updateStatus()
             } }
             override fun onWake(russian:Boolean) { main.post {
-                if(!resumed || speaking) return@post
+                if(!resumed || speaking || tapToTalk()) return@post
                 this@MainActivity.russian=russian
                 val wasAwake=dialog.engaged;dialog.wake(SystemClock.elapsedRealtime())
                 if(!wasAwake) Sounds.play(this@MainActivity,Sounds.Event.WAKE)
                 updateStatus()
             } }
             override fun onSegment(text:String,russian:Boolean,confidence:Double) { main.post {
-                if(!resumed || speaking) return@post
+                if(!resumed || speaking || !running || !dialog.awake) return@post
                 lastRaw=text;heard.text="${SpokenNumbers.display(text)}"
                 if(!dialog.awake) return@post
                 dialog.progress(SystemClock.elapsedRealtime());segmentRevision++
@@ -248,7 +251,7 @@ class MainActivity:Activity() {
             val now=SystemClock.elapsedRealtime()
             val shop=shopHours()
             dialog.tick(now)
-            val capture=shop && (!tapToTalk() || dialog.awake)
+            val capture=shop && !speaking && (if(tapToTalk()) dialog.awake && dialog.phase !in setOf(Conversation.Phase.PROCESSING,Conversation.Phase.SAVING) else true)
             if(capture && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) {
                 if(running && !speaking && now-lastAudio>20_000) { speech.stop();running=false;retryAt=now+1000;micState="Recovering microphone…" }
                 if(!running && now>=retryAt) { running=true;lastAudio=now;speech.start() }
@@ -285,7 +288,9 @@ class MainActivity:Activity() {
         heard.text="${SpokenNumbers.display(chosen.text)}"
         val words=Lookup.normalize(chosen.text).split(' ')
         if(words.all { it in setOf("sofia","sophia","sofiya","sofya","sophie","sofi","this","is","i","am","eto","ya","pozhaluysta","please") })return
-        Lookup.thanksReply(chosen.text)?.let { cancelPrompt();say(it.first);return }
+        if(SafeIntent.endsConversation(chosen.text) || SafeIntent.local(chosen.text,dialog.context())==VoiceIntent.Cancel) {
+            dialog.cancel();cancelPrompt();stopVoice();pauseCapture();updateStatus();return
+        }
         if(Lookup.asksIfSheHears(chosen.text)) { cancelPrompt();say(Lookup.hearsReply(russian));return }
         if(Lookup.asksWhoSheIs(chosen.text)) { cancelPrompt();say(if(russian)Lookup.INTRO_RU else Lookup.INTRO);return }
         val context=dialog.context()
@@ -326,7 +331,7 @@ class MainActivity:Activity() {
                 reads.execute {
                     val reply=try { ReportStatus.reply(ReportStatus.Request(effect.receipt,effect.worker),finishes.reportStatus(effect.receipt),russian) }
                         catch(_:Exception) { if(russian)"Не удалось проверить Daily Report. Попробуй ещё раз." else "Daily Report is unavailable. Please try again." }
-                    main.post { if(resumed && rev==dialog.revision) { dialog.reportFinished(SystemClock.elapsedRealtime());say(reply) } }
+                    main.post { if(resumed && rev==dialog.revision) { dialog.reportFinished(SystemClock.elapsedRealtime());pauseCapture();say(reply) } }
                 }
             }
             is Conversation.Effect.Save -> {
@@ -382,7 +387,7 @@ class MainActivity:Activity() {
             lookupMessage=if(loadedAt==0L) if(russian)"Список пока недоступен." else "The order list isn't available yet."
                 else if(refreshFailed) if(russian)"Обновить список не удалось. В сохранённой копии не найдено." else "Couldn't refresh the list. Not found in the cached copy."
                 else if(russian)"В последней копии списка не найдено." else "Not found in the latest available list."
-            renderCards()
+            renderCards();dialog.queryFinished();pauseCapture()
             say(request.numbers.joinToString(". ") { it.toCharArray().joinToString(" ") }+". "+lookupMessage)
             return
         }
@@ -395,6 +400,7 @@ class MainActivity:Activity() {
                 Spoken(when(c.pay) { Pay.PAID->if(russian)"Оплачено." else "Paid.";Pay.DUE->if(russian)"Не оплачено." else "Not paid.";Pay.ACCOUNT->if(russian)"На счёте магазина." else "On the store account.";else->"" }))
         }
         val prefix=if(System.currentTimeMillis()-loadedAt>120_000)listOf(Spoken(if(russian)"По сохранённому списку." else "From the cached list.")) else emptyList()
+        dialog.queryFinished();pauseCapture()
         sayParts(prefix+speech.filter { it.text.isNotBlank() })
     }
     private fun refresh() {
@@ -471,6 +477,9 @@ class MainActivity:Activity() {
                 main.post { renderQueue() }
             } }.setNegativeButton("Keep warning",null).show()
     }
+    private fun pauseCapture() {
+        if(tapToTalk()) { speech.stop();running=false;readyCue=false;main.removeCallbacks(flushSegments);segments.clear();segmentRevision++ }
+    }
     private fun say(text:String) { answer.text=text;sayParts(listOf(Spoken(text))) }
     private fun sayParts(parts:List<Spoken>) {
         answer.text=parts.joinToString(" ") { it.text }
@@ -521,7 +530,7 @@ class MainActivity:Activity() {
             dialog.awake->if(errorCount>0)ConversationIndicator.Mode.PROBLEM else ConversationIndicator.Mode.THINKING
             else->ConversationIndicator.Mode.REST
         })
-        val hold=resumed && (if(tapToTalk()) shop && (dialog.awake || speaking || deck.size>0 || lookupNumbers.isNotEmpty() || undo!=null || pickupCommitting) else true)
+        val hold=resumed && (if(tapToTalk()) shop && (dialog.awake || speaking || undo!=null || pickupCommitting) else true)
         if(screenHeld!=hold) {
             screenHeld=hold
             if(hold)window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)

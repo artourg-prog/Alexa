@@ -39,7 +39,9 @@ class Conversation(private val workers:()->List<String>) {
         else if(phase in setOf(Phase.COMMAND,Phase.WORKER,Phase.RECEIPT,Phase.NUMBER,Phase.REPORT_RECEIPT) && now-lastActivity>30_000) cancel()
     }
     fun accept(raw:String,suggestion:Intent?=null,now:Long):List<Effect> {
-        if(!awake || phase==Phase.SAVING) return emptyList()
+        if(!awake)return emptyList()
+        if(SafeIntent.endsConversation(raw) || SafeIntent.local(raw,context())==Intent.Cancel) { cancel();return emptyList() }
+        if(phase==Phase.SAVING)return emptyList()
         val c=context()
         val fragment=Regex("\\d+").findAll(SafeIntent.numericText(raw)).joinToString("") { it.value }
         val waitingNumber=phase in setOf(Phase.RECEIPT,Phase.NUMBER,Phase.REPORT_RECEIPT)
@@ -56,6 +58,7 @@ class Conversation(private val workers:()->List<String>) {
         // read-only question. A new recording requires a new wake name / Listen tap.
         if(phase in setOf(Phase.FOLLOWUP,Phase.PROCESSING) && intent !is Intent.Find && intent !is Intent.Report && intent!=Intent.Cancel)return emptyList()
         if(phase==Phase.SMS && intent is Intent.Finish && intent.receipts==listOfNotNull(receipt) && (intent.worker==null || intent.worker==worker))return emptyList()
+        if(phase==Phase.SMS && intent !is Intent.Answer && intent!=Intent.Cancel)return emptyList()
         lastActivity=now;revision++
         if(phase==Phase.WORKER && intent is Intent.Introduce && pendingFinish!=null) {
             worker=intent.worker
@@ -94,7 +97,7 @@ class Conversation(private val workers:()->List<String>) {
             is Intent.Find -> {
                 val nums=intent.numbers.ifEmpty { if(intent.topic!=null) listOfNotNull(receipt) else emptyList() }
                 if(nums.isEmpty()) { phase=Phase.NUMBER;numberBuffer=combined.takeIf { it.length in 1..3 }.orEmpty();listOf(Effect.Say("Назови номер или последние четыре цифры телефона.","What's the receipt number or last four phone digits?",true)) }
-                else { numberBuffer="";receipt=nums.singleOrNull()?.takeIf { it.length in 5..6 };phase=Phase.FOLLOWUP;listOf(Effect.Find(nums,intent.topic)) }
+                else { numberBuffer="";receipt=nums.singleOrNull()?.takeIf { it.length in 5..6 };phase=Phase.PROCESSING;listOf(Effect.Find(nums,intent.topic)) }
             }
             is Intent.Report -> {
                 val number=intent.receipt?:receipt
@@ -123,5 +126,6 @@ class Conversation(private val workers:()->List<String>) {
         smsId=id;phase=Phase.SMS;smsDeadline=now+30_000
         return listOf(Effect.Say("Запись в очереди. SMS отправить?","Record queued. Send SMS?"))
     }
-    fun reportFinished(now:Long) { if(phase==Phase.PROCESSING) { phase=Phase.FOLLOWUP;lastActivity=now;revision++ } }
+    fun queryFinished() { if(phase==Phase.PROCESSING || phase==Phase.FOLLOWUP)cancel() }
+    fun reportFinished(now:Long) { queryFinished() }
 }
