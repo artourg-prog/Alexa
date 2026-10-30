@@ -27,6 +27,11 @@ object Wake {
         catch (e: SecurityException) { Log.d("TailorCounter", "can't schedule wake: ${e.message}") }
     }
 
+    fun cancel(ctx:Context,requestCode:Int) {
+        val fire=PendingIntent.getBroadcast(ctx,requestCode,Intent(ctx,Fire::class.java),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE)?:return
+        ctx.getSystemService(AlarmManager::class.java)?.cancel(fire);fire.cancel()
+    }
+
     private fun screen(ctx: Context, requestCode: Int): PendingIntent = PendingIntent.getActivity(ctx, requestCode,
         Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)

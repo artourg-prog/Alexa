@@ -22,14 +22,14 @@ object PrivateTokens {
         "zakonchil zakonchila zakonchen sdelal sdelala gotovo gotov gotova rabota " +
         "resit resita resitu kvitantsiya kvitantsiyu kvitantsii zakaz zakaza nomer nomera " +
         "telefon telefona poslednie tsifry report otchet otchete deili deyli v na pod za dlya " +
-        "otprav otpravi otpravit otpravlyat soobschenie klient klientu sms oplacheno neoplacheno summa dolg master segodnya vchera").split(' ').filter { it.isNotBlank() }.toSet()
+        "bez soobscheniya otprav otpravi otpravit otpravlyat soobschenie klient klientu sms oplacheno neoplacheno summa dolg master segodnya vchera").split(' ').filter { it.isNotBlank() }.toSet()
     data class Payload(val tokens:List<String>,val numbers:Map<String,String>,val workers:Map<String,String>) {
         fun publicJson(c:IntentContext):JSONObject = JSONObject().put("tokens",JSONArray(tokens)).put("waiting",c.waiting)
             .put("numberKinds",JSONObject().apply { numbers.forEach { (ref,n)->put(ref,when { n.length==4->"last4";n.length in 5..6->"receipt";else->"phone" }) } })
             .put("hasCurrentWorker",c.worker!=null)
     }
     fun encode(text:String,c:IntentContext):Payload {
-        val normalized=SpokenNumbers.toDigits(Lookup.normalize(text))
+        val normalized=SafeIntent.numericText(text)
         val ns=linkedMapOf<String,String>();val ws=linkedMapOf<String,String>()
         val tokens=normalized.split(' ').filter { it.isNotBlank() }.take(96).map { word ->
             when {

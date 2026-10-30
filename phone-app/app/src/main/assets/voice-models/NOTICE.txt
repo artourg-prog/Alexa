@@ -10,3 +10,10 @@ https://alphacephei.com/vosk/models
 Original model authors: Alpha Cephei / Vosk contributors.
 Exact archive hashes and download sources are in scripts/fetch-voice-models.py.
 The original archives are bundled unchanged. They are unpacked into private storage.
+
+The multilingual backup uses whisper.cpp v1.9.5 (MIT license) and
+Whisper Base quantized Q5_1 model weights, distributed through the official
+https://github.com/ggml-org/whisper.cpp and
+https://huggingface.co/ggerganov/whisper.cpp repositories.
+See WHISPER-LICENSE.txt. Source/model hashes: scripts/fetch-whisper.py.
+Audio stays in a bounded on-device memory buffer and is not uploaded.

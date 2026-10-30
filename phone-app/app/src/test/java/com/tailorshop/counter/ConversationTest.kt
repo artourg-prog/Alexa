@@ -77,6 +77,91 @@ class ConversationTest {
             assertNotEquals(first.scanId,f.addOrReuse("WorkerBeta","12345",now)!!.scanId)
         } finally { dir.deleteRecursively() }
     }
+    @Test fun lastFourLabelNeverBecomesAnExtraNumberDigit() {
+        for(s in listOf("Sofia find last four 1234","last four digits one two three four","последние четыре цифры один два три четыре","check this one 1234")) {
+            assertEquals(s,listOf("1234"),SafeIntent.numbers(s))
+        }
+        val p=PrivateTokens.encode("last four digits one two three four",IntentContext(workers))
+        assertEquals(listOf("1234"),p.numbers.values.toList())
+    }
+    @Test fun recordUnderWorkerIsNotMistakenForReadOnlyReportQuestion() {
+        assertEquals(Conversation.Effect.Save("WorkerAlpha","12345",true),engine().accept("save receipt 12345 in Daily Report under WorkerAlpha",now=1).single())
+        assertEquals(Conversation.Effect.Save("WorkerAlpha","12345",true),engine().accept("WorkerAlpha I did receipt 12345",now=1).single())
+        assertTrue(engine().accept("who did receipt 12345",now=1).single() is Conversation.Effect.Report)
+    }
+    @Test fun wakeNameAllowsPunctuationButNotLongerWords() {
+        for(text in listOf("Sofia, check", "Софья, проверь", "София!", "Sophia."))assertTrue(text,OfflineSpeech.wakeWord(text))
+        for(text in listOf("sofiastic", "несофия", "статья"))assertFalse(text,OfflineSpeech.wakeWord(text))
+    }
+    @Test fun ambientCompletionAfterLookupCannotWriteWithoutNewWake() {
+        val e=engine();e.accept("check 12345",now=1)
+        assertEquals(Conversation.Phase.FOLLOWUP,e.phase)
+        assertFalse(e.engaged)
+        assertTrue(e.accept("WorkerAlpha finished 54321",now=2).isEmpty())
+        e.wake(3)
+        assertTrue(e.accept("WorkerAlpha finished 54321",now=4).single() is Conversation.Effect.Save)
+    }
+    @Test fun ambientCompletionDuringReadOnlyNetworkQueryCannotWrite() {
+        val e=engine();e.accept("who did 12345",now=1)
+        assertTrue(e.accept("WorkerAlpha finished 54321",now=2).isEmpty())
+        e.wake(3)
+        assertTrue(e.accept("WorkerAlpha finished 54321",now=4).single() is Conversation.Effect.Save)
+    }
+    @Test fun aQuestionContainingRightCannotAuthorizeSms() {
+        val e=engine();e.accept("WorkerAlpha finished 12345",now=1);e.saved("event",2)
+        assertFalse(e.accept("is this the right receipt 12345",now=3).any { it is Conversation.Effect.Sms })
+    }
+    @Test fun duplicateFinalDoesNotAskToSaveOrSendAgain() {
+        val e=engine();e.accept("WorkerAlpha finished 12345",now=1);e.saved("event",2)
+        assertTrue(e.accept("WorkerAlpha finished 12345",now=3).isEmpty())
+        assertEquals(Conversation.Phase.SMS,e.phase)
+        assertEquals(Conversation.Effect.Sms("event"),e.accept("send it please",now=4).single())
+    }
+    @Test fun smsForAnotherReceiptNeedsANewCommand() {
+        val e=engine();e.accept("WorkerAlpha finished 12345",now=1);e.saved("event",2)
+        assertFalse(e.accept("yes for receipt 54321",now=3).any { it is Conversation.Effect.Sms })
+    }
+    @Test fun modelCannotTurnUnknownSpeechIntoSmsApprovalOrInventIdentity() {
+        val e=engine();e.accept("WorkerAlpha finished 12345",now=1);e.saved("event",2)
+        assertTrue(e.accept("unrelated conversation",Intent.Answer(true),3).isEmpty())
+        assertFalse(SafeIntent.validate(Intent.Finish("WorkerAlpha",listOf("12345")),"save 12345",IntentContext(workers)) is Intent.Finish)
+    }
+    @Test fun uncertainNameIsOnlyACandidateNotAnAlias() {
+        assertTrue(WakeCandidate.needsVerification("статья проверь квитанцию"))
+        assertFalse(OfflineSpeech.wakeWord("статья проверь квитанцию"))
+        assertFalse(WakeCandidate.needsVerification("мы работаем в магазине"))
+        assertFalse(WakeCandidate.needsVerification("please check receipt one two three"))
+    }
+    @Test fun reportQuestionRetainsReadOnlyIntentWhenReceiptComesLaterInFragments() {
+        val e=engine();e.accept("Sofia who did the work",now=1)
+        assertEquals(Conversation.Phase.REPORT_RECEIPT,e.phase)
+        e.accept("two six",now=2)
+        assertEquals(Conversation.Effect.Report("26372",null),e.accept("three seven two",now=3).single())
+    }
+    @Test fun naturalLastFourAndReceiptQueriesAreReadOnlyWithoutCloudService() {
+        for(s in listOf("Sofia last four digits two eight zero seven", "София последние четыре цифры два восемь ноль семь", "Sofia 2807")) {
+            assertEquals(s,Conversation.Effect.Find(listOf("2807"),null),engine().accept(s,now=1).single())
+        }
+        for(s in listOf("has receipt 26372 been recorded", "is 26372 already saved", "ресит 26372 записан", "София квитанция 26372 сохранена")) {
+            assertEquals(s,Conversation.Effect.Report("26372",null),engine().accept(s,now=1).single())
+        }
+    }
+    @Test fun receiptDigitsContinueAcrossSpeechSegmentsWithoutLosingWorkerOrNoSms() {
+        val e=engine()
+        val prompt=e.accept("WorkerAlpha just save receipt two six",now=1).single() as Conversation.Effect.Say
+        assertTrue(prompt.prompt)
+        assertEquals(Conversation.Phase.RECEIPT,e.phase)
+        assertEquals(Conversation.Effect.Save("WorkerAlpha","26372",false),e.accept("three seven two",now=2).single())
+    }
+    @Test fun phoneDigitsContinueAcrossSpeechSegments() {
+        val e=engine();e.accept("find last four two eight",now=1)
+        assertEquals(Conversation.Phase.NUMBER,e.phase)
+        assertEquals(Conversation.Effect.Find(listOf("2807"),null),e.accept("zero seven",now=2).single())
+    }
+    @Test fun fullReceiptCorrectionReplacesIncompleteDigits() {
+        val e=engine();e.accept("WorkerAlpha finished receipt two six",now=1)
+        assertEquals(Conversation.Effect.Save("WorkerAlpha","12345",true),e.accept("no receipt one two three four five",now=2).single())
+    }
     @Test fun sixDigitsNeverBecomeLastFour() { assertEquals(listOf("123456"),SafeIntent.numbers("receipt 123456")) }
     @Test fun privatePayloadContainsNoNamesNumbersOrUnrecognizedWords() {
         val c=IntentContext(workers)

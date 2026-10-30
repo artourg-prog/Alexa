@@ -1,4 +1,4 @@
-import {validPayload,validResult} from './worker.mjs';
+import worker, {validPayload,validResult,guardResult} from './worker.mjs';
 import assert from 'node:assert/strict';
 const p={tokens:['assistant','W1','finished','receipt','N1'],waiting:'command',hasCurrentWorker:false,numberKinds:{N1:'receipt'}};
 assert(validPayload(p));
@@ -14,3 +14,18 @@ assert(!validResult({action:'finish',worker:'current'},p));
 assert(!validResult({action:'lookup',numbers:['N1'],explanation:'leak'},p));
 assert(!validResult({action:'sms_sent'},p));
 console.log('Worker schema/privacy checks passed');
+
+const url='https://example.invalid/intent';
+let calls=0;
+const env={INTENT_TOKEN:'synthetic-test-token',AI:{run:async()=>{calls++;return {response:{action:'finish',numbers:['N1'],worker:'W1',askSms:true}}}}};
+const req=(body,token='synthetic-test-token')=>new Request(url,{method:'POST',headers:{authorization:'Bearer '+token},body:JSON.stringify(body)});
+assert.equal((await worker.fetch(req(p,'wrong'),env)).status,401);assert.equal(calls,0);
+assert.equal((await worker.fetch(req({...p,privateName:'not-allowed'}),env)).status,400);assert.equal(calls,0);
+assert.equal((await worker.fetch(req(p),env)).status,200);assert.equal(calls,1);
+assert.equal((await worker.fetch(req(p),{...env,AI:{run:async()=>({response:{action:'finish',numbers:['invented']}})}})).status,502);
+console.log('Worker authenticated route and invalid-result checks passed');
+
+assert.deepEqual(guardResult({action:'finish',numbers:['N1'],worker:'W1'},{...p,tokens:['W1','ne','zakonchil','resit','N1']}),{action:'clarify',need:'action'});
+assert.deepEqual(guardResult({action:'finish',numbers:['N1']},{...p,tokens:['who','did','receipt','N1']}),{action:'clarify',need:'action'});
+assert(validResult(guardResult({action:'yes',need:'none'},{...p,waiting:'sms'}),{...p,waiting:'sms'}));
+console.log('Worker negation/question guard checks passed');

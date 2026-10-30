@@ -2,13 +2,13 @@ package com.tailorshop.counter.conversation
 
 /** Main-thread state machine. It emits requests; durable storage and network access are adapters. */
 class Conversation(private val workers:()->List<String>) {
-    enum class Phase { IDLE, COMMAND, WORKER, RECEIPT, NUMBER, SAVING, SMS, PROCESSING }
+    enum class Phase { IDLE, FOLLOWUP, COMMAND, WORKER, RECEIPT, NUMBER, REPORT_RECEIPT, SAVING, SMS, PROCESSING }
     sealed class Effect {
         data class Find(val numbers:List<String>,val topic:com.tailorshop.counter.Topic?):Effect()
         data class Report(val receipt:String,val worker:String?):Effect()
         data class Save(val worker:String,val receipt:String,val askSms:Boolean):Effect()
         data class Sms(val scanId:String):Effect()
-        data class Say(val ru:String,val en:String):Effect()
+        data class Say(val ru:String,val en:String,val prompt:Boolean=false):Effect()
     }
     var phase=Phase.IDLE; private set
     var worker:String?=null; private set
@@ -16,29 +16,47 @@ class Conversation(private val workers:()->List<String>) {
     var revision=0L; private set
     var lastActivity=0L; private set
     private var pendingFinish:Intent.Finish?=null
+    private var pendingReport:Intent.Report?=null
+    private var numberBuffer=""
     private var smsId:String?=null
     private var smsDeadline=0L
     var askSmsAfterSave=false;private set
     val awake get()=phase!=Phase.IDLE
+    val engaged get()=phase!=Phase.IDLE && phase!=Phase.FOLLOWUP
     fun context()=IntentContext(workers(),worker,when(phase) {
-        Phase.SMS->"sms";Phase.WORKER->"worker";Phase.RECEIPT->"receipt";Phase.NUMBER->"number";else->"command"
+        Phase.SMS->"sms";Phase.WORKER->"worker";Phase.RECEIPT->"receipt";Phase.NUMBER,Phase.REPORT_RECEIPT->"number";else->"command"
     },receipt)
     fun wake(now:Long) {
-        if(!awake) { worker=null;pendingFinish=null;phase=Phase.COMMAND;revision++ }
+        if(!engaged || phase==Phase.PROCESSING) { worker=null;pendingFinish=null;pendingReport=null;numberBuffer="";phase=Phase.COMMAND;revision++ }
         lastActivity=now
     }
     fun progress(now:Long) { if(awake && phase!=Phase.SMS) lastActivity=now }
-    fun cancel() { revision++;phase=Phase.IDLE;pendingFinish=null;smsId=null;worker=null }
+    fun cancel() { revision++;phase=Phase.IDLE;pendingFinish=null;pendingReport=null;smsId=null;worker=null;numberBuffer="" }
     fun tick(now:Long) {
         if(phase==Phase.SMS && now>=smsDeadline) cancel()
         // Silence closes a conversation; continuous words extend it without a hard maximum.
-        else if(phase in setOf(Phase.COMMAND,Phase.WORKER,Phase.RECEIPT,Phase.NUMBER) && now-lastActivity>30_000) cancel()
+        else if(phase==Phase.FOLLOWUP && now-lastActivity>15_000) cancel()
+        else if(phase in setOf(Phase.COMMAND,Phase.WORKER,Phase.RECEIPT,Phase.NUMBER,Phase.REPORT_RECEIPT) && now-lastActivity>30_000) cancel()
     }
     fun accept(raw:String,suggestion:Intent?=null,now:Long):List<Effect> {
         if(!awake || phase==Phase.SAVING) return emptyList()
-        lastActivity=now;revision++
         val c=context()
-        var intent=SafeIntent.validate(suggestion?:SafeIntent.local(raw,c),raw,c)
+        val fragment=Regex("\\d+").findAll(SafeIntent.numericText(raw)).joinToString("") { it.value }
+        val waitingNumber=phase in setOf(Phase.RECEIPT,Phase.NUMBER,Phase.REPORT_RECEIPT)
+        val reset=SafeIntent.question(raw) || SafeIntent.positiveFinish(raw) || Regex("^(?:no|net|wrong|sorry)\\b").containsMatchIn(com.tailorshop.counter.Lookup.normalize(raw))
+        if(reset)numberBuffer=""
+        val minimum=if(phase in setOf(Phase.RECEIPT,Phase.REPORT_RECEIPT))5 else 4
+        val prepared=if(waitingNumber && numberBuffer.isNotBlank() && fragment.isNotBlank() && fragment.length<minimum && !reset) numberBuffer+fragment else raw
+        val combined=Regex("\\d+").findAll(SafeIntent.numericText(prepared)).joinToString("") { it.value }
+        var intent=SafeIntent.validate(if(prepared!=raw)SafeIntent.local(prepared,c) else suggestion?:SafeIntent.local(raw,c),prepared,c)
+        if(phase==Phase.REPORT_RECEIPT && intent is Intent.Find && !SafeIntent.question(raw)) {
+            intent=Intent.Report(intent.numbers.singleOrNull(),pendingReport?.worker)
+        }
+        // After answering a query, unaddressed shop conversation may only ask another
+        // read-only question. A new recording requires a new wake name / Listen tap.
+        if(phase in setOf(Phase.FOLLOWUP,Phase.PROCESSING) && intent !is Intent.Find && intent !is Intent.Report && intent!=Intent.Cancel)return emptyList()
+        if(phase==Phase.SMS && intent is Intent.Finish && intent.receipts==listOfNotNull(receipt) && (intent.worker==null || intent.worker==worker))return emptyList()
+        lastActivity=now;revision++
         if(phase==Phase.WORKER && intent is Intent.Introduce && pendingFinish!=null) {
             worker=intent.worker
             intent=pendingFinish!!.copy(worker=worker)
@@ -58,30 +76,33 @@ class Conversation(private val workers:()->List<String>) {
             is Intent.Finish -> {
                 if(intent.receipts.isEmpty()) {
                     pendingFinish=intent;worker=intent.worker?:worker;phase=Phase.RECEIPT
-                    listOf(Effect.Say("Назови номер квитанции.","What's the receipt number?"))
+                    numberBuffer=combined.takeIf { it.length in 1..4 }.orEmpty()
+                    listOf(Effect.Say("Назови номер квитанции.","What's the receipt number?",true))
                 } else if(intent.receipts.size!=1 || intent.receipts.single().length !in 5..6) {
-                    phase=Phase.RECEIPT;pendingFinish=intent.copy(receipts=emptyList())
-                    listOf(Effect.Say("Назови один полный номер квитанции.","Please give one full receipt number."))
+                    phase=Phase.RECEIPT;pendingFinish=intent.copy(receipts=emptyList());worker=intent.worker?:worker
+                    numberBuffer=combined.takeIf { it.length in 1..4 }.orEmpty()
+                    listOf(Effect.Say("Назови один полный номер квитанции.","Please give one full receipt number.",true))
                 } else if(intent.worker==null) {
                     pendingFinish=intent;phase=Phase.WORKER
-                    listOf(Effect.Say("Под чьим именем записать работу?","Whose name should I record the work under?"))
+                    listOf(Effect.Say("Под чьим именем записать работу?","Whose name should I record the work under?",true))
                 } else {
-                    worker=intent.worker;receipt=intent.receipts.single();pendingFinish=null
+                    worker=intent.worker;receipt=intent.receipts.single();pendingFinish=null;numberBuffer=""
                     askSmsAfterSave=intent.askSms;phase=Phase.SAVING
                     listOf(Effect.Save(intent.worker,receipt!!,intent.askSms))
                 }
             }
             is Intent.Find -> {
                 val nums=intent.numbers.ifEmpty { if(intent.topic!=null) listOfNotNull(receipt) else emptyList() }
-                if(nums.isEmpty()) { phase=Phase.NUMBER;listOf(Effect.Say("Назови номер или последние четыре цифры телефона.","What's the receipt number or last four phone digits?")) }
-                else { receipt=nums.singleOrNull()?.takeIf { it.length in 5..6 };phase=Phase.COMMAND;listOf(Effect.Find(nums,intent.topic)) }
+                if(nums.isEmpty()) { phase=Phase.NUMBER;numberBuffer=combined.takeIf { it.length in 1..3 }.orEmpty();listOf(Effect.Say("Назови номер или последние четыре цифры телефона.","What's the receipt number or last four phone digits?",true)) }
+                else { numberBuffer="";receipt=nums.singleOrNull()?.takeIf { it.length in 5..6 };phase=Phase.FOLLOWUP;listOf(Effect.Find(nums,intent.topic)) }
             }
             is Intent.Report -> {
                 val number=intent.receipt?:receipt
                 if(number==null || number.length !in 5..6) {
-                    phase=Phase.COMMAND
-                    listOf(Effect.Say("Назови полный номер для проверки отчёта.","Please include the full receipt number to check the report."))
-                } else { receipt=number;phase=Phase.PROCESSING;listOf(Effect.Report(number,intent.worker)) }
+                    phase=Phase.REPORT_RECEIPT;pendingReport=intent
+                    numberBuffer=combined.takeIf { it.length in 1..4 }.orEmpty()
+                    listOf(Effect.Say("Назови полный номер для проверки отчёта.","Please include the full receipt number to check the report.",true))
+                } else { receipt=number;pendingReport=null;numberBuffer="";phase=Phase.PROCESSING;listOf(Effect.Report(number,intent.worker)) }
             }
             is Intent.Need -> {
                 phase=when(intent.field) { Intent.Field.WORKER->Phase.WORKER;Intent.Field.RECEIPT->Phase.RECEIPT;Intent.Field.NUMBER->Phase.NUMBER;else->Phase.COMMAND }
@@ -89,7 +110,7 @@ class Conversation(private val workers:()->List<String>) {
                     Intent.Field.WORKER->"Кто закончил работу?";Intent.Field.RECEIPT->"Назови полный номер квитанции.";Intent.Field.NUMBER->"Какой номер проверить?";else->"Проверить квитанцию или записать выполненную работу?"
                 },when(intent.field) {
                     Intent.Field.WORKER->"Who finished the work?";Intent.Field.RECEIPT->"What's the full receipt number?";Intent.Field.NUMBER->"Which number should I check?";else->"Check a receipt, or record finished work?"
-                }))
+                },true))
             }
             Intent.Ignore -> emptyList()
         }
@@ -102,5 +123,5 @@ class Conversation(private val workers:()->List<String>) {
         smsId=id;phase=Phase.SMS;smsDeadline=now+30_000
         return listOf(Effect.Say("Запись в очереди. SMS отправить?","Record queued. Send SMS?"))
     }
-    fun reportFinished(now:Long) { if(phase==Phase.PROCESSING) { phase=Phase.COMMAND;lastActivity=now;revision++ } }
+    fun reportFinished(now:Long) { if(phase==Phase.PROCESSING) { phase=Phase.FOLLOWUP;lastActivity=now;revision++ } }
 }

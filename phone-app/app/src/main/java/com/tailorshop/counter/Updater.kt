@@ -171,7 +171,8 @@ object Updater {
     class Restart : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             scheduleNight(ctx)
-            Wake.schedule(ctx, System.currentTimeMillis() + 3_000, 3)
+            if(!ctx.getSharedPreferences("power",Context.MODE_PRIVATE).getBoolean("tapToTalk",true))
+                Wake.schedule(ctx, System.currentTimeMillis() + 3_000, 3)
         }
     }
 }

@@ -5,3 +5,4 @@ local.properties
 # the Google key never goes in git
 sheet-key*.json
 *-reader.json
+.cxx/

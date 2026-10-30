@@ -72,11 +72,27 @@ class Finishes(
     private val queueFile = File(dir, "finish-queue.json")
     private val tmpFile = File(dir, "finish-queue.tmp")
     private val items = mutableListOf<Item>()
+    private val warningFile=File(dir,"finish-queue.warning")
+    private val recoveryAck=File(dir,"finish-queue.recovery-ack")
+    private fun latestBackup():Long=dir.listFiles().orEmpty().mapNotNull {
+        it.name.removePrefix("finish-queue.unreadable-").removeSuffix(".json").toLongOrNull().takeIf { _->it.name.startsWith("finish-queue.unreadable-") }
+    }.maxOrNull()?:0L
+    private fun unreviewedBackup():Boolean=latestBackup()>(try { recoveryAck.readText().toLong() } catch(_:Exception) { 0L })
+    private var recoveryBlocked=false
     @Volatile var saveFailed = false; private set
 
     init { load() }
 
     fun configured() = configFile.isFile
+    fun warning():String?=when {
+        recoveryBlocked->"Work queue unreadable and could not be backed up. Recording is blocked; original file retained."
+        (warningFile.isFile || unreviewedBackup())->"Work queue recovery needs checking. The unreadable file was retained; check the tablet before dismissing."
+        saveFailed->"Work queue could not be saved. Unconfirmed actions are retained for retry."
+        else->null
+    }
+    fun acknowledgeRecovery() {
+        if(!recoveryBlocked) try { recoveryAck.writeText(latestBackup().toString());warningFile.delete() } catch(_:Exception) { }
+    }
 
     /** The Approved Workers names from the config (exact spelling the Reader expects). */
     fun workers(): List<String> = try {
@@ -108,7 +124,7 @@ class Finishes(
     /** "Send the message" confirmed after the job was already saved: same event, the SMS is requested now. */
     @Synchronized fun requestSms(scanId: String): Boolean {
         val i = items.firstOrNull { it.scanId == scanId } ?: return false
-        if (!i.sendSms) { i.sendSms = true; i.smsId = UUID.randomUUID().toString() }
+        if (!i.sendSms) { i.sendSms = true; i.smsId = UUID.randomUUID().toString(); i.durable=false }
         return save()
     }
 
@@ -134,11 +150,14 @@ class Finishes(
                 if (r.optBoolean("ok", true)) synchronized(this) { applyScan(i, r) }
             }
             // The SMS is requested once the scan row exists and isn't refused or held (coordinator 6489109587).
-            if (i.sendSms && i.sms !in SMS_FINAL && i.scan in setOf("ACCEPTED", "UNVERIFIED", "ADDED", "ALREADY")) {
-                val req = JSONObject().put("requestId", i.smsId).put("receipt", i.receipt).put("choice", if (i.sms == "") "now" else "status")
-                    .put("by", i.worker).put("source", "sofia")
-                if (i.receiptId.isNotEmpty()) req.put("receiptId", i.receiptId)
-                val r = post(url, JSONObject().put("secret", secret).put("mode", "pickup").put("request", req))
+            val smsRequest=synchronized(this) {
+                if (i.durable && i.sendSms && i.sms !in SMS_FINAL && i.scan in setOf("ACCEPTED", "UNVERIFIED", "ADDED", "ALREADY")) {
+                    JSONObject().put("requestId",i.smsId).put("receipt",i.receipt).put("choice",if(i.sms=="")"now" else "status")
+                        .put("by",i.worker).put("source","sofia").also { if(i.receiptId.isNotEmpty())it.put("receiptId",i.receiptId) }
+                } else null
+            }
+            if(smsRequest!=null) {
+                val r = post(url, JSONObject().put("secret", secret).put("mode", "pickup").put("request", smsRequest))
                 val st = r.optString("state", r.optString("status", ""))
                 if (st.isNotEmpty()) synchronized(this) { i.sms = st }
             }
@@ -194,11 +213,14 @@ class Finishes(
                     optString("smsId"), optString("sms"), durable = true)
             }
         } catch (e: Exception) {
-            queueFile.renameTo(File(dir, "finish-queue.unreadable-${System.currentTimeMillis()}.json"))
+            items.clear() // a partially parsed file must not masquerade as a complete recovered queue
+            recoveryBlocked=!queueFile.renameTo(File(dir, "finish-queue.unreadable-${System.currentTimeMillis()}.json"))
+            try { warningFile.writeText("Unverified queue recovery; backup retained.") } catch(_:Exception) {}
         }
     }
 
     private fun save(): Boolean {
+        if(recoveryBlocked) { saveFailed=true;return false }
         val a = JSONArray()
         val dayAgo = System.currentTimeMillis() - 24 * 3600_000L
         items.removeAll { it.createdMs < dayAgo && it.scan in SCAN_FINAL && (!it.sendSms || it.sms in SMS_FINAL) }
