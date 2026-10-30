@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ <uses-permission android:name="android.permission.INTERNET" />
+ <application android:label="Sofia Clock" android:theme="@android:style/Theme.DeviceDefault.NoActionBar" android:icon="@android:drawable/ic_lock_idle_alarm" android:allowBackup="false">
+  <activity android:name=".ClockActivity" android:exported="true" android:screenOrientation="landscape" android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize" android:showWhenLocked="true" android:turnScreenOn="true">
+   <property android:name="android.window.PROPERTY_COMPAT_ALLOW_RESTRICTED_RESIZABILITY" android:value="true" />
+   <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+  </activity>
+ </application>
+</manifest>
