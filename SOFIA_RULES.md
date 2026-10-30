@@ -70,3 +70,7 @@ This changes dialogue and capture lifecycle, not microphone hardware, recognitio
 ## 0.44 visible update checks
 
 Check for update immediately opens an independent modal with installed version and Checking for update. A dedicated executor avoids queuing behind order/report reads. Download percentage, verification, installing, no-new-version and failure results remain visible in the dialog, including outside shop hours. Repeated taps do not create another request. The updater serializes checks across manual and scheduled paths so they cannot write the same cache APK concurrently. Package/version/part/full hash/signer checks remain mandatory.
+
+## Clock follow-up, 2026-10-30
+
+0.45 contains the tested integrated clock prototype. The owner then explicitly requested a separate app instead. `clock-app/` provides Sofia Clock with its own package and icon, no microphone/shop API permissions, black dim fullscreen photo-based layout and foreground daytime power policy. On the owner phone, the integrated Daytime clock setting is off, avoiding two competing clock screens. The standalone app opens the existing counter app on tap; Android Back returns. Native Samsung AOD, device lock/PIN and global display rotation settings are not replaced or changed.

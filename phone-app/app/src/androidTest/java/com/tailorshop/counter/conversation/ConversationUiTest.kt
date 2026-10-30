@@ -20,6 +20,7 @@ class ConversationUiTest {
         val m=MainActivity::class.java.declaredMethods.single { it.name==name && it.parameterCount==args.size };m.isAccessible=true;m.invoke(a,*args)
     }
     private fun launch():MainActivity {
+        ins.targetContext.getSharedPreferences("clock",0).edit().putBoolean("enabled",false).commit()
         val activity=ins.startActivitySync(Intent(ins.targetContext,MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as MainActivity
         ins.runOnMainSync {
             set(activity,"wallClock",java.time.Clock.fixed(java.time.Instant.parse("2026-10-29T19:00:00Z"),java.time.ZoneId.of("America/Los_Angeles")))
@@ -120,6 +121,41 @@ class ConversationUiTest {
                 assertTrue(d.findViewById<TextView>(android.R.id.message).text.contains("Check Wi-Fi"));d.dismiss()
             }
         } finally { progress.countDown();finish.countDown();ins.runOnMainSync { activity.finish() } }
+    }
+    @Test fun daytimeClockIsDimAndSilentAndOnlyPowerHoldsItAwake() {
+        val activity=launch()
+        try {
+            ins.runOnMainSync {
+                set(activity,"weatherAt",Long.MAX_VALUE);set(activity,"powered",true)
+                activity.getSharedPreferences("clock",0).edit().putBoolean("enabled",true).commit()
+                (field(activity,"dialog") as Conversation).cancel();call(activity,"stopVoice");call(activity,"updateStatus")
+                assertEquals(true,field(activity,"clockShowing"));assertFalse(field(activity,"running") as Boolean)
+                assertEquals(View.VISIBLE,(field(activity,"clockFace") as View).visibility)
+                assertEquals(0.08f,activity.window.attributes.screenBrightness,0.001f)
+                assertTrue(activity.window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON!=0)
+                (field(activity,"clockFace") as View).performClick()
+                assertEquals(false,field(activity,"clockShowing"));assertTrue((field(activity,"dialog") as Conversation).awake)
+            }
+            waitFor { field(activity,"running")==true }
+            ins.runOnMainSync {
+                (field(activity,"dialog") as Conversation).cancel();call(activity,"updateStatus")
+                assertEquals(true,field(activity,"clockShowing"));assertFalse(field(activity,"running") as Boolean)
+                set(activity,"powered",false);call(activity,"updateStatus")
+                assertEquals(0,activity.window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                set(activity,"wallClock",java.time.Clock.fixed(java.time.Instant.parse("2026-10-30T03:00:00Z"),java.time.ZoneId.of("America/Los_Angeles")))
+                call(activity,"updateStatus");assertEquals(false,field(activity,"clockShowing"))
+                set(activity,"clockPreviewUntil",SystemClock.elapsedRealtime()+60000);set(activity,"powered",true);call(activity,"updateStatus")
+                assertEquals(true,field(activity,"clockShowing"))
+            }
+            ins.waitForIdleSync()
+            waitFor { (field(activity,"clockFace") as View).width>0 }
+            ins.runOnMainSync {
+                val face=field(activity,"clockFace") as View
+                val bitmap=android.graphics.Bitmap.createBitmap(face.width,face.height,android.graphics.Bitmap.Config.ARGB_8888)
+                face.draw(android.graphics.Canvas(bitmap))
+                File(ins.targetContext.cacheDir,"day-clock.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };bitmap.recycle()
+            }
+        } finally { activity.getSharedPreferences("clock",0).edit().putBoolean("enabled",false).commit();ins.runOnMainSync { activity.finish() } }
     }
     @Test fun settingsRequiresThreeSecondsAndCancelledHoldDoesNotOpen() {
         val activity=launch()

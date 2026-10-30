@@ -19,6 +19,9 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.ScrollView
+import android.widget.FrameLayout
+import com.tailorshop.counter.conversation.DayClock
+import com.tailorshop.counter.conversation.DayClockView
 import com.tailorshop.counter.conversation.Conversation
 import com.tailorshop.counter.conversation.ConversationIndicator
 import com.tailorshop.counter.conversation.HoldSettingsControl
@@ -46,6 +49,24 @@ class MainActivity:Activity() {
     private var updateChecking=false
     private var updateCheck:(android.content.Context,(String)->Unit)->String = { context,progress -> Updater.checkAndInstall(context,progress) }
     private val semantics=Executors.newSingleThreadExecutor()
+    private val weatherReads=Executors.newSingleThreadExecutor()
+    private lateinit var clockFace:DayClockView
+    private lateinit var boardScroll:ScrollView
+    private var clockShowing=false
+    private var clockPreviewUntil=0L
+    private var weatherAt=0L
+    private var weatherObservation:DayClock.Weather?=null
+    private var powered=false
+    private var batteryPercent=-1
+    private val batteryReceiver=object:android.content.BroadcastReceiver() {
+        override fun onReceive(context:android.content.Context,intent:android.content.Intent) {
+            powered=intent.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED,0)!=0
+            val level=intent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL,-1);val scale=intent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE,100)
+            batteryPercent=if(level>=0 && scale>0)level*100/scale else -1
+            updateStatus()
+        }
+    }
+    private fun clockEnabled()=getSharedPreferences("clock",MODE_PRIVATE).getBoolean("enabled",true)
     private lateinit var speech:OfflineSpeech
     private lateinit var finishes:Finishes
     private lateinit var pickups:Pickups
@@ -130,6 +151,7 @@ class MainActivity:Activity() {
     private var readyCue=false
     private fun tapToTalk()=getSharedPreferences("power",MODE_PRIVATE).getBoolean("tapToTalk",true)
     private fun beginListening() {
+        clockPreviewUntil=0
         manualUntil=SystemClock.elapsedRealtime()+300_000;refreshAt=0
         dialog.wake(SystemClock.elapsedRealtime());retryAt=0
         readyCue=true
@@ -147,7 +169,7 @@ class MainActivity:Activity() {
             MotionEvent.ACTION_MOVE->if(kotlin.math.abs(event.rawX-boardTouchX)>android.view.ViewConfiguration.get(this).scaledTouchSlop || kotlin.math.abs(event.rawY-boardTouchY)>android.view.ViewConfiguration.get(this).scaledTouchSlop)boardTouchMoved=true
             MotionEvent.ACTION_CANCEL,MotionEvent.ACTION_POINTER_DOWN->boardTouchMoved=true
             MotionEvent.ACTION_UP->{
-                if(::dialog.isInitialized && ::controls.isInitialized && resumed && !speaking && !dialog.awake && !boardTouchMoved && event.eventTime-boardTouchAt<500 && settingsDialog?.isShowing!=true) {
+                if(::dialog.isInitialized && ::controls.isInitialized && resumed && !clockShowing && !speaking && !dialog.awake && !boardTouchMoved && event.eventTime-boardTouchAt<500 && settingsDialog?.isShowing!=true) {
                     val bounds=android.graphics.Rect()
                     val onAction=listOf<View>(controls,picked,smsYes,smsNo,problem).any { it.getGlobalVisibleRect(bounds) && bounds.contains(event.rawX.toInt(),event.rawY.toInt()) }
                     if(!onAction)beginListening()
@@ -164,6 +186,9 @@ class MainActivity:Activity() {
         finishes=Finishes(filesDir);pickups=Pickups(filesDir);sheets=Sheets(File(filesDir,"sheet-key.json"));cache=OrderCache(filesDir)
         intentService=SemanticClient(applicationContext)
         dialog=Conversation { finishes.workers() }
+        weatherObservation=DayClock.cached(getSharedPreferences("clock",MODE_PRIVATE).getString("weather","").orEmpty())
+        if(android.os.Build.VERSION.SDK_INT>=33)registerReceiver(batteryReceiver,android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED),RECEIVER_NOT_EXPORTED)
+        else registerReceiver(batteryReceiver,android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
         semantics.execute { intentService.refresh() }
         cache.load()?.let { try { orders=it.orders();loadedAt=it.at } catch(_:Exception) {} }
         seedAnnouncements();finishId=finishes.all().lastOrNull()?.scanId
@@ -221,7 +246,7 @@ class MainActivity:Activity() {
     override fun onResume() {
         super.onResume();resumed=true;Wake.clear(this)
         window.insetsController?.apply { hide(android.view.WindowInsets.Type.systemBars());systemBarsBehavior=android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE }
-        if(tapToTalk() && shopHours()) { dialog.wake(SystemClock.elapsedRealtime());readyCue=true }
+        if(tapToTalk() && shopHours() && !clockEnabled()) { dialog.wake(SystemClock.elapsedRealtime());readyCue=true }
         refreshAt=0 // A newly awakened counter must not wait out an old polling interval.
         main.post(tick)
     }
@@ -231,7 +256,7 @@ class MainActivity:Activity() {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);screenHeld=false
         super.onPause()
     }
-    override fun onDestroy() { updateDialog?.dismiss();updates.shutdown();speech.close();tts?.shutdown();delivery.shutdownNow();storage.shutdownNow();reads.shutdownNow();semantics.shutdownNow();super.onDestroy() }
+    override fun onDestroy() { try { unregisterReceiver(batteryReceiver) } catch(_:Exception) {};weatherReads.shutdownNow();updateDialog?.dismiss();updates.shutdown();speech.close();tts?.shutdown();delivery.shutdownNow();storage.shutdownNow();reads.shutdownNow();semantics.shutdownNow();super.onDestroy() }
     override fun onRequestPermissionsResult(code:Int,permissions:Array<out String>,results:IntArray) {
         super.onRequestPermissionsResult(code,permissions,results)
         if(results.firstOrNull()!=PackageManager.PERMISSION_GRANTED) { micState="Microphone permission denied · allow it in Android settings";updateStatus() }
@@ -255,7 +280,7 @@ class MainActivity:Activity() {
             val now=SystemClock.elapsedRealtime()
             val shop=shopHours()
             dialog.tick(now)
-            val capture=shop && !speaking && (if(tapToTalk()) dialog.awake && dialog.phase !in setOf(Conversation.Phase.PROCESSING,Conversation.Phase.SAVING) else true)
+            val capture=shop && !clockShowing && !speaking && (if(tapToTalk()) dialog.awake && dialog.phase !in setOf(Conversation.Phase.PROCESSING,Conversation.Phase.SAVING) else true)
             if(capture && checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED) {
                 if(running && !speaking && now-lastAudio>20_000) { speech.stop();running=false;retryAt=now+1000;micState="Recovering microphone…" }
                 if(!running && now>=retryAt) { running=true;lastAudio=now;speech.start() }
@@ -276,7 +301,7 @@ class MainActivity:Activity() {
                 loadedAt==0L->if(lastRefreshFailed)"Offline · orders unavailable" else "Orders not loaded"
                 else->(if(lastRefreshFailed)"Offline · cached orders" else "Orders")+" · ${orders.size} · ${((System.currentTimeMillis()-loadedAt)/60_000).coerceAtLeast(0)} min old"
             })
-            updateStatus();main.postDelayed(this,if(shop)250 else 1000)
+            updateStatus();main.postDelayed(this,if(clockShowing)1000 else if(shop)250 else 1000)
         }
     }
     private fun flushSpeech() {
@@ -534,7 +559,20 @@ class MainActivity:Activity() {
             dialog.awake->if(errorCount>0)ConversationIndicator.Mode.PROBLEM else ConversationIndicator.Mode.THINKING
             else->ConversationIndicator.Mode.REST
         })
-        val hold=resumed && (updateChecking || if(tapToTalk()) shop && (dialog.awake || speaking || undo!=null || pickupCommitting) else true)
+        val at=ZonedDateTime.now(wallClock)
+        val preview=SystemClock.elapsedRealtime()<clockPreviewUntil
+        clockShowing=DayClock.show(clockEnabled(),DayClock.daytime(at),!dialog.awake && !speaking && !updateChecking && settingsDialog?.isShowing!=true && (preview || deck.size==0 && lookupNumbers.isEmpty()) && undo==null && !pickupCommitting,preview)
+        clockFace.visibility=if(clockShowing)View.VISIBLE else View.GONE
+        boardScroll.visibility=if(clockShowing)View.GONE else View.VISIBLE
+        if(clockEnabled() && requestedOrientation!=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE)requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        if(!clockEnabled() && requestedOrientation!=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED)requestedOrientation=android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        if(clockShowing) {
+            if(running && ::speech.isInitialized) { speech.stop();running=false;readyCue=false;main.removeCallbacks(flushSegments);segments.clear();segmentRevision++ }
+            clockFace.show(at,weatherObservation?.label(System.currentTimeMillis())?:"Las Vegas · weather unavailable",batteryPercent)
+            if(resumed)refreshWeather()
+        }
+        window.attributes=window.attributes.apply { screenBrightness=if(clockShowing)0.08f else if(shop)-1f else 0.02f }
+        val hold=resumed && (if(clockShowing) DayClock.keepAwake(true,powered) else updateChecking || if(tapToTalk()) shop && (dialog.awake || speaking || undo!=null || pickupCommitting) else true)
         if(screenHeld!=hold) {
             screenHeld=hold
             if(hold)window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -633,7 +671,9 @@ class MainActivity:Activity() {
         hints=label("Pickup: “Sofia, find last four 1234” / “check receipt 12345”\nWork: “Sofia, this is [name], finished receipt 12345”\nOr: “Sofia, this is [name], just save receipt 12345”",13f,Color.LTGRAY);root.addView(hints)
         root.addView(picked,LinearLayout.LayoutParams(-1,-2))
         clock.visibility=View.GONE;date.visibility=View.GONE;mic.visibility=View.GONE;dataState.visibility=View.GONE
-        return ScrollView(this).apply { isFillViewport=true;addView(root) }
+        boardScroll=ScrollView(this).apply { isFillViewport=true;addView(root) }
+        clockFace=DayClockView(this) { beginListening() }.apply { visibility=View.GONE }
+        return FrameLayout(this).apply { setBackgroundColor(Color.BLACK);addView(boardScroll,FrameLayout.LayoutParams(-1,-1));addView(clockFace,FrameLayout.LayoutParams(-1,-1)) }
     }
     override fun onConfigurationChanged(config:android.content.res.Configuration) {
         super.onConfigurationChanged(config);night=null;activeTheme=null;boardStyle=-1;setContentView(buildUi());heard.text="${SpokenNumbers.display(lastRaw)}";renderCards();renderQueue();updateStatus()
@@ -651,19 +691,44 @@ class MainActivity:Activity() {
     }
     private fun settings() {
         if(settingsDialog?.isShowing==true)return
-        val items=Sounds.Event.entries.map { "${it.label}: ${Sounds.choice(this,it)}" }+listOf("Restart listening","Choose voices"+(if(voiceWarning)" · male voice needs selection" else ""),"Refresh orders",if(tapToTalk())"Listening mode · tap to talk (battery saver)" else "Listening mode · hands-free")
+        val items=Sounds.Event.entries.map { "${it.label}: ${Sounds.choice(this,it)}" }+listOf("Restart listening","Choose voices"+(if(voiceWarning)" · male voice needs selection" else ""),"Refresh orders",if(tapToTalk())"Listening mode · tap to talk (battery saver)" else "Listening mode · hands-free","Daytime clock · "+if(clockEnabled())"on" else "off","Preview large clock · five minutes")
         settingsDialog=AlertDialog.Builder(this).setTitle("Sofia ${Updater.versionName(this)}")
             .setItems(items.toTypedArray()) { _,i -> when {
                 i<4->soundSettings(Sounds.Event.entries[i])
                 i==4->{speech.stop();running=false;beginListening()}
                 i==5->voiceSettings()
                 i==6->refresh()
+                i==8->{getSharedPreferences("clock",MODE_PRIVATE).edit().putBoolean("enabled",!clockEnabled()).apply();updateStatus()}
+                i==9->{getSharedPreferences("clock",MODE_PRIVATE).edit().putBoolean("enabled",true).apply();dialog.cancel();stopVoice();pauseCapture();clockPreviewUntil=SystemClock.elapsedRealtime()+300_000;updateStatus()}
                 else->AlertDialog.Builder(this).setTitle("Listening mode")
                     .setSingleChoiceItems(arrayOf("Tap to talk · microphone off between commands","Hands-free · continuously listens during shop hours"),if(tapToTalk())0 else 1) { d,choice->
                         getSharedPreferences("power",MODE_PRIVATE).edit().putBoolean("tapToTalk",choice==0).apply()
                         scheduleWake();dialog.cancel();speech.stop();running=false;retryAt=0;d.dismiss();updateStatus()
                     }.setNegativeButton("Close",null).show()
             } }.setPositiveButton("Check for update") { _,_->checkUpdate() }.setNegativeButton("Close",null).show()
+    }
+    private fun refreshWeather() {
+        val now=SystemClock.elapsedRealtime()
+        if(now<weatherAt)return
+        weatherAt=now+900_000
+        weatherReads.execute {
+            val value=try {
+                val url=java.net.URL("https://api.weather.gov/stations/KLAS/observations/latest")
+                val connection=url.openConnection() as java.net.HttpURLConnection
+                try {
+                    connection.connectTimeout=15_000;connection.readTimeout=15_000
+                    connection.setRequestProperty("User-Agent","SofiaCounterClock/0.45 (https://github.com/artourg-prog/Alexa)")
+                    connection.setRequestProperty("Accept","application/geo+json")
+                    check(connection.responseCode==200)
+                    val body=connection.inputStream.bufferedReader().use { it.readText() };check(body.length<131072)
+                    DayClock.observation(body)
+                } finally { connection.disconnect() }
+            } catch(_:Exception) { null }
+            if(value!=null) {
+                getSharedPreferences("clock",MODE_PRIVATE).edit().putString("weather",value.json()).apply()
+                main.post { if(!isDestroyed) { weatherObservation=value;updateStatus() } }
+            }
+        }
     }
     private fun checkUpdate() {
         if(updateChecking) { updateDialog?.show();return }
