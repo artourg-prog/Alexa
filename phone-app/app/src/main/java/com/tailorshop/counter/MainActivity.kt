@@ -50,6 +50,7 @@ class MainActivity:Activity() {
     private lateinit var intentService:SemanticClient
     private lateinit var dialog:Conversation
     private lateinit var root:LinearLayout
+    private lateinit var controls:LinearLayout
     private var settingsDialog:AlertDialog?=null
     private lateinit var settingsGear:HoldSettingsControl
     private lateinit var logo:ConversationIndicator
@@ -132,6 +133,26 @@ class MainActivity:Activity() {
         updateStatus()
     }
 
+    private var boardTouchX=0f
+    private var boardTouchY=0f
+    private var boardTouchAt=0L
+    private var boardTouchMoved=false
+    override fun dispatchTouchEvent(event:MotionEvent):Boolean {
+        when(event.actionMasked) {
+            MotionEvent.ACTION_DOWN->{boardTouchX=event.rawX;boardTouchY=event.rawY;boardTouchAt=event.eventTime;boardTouchMoved=false}
+            MotionEvent.ACTION_MOVE->if(kotlin.math.abs(event.rawX-boardTouchX)>android.view.ViewConfiguration.get(this).scaledTouchSlop || kotlin.math.abs(event.rawY-boardTouchY)>android.view.ViewConfiguration.get(this).scaledTouchSlop)boardTouchMoved=true
+            MotionEvent.ACTION_CANCEL,MotionEvent.ACTION_POINTER_DOWN->boardTouchMoved=true
+            MotionEvent.ACTION_UP->{
+                if(::dialog.isInitialized && ::controls.isInitialized && resumed && !speaking && !dialog.awake && !boardTouchMoved && event.eventTime-boardTouchAt<500 && settingsDialog?.isShowing!=true) {
+                    val bounds=android.graphics.Rect()
+                    val onAction=listOf<View>(controls,picked,smsYes,smsNo,problem).any { it.getGlobalVisibleRect(bounds) && bounds.contains(event.rawX.toInt(),event.rawY.toInt()) }
+                    if(!onAction)beginListening()
+                }
+            }
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
     override fun onCreate(state:Bundle?) {
         super.onCreate(state)
         finishes=Finishes(filesDir);pickups=Pickups(filesDir);sheets=Sheets(File(filesDir,"sheet-key.json"));cache=OrderCache(filesDir)
@@ -155,7 +176,7 @@ class MainActivity:Activity() {
                         dialog.progress(lastAudio);lastProgress=text;segmentRevision++
                         if(pendingPrompt!=null) { main.removeCallbacks(speakPrompt);main.postDelayed(speakPrompt,2000) }
                     }
-                    lastRaw=text;heard.text="Heard · ${SpokenNumbers.display(text)}"
+                    lastRaw=text;heard.text="${SpokenNumbers.display(text)}"
                 }
                 updateStatus()
             } }
@@ -168,7 +189,7 @@ class MainActivity:Activity() {
             } }
             override fun onSegment(text:String,russian:Boolean,confidence:Double) { main.post {
                 if(!resumed || speaking) return@post
-                lastRaw=text;heard.text="Heard · ${SpokenNumbers.display(text)}"
+                lastRaw=text;heard.text="${SpokenNumbers.display(text)}"
                 if(!dialog.awake) return@post
                 dialog.progress(SystemClock.elapsedRealtime());segmentRevision++
                 segments+=Segment(text,russian,confidence)
@@ -261,7 +282,7 @@ class MainActivity:Activity() {
         val now=SystemClock.elapsedRealtime()
         if(chosen.text==lastSegment && now-lastSegmentAt<2000)return
         lastSegment=chosen.text;lastSegmentAt=now;russian=chosen.ru
-        heard.text="Heard · ${SpokenNumbers.display(chosen.text)}"
+        heard.text="${SpokenNumbers.display(chosen.text)}"
         val words=Lookup.normalize(chosen.text).split(' ')
         if(words.all { it in setOf("sofia","sophia","sofiya","sofya","sophie","sofi","this","is","i","am","eto","ya","pozhaluysta","please") })return
         Lookup.thanksReply(chosen.text)?.let { cancelPrompt();say(it.first);return }
@@ -483,12 +504,14 @@ class MainActivity:Activity() {
             night=!shop
             for(i in 0 until root.childCount) {
                 val child=root.getChildAt(i)
-                child.visibility=if(shop || child===clock || child===date || child===mic)View.VISIBLE else View.GONE
+                child.visibility=if(shop || child===controls)View.VISIBLE else View.GONE
             }
             if(shop) { renderCards();renderQueue() }
             clock.setTextColor(if(shop)Color.WHITE else Color.DKGRAY);date.setTextColor(if(shop)Color.WHITE else Color.DKGRAY)
             window.attributes=window.attributes.apply { screenBrightness=if(shop)-1f else 0.02f }
         }
+        clock.visibility=View.GONE;date.visibility=View.GONE;mic.visibility=View.GONE
+        dataState.visibility=if(shop && lastRefreshFailed)View.VISIBLE else View.GONE
         val active=dialog.engaged && shop
         logo.show(when {
             !resumed || !shop->ConversationIndicator.Mode.REST
@@ -554,7 +577,7 @@ class MainActivity:Activity() {
         if(deck.size>1) cards.addView(label("‹   ${deck.index+1} / ${deck.size}   ›   Swipe to browse",16f))
         picked.visibility=if(shopHours() && pickups.configured() && (undo!=null || c.ready && Lookup.digits(c.receipt) !in pickups.pending()))View.VISIBLE else View.GONE
         picked.isEnabled=!pickupCommitting
-        picked.text=if(undo!=null)"Undo · picked up #$undo" else "Confirm picked up #${c.receipt}"
+        picked.text=if(undo!=null)"Undo · picked up #$undo" else "Confirm Pickup · #${c.receipt}"
     }
     private fun flip(step:Int) { deck.move(step);renderCards() }
     private fun TextView.showText(value:String) { if(text.toString()!=value)text=value }
@@ -564,10 +587,15 @@ class MainActivity:Activity() {
     private fun button(value:String,action:()->Unit)=Button(this).apply { text=value;setOnClickListener { action() } }
     private fun buildUi():View {
         root=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;setPadding(16,12,16,12);setBackgroundColor(Color.BLACK) }
+        controls=LinearLayout(this).apply { gravity=Gravity.CENTER_VERTICAL }
+        controls.addView(button("Listen") { beginListening() },LinearLayout.LayoutParams(-2,-2))
+        controls.addView(View(this),LinearLayout.LayoutParams(0,1,1f))
+        settingsGear=HoldSettingsControl(this) { settings() };controls.addView(settingsGear)
+        root.addView(controls,LinearLayout.LayoutParams(-1,-2))
         logo=ConversationIndicator(this).apply { settingsEntry { settings() } };root.addView(logo)
         clock=label("",34f).apply { setOnClickListener { beginListening() } };root.addView(clock);date=label("",16f);root.addView(date)
         mic=label("Preparing local speech…",16f,Color.CYAN);root.addView(mic)
-        heard=label("Heard · say Sofia to begin",20f);heard.minLines=2;root.addView(heard)
+        heard=label(SpokenNumbers.display(lastRaw),20f,Color.rgb(64,224,208));heard.minLines=2;root.addView(heard)
         dataState=label("Orders not loaded",12f,Color.LTGRAY);root.addView(dataState)
         cards=LinearLayout(this).apply { orientation=LinearLayout.VERTICAL;gravity=Gravity.CENTER;minimumHeight=(120*resources.displayMetrics.density).toInt() }
         root.addView(cards,LinearLayout.LayoutParams(-1,0,1f))
@@ -583,16 +611,19 @@ class MainActivity:Activity() {
         smsYes=button("Send SMS") { dispatch(dialog.accept("yes",now=SystemClock.elapsedRealtime()));updateStatus() }
         smsNo=button("No SMS") { dispatch(dialog.accept("no",now=SystemClock.elapsedRealtime()));updateStatus() }
         sms.addView(smsYes);sms.addView(smsNo);root.addView(sms)
-        picked=button("Confirm picked up") { onPicked() };picked.visibility=View.GONE;root.addView(picked)
+        picked=button("Confirm Pickup") { onPicked() }.apply {
+            textSize=24f;isAllCaps=false
+            minimumHeight=(104*resources.displayMetrics.density).toInt()
+            setTextColor(Color.BLACK);backgroundTintList=android.content.res.ColorStateList.valueOf(Color.rgb(80,240,135))
+        };picked.visibility=View.GONE
         problem=button("") { reviewProblems() };problem.visibility=View.GONE;root.addView(problem)
         hints=label("Pickup: “Sofia, find last four 1234” / “check receipt 12345”\nWork: “Sofia, this is [name], finished receipt 12345”\nOr: “Sofia, this is [name], just save receipt 12345”",13f,Color.LTGRAY);root.addView(hints)
-        val controls=LinearLayout(this).apply { gravity=Gravity.CENTER }
-        controls.addView(button("Listen") { beginListening() })
-        settingsGear=HoldSettingsControl(this) { settings() };controls.addView(settingsGear);root.addView(controls)
+        root.addView(picked,LinearLayout.LayoutParams(-1,-2))
+        clock.visibility=View.GONE;date.visibility=View.GONE;mic.visibility=View.GONE;dataState.visibility=View.GONE
         return ScrollView(this).apply { isFillViewport=true;addView(root) }
     }
     override fun onConfigurationChanged(config:android.content.res.Configuration) {
-        super.onConfigurationChanged(config);night=null;activeTheme=null;boardStyle=-1;setContentView(buildUi());heard.text="Heard · ${SpokenNumbers.display(lastRaw)}";renderCards();renderQueue();updateStatus()
+        super.onConfigurationChanged(config);night=null;activeTheme=null;boardStyle=-1;setContentView(buildUi());heard.text="${SpokenNumbers.display(lastRaw)}";renderCards();renderQueue();updateStatus()
     }
     private fun seedAnnouncements() {
         val prefs=getSharedPreferences("announcements",MODE_PRIVATE)

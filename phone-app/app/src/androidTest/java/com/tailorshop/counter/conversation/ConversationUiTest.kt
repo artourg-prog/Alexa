@@ -32,6 +32,37 @@ class ConversationUiTest {
         while(SystemClock.elapsedRealtime()<until) { ins.waitForIdleSync();if(test())return;Thread.sleep(40) }
         assertTrue("Asynchronous adapter did not finish",test())
     }
+    @Test fun cleanBoardPlacesListeningAndSettingsApartAndPickupAtBottom() {
+        val activity=launch()
+        try { ins.runOnMainSync {
+            val root=field(activity,"root") as android.widget.LinearLayout
+            val controls=field(activity,"controls") as android.widget.LinearLayout
+            assertSame(controls,root.getChildAt(0))
+            assertEquals("Listen",(controls.getChildAt(0) as TextView).text.toString())
+            assertSame(field(activity,"settingsGear"),controls.getChildAt(controls.childCount-1))
+            assertSame(field(activity,"picked"),root.getChildAt(root.childCount-1))
+            for(name in listOf("clock","date","mic")) assertEquals(View.GONE,(field(activity,name) as View).visibility)
+            assertEquals(android.graphics.Color.rgb(64,224,208),(field(activity,"heard") as TextView).currentTextColor)
+            assertTrue((field(activity,"picked") as View).minimumHeight>=104*activity.resources.displayMetrics.density)
+        } } finally { ins.runOnMainSync { activity.finish() } }
+    }
+    @Test fun tapOnVisibleBoardRestartsIdleConversationWithoutScreenSleep() {
+        val activity=launch()
+        try {
+            ins.runOnMainSync {
+                (field(activity,"dialog") as Conversation).cancel();call(activity,"updateStatus")
+                val v=field(activity,"heard") as View
+                val xy=IntArray(2);v.getLocationOnScreen(xy)
+                val t=SystemClock.uptimeMillis()
+                for(action in listOf(android.view.MotionEvent.ACTION_DOWN,android.view.MotionEvent.ACTION_UP)) {
+                    val event=android.view.MotionEvent.obtain(t,t+30,action,xy[0]+v.width/2f,xy[1]+v.height/2f,0)
+                    activity.dispatchTouchEvent(event);event.recycle()
+                }
+                assertTrue((field(activity,"dialog") as Conversation).awake)
+            }
+            waitFor { field(activity,"running")==true }
+        } finally { ins.runOnMainSync { activity.finish() } }
+    }
     @Test fun settingsRequiresThreeSecondsAndCancelledHoldDoesNotOpen() {
         val activity=launch()
         try {
@@ -204,7 +235,7 @@ class ConversationUiTest {
             ins.runOnMainSync {
                 assertFalse(field(activity,"running") as Boolean)
                 assertEquals(View.GONE,(field(activity,"heard") as View).visibility)
-                (field(activity,"clock") as View).performClick()
+                ((field(activity,"controls") as android.widget.LinearLayout).getChildAt(0)).performClick()
             }
             waitFor { field(activity,"running")==true }
             ins.runOnMainSync {
