@@ -3,7 +3,7 @@ import org.json.JSONObject;
 import java.time.Instant;
 import java.time.ZonedDateTime;
 public final class ClockRules {
- public static boolean daytime(ZonedDateTime time) {int m=time.getHour()*60+time.getMinute();return m>=645 && m<1200;}
+ public static boolean daytime(ZonedDateTime time) {int m=time.getHour()*60+time.getMinute();return m>=630 && m<1200;}
  public static boolean keepAwake(boolean resumed,boolean powered,boolean day,boolean preview) {return resumed && powered && (day || preview);}
  public static int drift(int minute) {return (minute%7-3)*2;}
  public static final class Weather {

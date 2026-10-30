@@ -5,7 +5,7 @@ import java.time.ZonedDateTime;
 public class ClockRulesTest {
  private ZonedDateTime at(String t){return ZonedDateTime.parse("2026-10-30T"+t+":00-07:00[America/Los_Angeles]");}
  @Test public void daytimeAndPowerBoundaries(){
-  assertFalse(ClockRules.daytime(at("10:44")));assertTrue(ClockRules.daytime(at("10:45")));
+  assertFalse(ClockRules.daytime(at("10:29")));assertTrue(ClockRules.daytime(at("10:30")));
   assertTrue(ClockRules.daytime(at("19:59")));assertFalse(ClockRules.daytime(at("20:00")));
   assertTrue(ClockRules.keepAwake(true,true,true,false));assertFalse(ClockRules.keepAwake(true,false,true,false));
   assertFalse(ClockRules.keepAwake(false,true,true,true));assertFalse(ClockRules.keepAwake(true,true,false,false));
