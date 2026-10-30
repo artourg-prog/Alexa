@@ -1,4 +1,4 @@
-# Sofia — counter assistant rules, rewrite 0.43
+# Sofia — counter assistant rules, rewrite 0.44
 
 Owner-approved replacement of the phone voice/UI implementation. This document supersedes the previous Android SpeechRecognizer session-loop rules. Existing package, signing identity, private configuration files and durable delivery queues are retained. The application is the counter assistant, not the separate business-line telephone agent.
 
@@ -66,3 +66,7 @@ The upgrade switches the default to tap-to-talk once, preserving all delivery qu
 “Спасибо”, “София, спасибо”, “спасибо, всё”, “thanks” and “thank you” end an active session without undoing stored work or sending SMS. Gratitude embedded in a new work instruction is not treated as cancellation. SMS choice accepts a strict yes/no or cancellation; unrelated lookups, work instructions and background conversation cannot leave that prompt or authorize sending. No or silence keeps the durable work record.
 
 This changes dialogue and capture lifecycle, not microphone hardware, recognition accuracy, source synchronization/readiness rules or target-phone battery measurements.
+
+## 0.44 visible update checks
+
+Check for update immediately opens an independent modal with installed version and Checking for update. A dedicated executor avoids queuing behind order/report reads. Download percentage, verification, installing, no-new-version and failure results remain visible in the dialog, including outside shop hours. Repeated taps do not create another request. The updater serializes checks across manual and scheduled paths so they cannot write the same cache APK concurrently. Package/version/part/full hash/signer checks remain mandatory.

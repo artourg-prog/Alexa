@@ -48,7 +48,10 @@ object Updater {
     fun versionName(ctx: Context): String = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
 
     /** Network: call off the main thread. Returns a short plain-words result. */
-    fun checkAndInstall(ctx: Context): String {
+    @Synchronized
+    fun checkAndInstall(ctx: Context, onProgress:(String)->Unit = {}): String {
+        fun progress(message:String) { done(message);onProgress(message) }
+        progress("Checking for update…")
         val auth = GoogleAuth(File(ctx.filesDir, "sheet-key.json"), SCOPE)
         val bearer = "Bearer ${auth.accessToken()}"
         val latestId = findFile(bearer, folderId(ctx), "latest.json") ?: return done("No build published yet")
@@ -57,17 +60,22 @@ object Updater {
         if (!isNewer(m.optString("package"), code, ctx.packageName, installedVersion(ctx)))
             return done("Up to date (v${versionName(ctx)})")
 
+        progress("Downloading v${m.optString("versionName")} · 0%")
         val partsFolder = findFile(bearer, folderId(ctx), "parts") ?: return done("Update failed: no parts folder")
         val names = m.getJSONArray("parts"); val sums = m.getJSONArray("partSha256")
         val apk = File(ctx.cacheDir, "update.apk")
+        var received=0L
         apk.outputStream().use { out ->
             for (i in 0 until names.length()) {
                 val id = findFile(bearer, partsFolder, names.getString(i)) ?: return done("Update failed: piece missing")
                 val bytes = download(bearer, id)
                 if (sha256(bytes) != sums.getString(i)) return done("Update failed: piece damaged")
-                out.write(bytes)
+                out.write(bytes);received+=bytes.size
+                val percent=(received*100/m.getLong("size").coerceAtLeast(1)).coerceIn(0,100)
+                progress("Downloading v${m.optString("versionName")} · $percent%")
             }
         }
+        progress("Verifying downloaded update…")
         if (apk.length() != m.getLong("size") || sha256(apk.readBytes()) != m.getString("sha256"))
             return done("Update failed: file damaged")
         val pm = ctx.packageManager
@@ -79,6 +87,7 @@ object Updater {
         val theirs = info.signingInfo?.apkContentsSigners?.map { it.toCharsString() }?.toSet()
         if (mine.isNullOrEmpty() || mine != theirs) return done("Update failed: different signature")
 
+        progress("Installing v${m.optString("versionName")}…")
         install(ctx, apk)
         return done("Installing v${m.optString("versionName")}…")
     }

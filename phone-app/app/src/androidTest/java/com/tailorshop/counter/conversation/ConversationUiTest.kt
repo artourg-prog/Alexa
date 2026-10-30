@@ -87,6 +87,40 @@ class ConversationUiTest {
             assertEquals("12345",(field(activity,"deck") as CardDeck).current?.receipt)
         } finally { ins.runOnMainSync { activity.finish() } }
     }
+    @Test fun updateCheckShowsImmediateProgressAndOneRequestThenVisibleResult() {
+        val activity=launch()
+        val entered=java.util.concurrent.CountDownLatch(1);val progress=java.util.concurrent.CountDownLatch(1);val finish=java.util.concurrent.CountDownLatch(1)
+        val count=java.util.concurrent.atomic.AtomicInteger()
+        val fake:(android.content.Context,(String)->Unit)->String = { _,status ->
+            count.incrementAndGet();entered.countDown();check(progress.await(4,java.util.concurrent.TimeUnit.SECONDS))
+            status("Downloading v0.99 · 50%");check(finish.await(4,java.util.concurrent.TimeUnit.SECONDS));"Up to date (synthetic)"
+        }
+        try {
+            ins.runOnMainSync {
+                set(activity,"updateCheck",fake);call(activity,"checkUpdate")
+                val d=field(activity,"updateDialog") as android.app.AlertDialog
+                assertTrue(d.isShowing)
+                assertEquals("Checking for update…",d.findViewById<TextView>(android.R.id.message).text.toString())
+                assertFalse(d.getButton(android.app.AlertDialog.BUTTON_POSITIVE).isEnabled)
+                call(activity,"checkUpdate")
+            }
+            assertTrue(entered.await(2,java.util.concurrent.TimeUnit.SECONDS));assertEquals(1,count.get());progress.countDown()
+            waitFor { (field(activity,"updateDialog") as android.app.AlertDialog).findViewById<TextView>(android.R.id.message).text.contains("50%") }
+            finish.countDown();waitFor { field(activity,"updateChecking")==false }
+            ins.runOnMainSync {
+                val d=field(activity,"updateDialog") as android.app.AlertDialog
+                assertEquals("Up to date (synthetic)",d.findViewById<TextView>(android.R.id.message).text.toString())
+                assertTrue(d.getButton(android.app.AlertDialog.BUTTON_POSITIVE).isEnabled);d.dismiss()
+                val failed:(android.content.Context,(String)->Unit)->String = { _,_->error("synthetic offline") }
+                set(activity,"updateCheck",failed);call(activity,"checkUpdate")
+            }
+            waitFor { field(activity,"updateChecking")==false }
+            ins.runOnMainSync {
+                val d=field(activity,"updateDialog") as android.app.AlertDialog
+                assertTrue(d.findViewById<TextView>(android.R.id.message).text.contains("Check Wi-Fi"));d.dismiss()
+            }
+        } finally { progress.countDown();finish.countDown();ins.runOnMainSync { activity.finish() } }
+    }
     @Test fun settingsRequiresThreeSecondsAndCancelledHoldDoesNotOpen() {
         val activity=launch()
         try {

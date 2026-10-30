@@ -41,6 +41,10 @@ class MainActivity:Activity() {
     private val storage=Executors.newSingleThreadExecutor()
     private val delivery=Executors.newSingleThreadExecutor()
     private val reads=Executors.newSingleThreadExecutor()
+    private val updates=Executors.newSingleThreadExecutor()
+    private var updateDialog:AlertDialog?=null
+    private var updateChecking=false
+    private var updateCheck:(android.content.Context,(String)->Unit)->String = { context,progress -> Updater.checkAndInstall(context,progress) }
     private val semantics=Executors.newSingleThreadExecutor()
     private lateinit var speech:OfflineSpeech
     private lateinit var finishes:Finishes
@@ -227,7 +231,7 @@ class MainActivity:Activity() {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);screenHeld=false
         super.onPause()
     }
-    override fun onDestroy() { speech.close();tts?.shutdown();delivery.shutdownNow();storage.shutdownNow();reads.shutdownNow();semantics.shutdownNow();super.onDestroy() }
+    override fun onDestroy() { updateDialog?.dismiss();updates.shutdown();speech.close();tts?.shutdown();delivery.shutdownNow();storage.shutdownNow();reads.shutdownNow();semantics.shutdownNow();super.onDestroy() }
     override fun onRequestPermissionsResult(code:Int,permissions:Array<out String>,results:IntArray) {
         super.onRequestPermissionsResult(code,permissions,results)
         if(results.firstOrNull()!=PackageManager.PERMISSION_GRANTED) { micState="Microphone permission denied · allow it in Android settings";updateStatus() }
@@ -530,7 +534,7 @@ class MainActivity:Activity() {
             dialog.awake->if(errorCount>0)ConversationIndicator.Mode.PROBLEM else ConversationIndicator.Mode.THINKING
             else->ConversationIndicator.Mode.REST
         })
-        val hold=resumed && (if(tapToTalk()) shop && (dialog.awake || speaking || undo!=null || pickupCommitting) else true)
+        val hold=resumed && (updateChecking || if(tapToTalk()) shop && (dialog.awake || speaking || undo!=null || pickupCommitting) else true)
         if(screenHeld!=hold) {
             screenHeld=hold
             if(hold)window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -659,10 +663,27 @@ class MainActivity:Activity() {
                         getSharedPreferences("power",MODE_PRIVATE).edit().putBoolean("tapToTalk",choice==0).apply()
                         scheduleWake();dialog.cancel();speech.stop();running=false;retryAt=0;d.dismiss();updateStatus()
                     }.setNegativeButton("Close",null).show()
-            } }.setPositiveButton("Check for update") { _,_->reads.execute {
-                val result=try { Updater.checkAndInstall(applicationContext) } catch(_:Exception) { "Update unavailable. Please retry." }
-                main.post { answer.text=result }
-            } }.setNegativeButton("Close",null).show()
+            } }.setPositiveButton("Check for update") { _,_->checkUpdate() }.setNegativeButton("Close",null).show()
+    }
+    private fun checkUpdate() {
+        if(updateChecking) { updateDialog?.show();return }
+        updateChecking=true
+        dialog.cancel();cancelPrompt();stopVoice();speech.stop();running=false
+        val status=AlertDialog.Builder(this).setTitle("Sofia update · installed ${Updater.versionName(this)}")
+            .setMessage("Checking for update…").setCancelable(false).setPositiveButton("Close",null).create()
+        updateDialog=status;status.show();status.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled=false
+        updateStatus()
+        updates.execute {
+            val result=try { updateCheck(applicationContext) { message -> main.post { if(!isDestroyed) { status.setMessage(message);answer.text=message } } } }
+                catch(_:Exception) { "Update unavailable. Check Wi-Fi and retry." }
+            main.post {
+                updateChecking=false
+                if(!isDestroyed) {
+                    status.setMessage(result);status.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled=true
+                    answer.text=result;updateStatus()
+                }
+            }
+        }
     }
     private fun soundSettings(event:Sounds.Event) {
         val names=Sounds.available(this).keys.toList()+Sounds.OFF
