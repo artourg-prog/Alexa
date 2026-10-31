@@ -10,4 +10,6 @@ The same package, signer, private configuration files and queue formats are reta
 
 Validation: 147 JVM tests passed; three Android emulator tests passed on synthetic transports, covering both pickup choices, save versus SMS, duplicate event reuse, server-confirmed final status and not falsely treating ACCEPTED/QUEUED as Recorded/Sent. The local font and approved appearance were inspected in emulator images. No real SMS, report save or pickup mutation was used for testing. The shop phone was not USB-connected; installation on the physical Samsung is not claimed.
 
-Publication outcome is recorded separately in audit/touch-release/publication.json after every uploaded piece and the final channel manifest have been verified. No GitHub push is part of this publication.
+Published to the existing private Wi-Fi channel: version 0.48/code48, 39 pieces, 160671740 bytes, APK SHA-256 `9f36e7067d60083f3127aca9223ab9df326dcbd413603ef4176ae03b8d3aa7a9`. Each remote piece was downloaded and checked against its SHA-256 before the manifest was uploaded last. The newest remote manifest was then read back and matched exactly. The previous 0.47 channel artifacts remain available. The signing certificate matches the previous shop builds.
+
+Publication evidence is recorded in audit/touch-release/publication.json. No GitHub push is part of this publication. Installation on the Samsung requires its existing Check for update action (or the normal Wi-Fi update schedule); no physical-device installation was observed.
