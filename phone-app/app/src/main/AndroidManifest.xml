@@ -35,6 +35,10 @@
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:showWhenLocked="true"
             android:turnScreenOn="true">
+        </activity>
+        <activity android:name=".TouchActivity" android:exported="true"
+            android:launchMode="singleTask" android:showWhenLocked="true" android:turnScreenOn="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

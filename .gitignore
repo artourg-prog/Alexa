@@ -7,3 +7,4 @@ phone-app/app/src/main/assets/private-channel.json
 phone-app/native/third_party/
 phone-app/app/src/main/assets/voice-models/*.bin
 phone-app/.cxx/
+audit/touch-ui/

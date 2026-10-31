@@ -33,7 +33,7 @@ object Wake {
     }
 
     private fun screen(ctx: Context, requestCode: Int): PendingIntent = PendingIntent.getActivity(ctx, requestCode,
-        Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        Intent(ctx, TouchActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
     /** Called when the counter screen is up: the wake notification has done its job. */
