@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 46 // bumped by publish-phone-update.sh
-        versionName = "0.46"
+        versionCode = 47 // bumped by publish-phone-update.sh
+        versionName = "0.47"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

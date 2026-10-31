@@ -38,6 +38,7 @@ object Lookup {
         "phone" to listOf("phone"),
         "date" to listOf("date", "received_date"),
         "tailor" to listOf("m.t.", "m.t", "tailor"),
+        "source" to listOf("source"),
         "payment" to listOf("payment type", "payment_type", "payment"),
         "total" to listOf("total"),
         "work" to listOf("description", "work"),
@@ -80,7 +81,7 @@ object Lookup {
         return rows.drop(1).mapNotNull { row ->
             val receipt = cell(row, r)
             if (receipt.isEmpty()) null
-            else Order(receipt, cell(row, idx["customer"]), cell(row, p), cell(row, idx["date"]), cell(row, idx["tailor"]).isNotEmpty(),
+            else Order(receipt, cell(row, idx["customer"]), cell(row, p), cell(row, idx["date"]), cell(row, idx["tailor"]).isNotEmpty() || cell(row, idx["source"]).equals("Old Receipts", ignoreCase=true),
                 payOf(cell(row, idx["payment"])), cell(row, idx["tailor"]), cell(row, idx["total"]), cell(row, idx["work"]))
         }
     }
@@ -373,7 +374,7 @@ object Lookup {
         "октября", "ноября", "декабря")
 
     fun followUpAnswer(topic: Topic, c: Card, russian: Boolean): String = if (!russian) followUpAnswer(topic, c) else when (topic) {
-        Topic.TAILOR -> if (c.tailor.isNotBlank()) "Мастер — ${c.tailor}." else "Ещё не готово, мастера пока нет."
+        Topic.TAILOR -> if (c.tailor.isNotBlank()) "Мастер — ${c.tailor}." else if (c.ready) "Мастер не указан." else "Ещё не готово, мастера пока нет."
         Topic.AMOUNT -> if (c.total.isNotBlank()) "Сумма ${c.total}." else "Суммы не вижу."
         Topic.PAY -> when (c.pay) {
             Pay.PAID -> "Оплачено."; Pay.DUE -> "Не оплачено."; Pay.ACCOUNT -> "На счёте магазина."
@@ -385,7 +386,7 @@ object Lookup {
 
     /** Sofia's answer, one natural English sentence. Never the customer, the phone or the account. */
     fun followUpAnswer(topic: Topic, c: Card): String = when (topic) {
-        Topic.TAILOR -> if (c.tailor.isNotBlank()) "The tailor was ${c.tailor}." else "It's not finished yet, there's no tailor on it."
+        Topic.TAILOR -> if (c.tailor.isNotBlank()) "The tailor was ${c.tailor}." else if (c.ready) "The tailor is not recorded." else "It's not finished yet, there's no tailor on it."
         Topic.AMOUNT -> if (c.total.isNotBlank()) "The total is ${c.total}." else "I don't see a total for it."
         Topic.PAY -> when (c.pay) {
             Pay.PAID -> "It's paid."; Pay.DUE -> "There is a balance due."; Pay.ACCOUNT -> "It's on the store account."
