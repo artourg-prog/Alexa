@@ -36,7 +36,7 @@
   function icons() {
     const glyph = { house: '⌂', 'volume-2': '♫', search: '⌕', 'notebook-pen': '▤', 'arrow-left': '←', 'arrow-right': '→', delete: '⌫', 'phone-outgoing': '✉', files: '▤', 'user-round': '♙', 'shopping-bag': '✓', 'circle-check': '✓', check: '✓', send: '➤' };
     root.querySelectorAll('i[data-lucide]').forEach(icon => {
-      const name = { 'phone-outgoing': 'phone', files: 'files', 'notebook-pen': 'files', 'circle-check': 'check', check: 'check', 'shopping-bag': 'check', send: 'send', mic: 'mic' }[icon.dataset.lucide]; if (name) { icon.replaceWith(window.receiptIcon(name)); return; } const span = document.createElement('span'); span.textContent = glyph[icon.dataset.lucide] || '✓'; span.setAttribute('aria-hidden', 'true'); span.className = 'sf-icon'; icon.replaceWith(span);
+      const name = { 'phone-outgoing': 'phone', files: 'files', 'notebook-pen': 'files', 'circle-check': 'check', check: 'check', 'shopping-bag': 'check', send: 'send' }[icon.dataset.lucide]; if (name) { icon.replaceWith(window.receiptIcon(name)); return; } const span = document.createElement('span'); span.textContent = glyph[icon.dataset.lucide] || '✓'; span.setAttribute('aria-hidden', 'true'); span.className = 'sf-icon'; icon.replaceWith(span);
     });
   }
   function fitNumbers() {
@@ -135,8 +135,6 @@
     if (step === 'home') {
       body.replaceChildren(clone('sf-home-screen'));
       body.querySelectorAll('[data-go]').forEach(button => button.onclick = () => { ++revision; clearTimers(); state.flow = button.dataset.go; state.digits = ''; change('keypad'); });
-      // Voice (Art: Touch + voice): Listen opens the existing tap-to-talk voice screen, which comes back here when done.
-      const listen = body.querySelector('.sf-listen'); if (listen) listen.onclick = () => { ++revision; clearTimers(); call('voice'); };
     } else if (step === 'keypad') {
       body.replaceChildren(clone('sf-keypad-screen')); body.querySelector('.sf-keypad-heading').textContent = state.flow === 'report' ? 'Please enter receipt number' : 'Please enter last four';
       body.querySelector('.sf-find').classList.toggle('violet', state.flow === 'report'); body.querySelector('.sf-find').classList.toggle('green', state.flow === 'lookup'); bindKeys();

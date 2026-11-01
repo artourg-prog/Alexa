@@ -40,20 +40,6 @@ import java.util.concurrent.Executors
 
 /** Voice, conversation and delivery are separate: a visible card never confirms a business action. */
 class MainActivity:Activity() {
-    companion object {
-        const val EXTRA_FROM_TOUCH = "fromTouch"
-        const val EXTRA_LISTEN = "listen"
-        const val TOUCH_RETURN_MS = 15_000L // quiet this long after a Touch-started voice session -> back to Touch
-    }
-    private var fromTouch = false
-    private var listenRequested = false
-    private var quietSince = 0L
-    private fun takeTouchIntent(i: android.content.Intent?) {
-        if (i?.getBooleanExtra(EXTRA_FROM_TOUCH, false) == true) fromTouch = true
-        if (i?.getBooleanExtra(EXTRA_LISTEN, false) == true) listenRequested = true
-    }
-    override fun onNewIntent(intent: android.content.Intent) { super.onNewIntent(intent); setIntent(intent); takeTouchIntent(intent) }
-
     private val main=Handler(Looper.getMainLooper())
     private val storage=Executors.newSingleThreadExecutor()
     private val delivery=Executors.newSingleThreadExecutor()
@@ -259,8 +245,6 @@ class MainActivity:Activity() {
     }
     override fun onResume() {
         super.onResume();resumed=true;Wake.clear(this)
-        takeTouchIntent(intent);quietSince=0
-        if(listenRequested) { listenRequested=false;intent?.removeExtra(EXTRA_LISTEN);beginListening() } // Listen tapped on Touch
         window.insetsController?.apply { hide(android.view.WindowInsets.Type.systemBars());systemBarsBehavior=android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE }
         if(tapToTalk() && shopHours() && !clockEnabled()) { dialog.wake(SystemClock.elapsedRealtime());readyCue=true }
         refreshAt=0 // A newly awakened counter must not wait out an old polling interval.
@@ -308,12 +292,6 @@ class MainActivity:Activity() {
             if(undo!=null && now>=undoDeadline) commitPickup()
             if(now>=refreshAt) { refreshAt=now+60_000;refresh() }
             if(now>=syncAt) { syncAt=now+5000;sync() }
-            // Opened from Touch: once the voice session is over (no conversation, no voice, no result card, no
-            // pending Undo) and it has stayed quiet for 15 s, go back to the Touch home screen.
-            if(fromTouch) {
-                val quiet=!dialog.awake && !speaking && deck.current==null && lookupNumbers.isEmpty() && undo==null
-                if(!quiet) quietSince=0 else if(quietSince==0L) quietSince=now else if(now-quietSince>TOUCH_RETURN_MS) { fromTouch=false;finish();return }
-            }
             val t=ZonedDateTime.now(wallClock)
             val drift=((t.minute%7)-3)*resources.displayMetrics.density*5
             if(clock.translationX!=drift) { clock.translationX=drift;date.translationX=-drift }
