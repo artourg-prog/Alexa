@@ -25,7 +25,7 @@
   function clearTimers() { clearInterval(polling); polling = null; clearTimeout(returnTimer); returnTimer = null; }
   function home() {
     ++revision; clearTimers(); state.step = 'home'; state.digits = ''; state.selected = null; state.worker = ''; state.event = null; state.history = [];
-    root.querySelector('.sf-speech').hidden = true; render(); queueStatus();
+    root.querySelector('.sf-speech').hidden = true; render();
   }
   function change(step, remember = true) { if (remember) state.history.push(state.step); state.step = step; render(); }
   function fail(error) {
@@ -131,7 +131,7 @@
         else if (Date.now() - state.checkStartedAt > 90000) {
           clearInterval(polling); polling = null;
           body.querySelector('.sf-busy-title').textContent = 'Daily Report not confirmed';
-          line.textContent = 'Check Daily Report on the tablet. This request is retained; do not enter it again. Start lets you continue with another receipt.';
+          line.textContent = 'Check Daily Report on the tablet. This request is retained; do not enter it again. Back lets you continue with another receipt.';
         }
       }
     } catch (error) { if (rev === revision) fail(error); } finally { checking = false; }
@@ -141,7 +141,6 @@
     try {
       const result = await call('pickup', { number }); if (rev !== revision) return;
       home(); say(result.status === 'APPLIED' || result.status === 'ALREADY_PICKED_UP' ? 'Recorded. Квитанция ' + number + ' забрана.' : 'Запись выдачи квитанции ' + number + ' сохранена.');
-      const line = root.querySelector('.sf-live-queue'); line.hidden = false; line.textContent = result.message;
     } catch (error) { if (rev === revision) { change('order', false); fail(error); } }
   }
   function decorate() {
@@ -178,7 +177,7 @@
     } else if (step === 'busy') {
       body.replaceChildren(clone('sf-busy-screen')); if (state.selected) body.querySelector('.sf-detail-slot').append(receipt());
       body.querySelector('.sf-busy-title').textContent = state.event ? 'Saving…' : state.selected ? 'Processing…' : 'Finding…';
-      const next = document.createElement('button'); next.type = 'button'; next.className = 'sf-wide neutral sf-pending-next'; next.textContent = 'Start'; next.onclick = home; body.append(next);
+      const next = document.createElement('button'); next.type = 'button'; next.className = 'sf-wide neutral sf-pending-next'; next.textContent = 'Back'; next.onclick = home; body.append(next);
     } else if (step === 'report-result') {
       body.replaceChildren(clone('sf-report-recorded-screen')); body.querySelector('.sf-receipt-number').textContent = state.event.number;
       body.querySelector('.sf-confirmation-worker').textContent = state.event.worker; body.querySelector('.sf-confirmation-date').textContent = today(state.event.workday + 'T12:00:00Z');
@@ -186,32 +185,11 @@
     }
     decorate();
   }
-  async function queueStatus() {
-    try {
-      const result = await call('queue'); const line = root.querySelector('.sf-live-queue');
-      const messages = [result.warning, result.work ? 'Work processing: ' + result.work : '', result.pickups ? 'Pickup confirmations processing: ' + result.pickups : ''].filter(Boolean);
-      line.hidden = !messages.length; line.textContent = messages.join('\n');
-      dismissButtons(result.dismiss || []);
-    } catch (_) {}
-  }
-  // Old "not in the sheet" entries (no SMS) can be marked reviewed; two taps, so a stray touch changes nothing.
-  function dismissButtons(entries) {
-    const box = root.querySelector('.sf-dismiss'), key = entries.map(entry => entry.id).join();
-    if (box.dataset.key === key) return; box.dataset.key = key; box.replaceChildren(); box.hidden = !entries.length;
-    entries.forEach(entry => {
-      const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Reviewed · hide #' + entry.receipt; let armed;
-      button.onclick = () => {
-        if (!armed) { button.textContent = 'Tap again to hide #' + entry.receipt; armed = setTimeout(() => { armed = null; button.textContent = 'Reviewed · hide #' + entry.receipt; }, 4000); return; }
-        clearTimeout(armed); button.disabled = true;
-        call('dismiss', { id: entry.id }).then(() => { box.dataset.key = ''; queueStatus(); }).catch(error => { button.disabled = false; fail(error); });
-      };
-      box.append(button);
-    });
-  }
+  // No bottom notice strip (Art 11-01): old receipt notices stayed there and couldn't be cleared. Pending work stays in Settings.
   root.querySelector('.sf-home').onclick = home;
   root.querySelector('.sf-back').onclick = () => { ++revision; clearTimers(); state.step = state.history.pop() || 'home'; render(); };
   root.querySelector('.sf-repeat').onclick = () => say(state.spoken);
   root.querySelector('.sf-sound').onclick = () => { state.sound = !state.sound; root.querySelector('.sf-sound').setAttribute('aria-pressed', String(state.sound)); };
   new ResizeObserver(fitNumbers).observe(body);
-  render(); call('load').then(result => { state.workers = result.workers; }).catch(fail); queueStatus(); setInterval(queueStatus, 5000);
+  render(); call('load').then(result => { state.workers = result.workers; }).catch(fail);
 })();

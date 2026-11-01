@@ -4,7 +4,7 @@
   <div class="sf-stage">
     <article class="sf-phone" aria-label="София — управление кнопками">
       <header class="sf-top"><button class="sf-home cursor-interaction" type="button" aria-label="На главный экран"><i data-lucide="house" aria-hidden="true"></i></button><div><strong>SOFIA</strong><small>24 HOUR TAILORING</small></div><button class="sf-sound cursor-interaction" type="button" aria-pressed="true" aria-label="Выключить озвучивание"><i data-lucide="volume-2" aria-hidden="true"></i></button></header>
-      <div class="sf-body" aria-live="polite"></div><p class="sf-live-queue" hidden></p><div class="sf-dismiss" hidden></div>
+      <div class="sf-body" aria-live="polite"></div>
       <div class="sf-speech" hidden><div class="sf-speech-label"><i data-lucide="volume-2" aria-hidden="true"></i>Голос Софии<button class="sf-repeat cursor-interaction" type="button">Повторить</button></div><p class="sf-spoken"></p></div>
       <footer><button class="sf-back cursor-interaction" type="button"><i data-lucide="arrow-left" aria-hidden="true"></i>Back</button><span>TOUCH · VOICE ANNOUNCEMENTS</span></footer>
     </article>
@@ -204,7 +204,6 @@ html,body{height:100%;margin:0;overflow:hidden}
 #sofia-touch-review .sf-phone.is-workers .sf-work,#sofia-touch-review .sf-phone.is-sms .sf-work{display:none}
 /* Status lines live inside the rounded frame as plain text: no square box, no second copy of what Sofia says. */
 #sofia-touch-review .sf-speech{display:none!important}
-#sofia-touch-review .sf-live-queue{background:transparent;color:#8a5a14;font:600 13px/1.35 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center;padding:6px 14px 2px;margin:0}
 #sofia-touch-review .sf-native-error{text-align:center;font-weight:650;margin:6px 0}
 /* 0.52 (Art 11-01, landscape): the frame uses the whole window width, the receipt digits grow to the card's width
    (counter.js fitNumbers), the date matches the "Who did the work?" heading, and the six workers are two rows of three.
@@ -242,9 +241,6 @@ html,body{height:100%;margin:0;overflow:hidden}
 #sofia-touch-review .sf-busy p{margin:2px 0}
 #sofia-touch-review .sf-wide{margin-top:6px}
 }
-#sofia-touch-review .sf-dismiss{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;padding:2px 14px 4px}
-#sofia-touch-review .sf-dismiss[hidden]{display:none}
-#sofia-touch-review .sf-dismiss button{border:1px solid #e2c99a;border-radius:10px;background:#fff8ea;color:#8a5a14;font:600 12px/1.2 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:6px 10px}
 /* 0.53: a long press must never start Android text selection (Translate / Select all / Share): that cancelled the
    hold on "Sofia", so Settings and Check for update couldn't be reached on the phone. */
 #sofia-touch-review{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
