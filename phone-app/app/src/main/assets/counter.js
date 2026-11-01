@@ -29,9 +29,13 @@
   }
   function change(step, remember = true) { if (remember) state.history.push(state.step); state.step = step; render(); }
   function fail(error) {
-    let text = body.querySelector('.sf-native-error');
-    if (!text) { text = document.createElement('p'); text.className = 'sf-native-error'; text.setAttribute('role', 'alert'); body.append(text); }
+    // The message must be seen: on the Fold the bottom of the page is off screen, so a miss looked like nothing
+    // happened (11-01). Prefer the slot under the digits, bring it into view, and Sofia says it.
+    let text = body.querySelector('.sf-error') || body.querySelector('.sf-native-error');
+    if (!text) { text = document.createElement('p'); text.className = 'sf-native-error'; text.setAttribute('role', 'alert'); body.prepend(text); }
     text.textContent = error.message || 'Please try again.';
+    try { text.scrollIntoView({ block: 'center' }); } catch (_) {}
+    say(text.textContent);
   }
   function icons() {
     const glyph = { house: '⌂', 'volume-2': '♫', search: '⌕', 'notebook-pen': '▤', 'arrow-left': '←', 'arrow-right': '→', delete: '⌫', 'phone-outgoing': '✉', files: '▤', 'user-round': '♙', 'shopping-bag': '✓', 'circle-check': '✓', check: '✓', send: '➤' };
