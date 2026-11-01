@@ -4,7 +4,7 @@
   <div class="sf-stage">
     <article class="sf-phone" aria-label="София — управление кнопками">
       <header class="sf-top"><button class="sf-home cursor-interaction" type="button" aria-label="На главный экран"><i data-lucide="house" aria-hidden="true"></i></button><div><strong>SOFIA</strong><small>24 HOUR TAILORING</small></div><button class="sf-sound cursor-interaction" type="button" aria-pressed="true" aria-label="Выключить озвучивание"><i data-lucide="volume-2" aria-hidden="true"></i></button></header>
-      <div class="sf-body" aria-live="polite"></div><p class="sf-live-queue" hidden></p>
+      <div class="sf-body" aria-live="polite"></div><p class="sf-live-queue" hidden></p><div class="sf-dismiss" hidden></div>
       <div class="sf-speech" hidden><div class="sf-speech-label"><i data-lucide="volume-2" aria-hidden="true"></i>Голос Софии<button class="sf-repeat cursor-interaction" type="button">Повторить</button></div><p class="sf-spoken"></p></div>
       <footer><button class="sf-back cursor-interaction" type="button"><i data-lucide="arrow-left" aria-hidden="true"></i>Back</button><span>TOUCH · VOICE ANNOUNCEMENTS</span></footer>
     </article>
@@ -206,4 +206,43 @@ html,body{height:100%;margin:0;overflow:hidden}
 #sofia-touch-review .sf-speech{display:none!important}
 #sofia-touch-review .sf-live-queue{background:transparent;color:#8a5a14;font:600 13px/1.35 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center;padding:6px 14px 2px;margin:0}
 #sofia-touch-review .sf-native-error{text-align:center;font-weight:650;margin:6px 0}
+/* 0.52 (Art 11-01, landscape): the frame uses the whole window width, the receipt digits grow to the card's width
+   (counter.js fitNumbers), the date matches the "Who did the work?" heading, and the six workers are two rows of three.
+   On the low cover screen the keypad sits beside the digits so nothing scrolls. */
+#sofia-touch-review .sf-workers{grid-template-columns:repeat(3,1fr)}
+#sofia-touch-review .sf-worker-heading h2,#sofia-touch-review .sf-work-date{font-size:clamp(16px,2.8vh,19px)}
+#sofia-touch-review .sf-work-date{font-weight:650}
+@media(orientation:portrait) and (max-width:420px){#sofia-touch-review .sf-workers{grid-template-columns:1fr 1fr}}
+@media(orientation:landscape){
+#sofia-touch-review .sf-phone{max-width:none}
+#sofia-touch-review .sf-body{justify-content:flex-start}
+#sofia-touch-review .sf-phone .sf-receipt .sf-receipt-number{letter-spacing:4px;line-height:1.05;padding:0}
+#sofia-touch-review .sf-phone.is-workers .sf-receipt,#sofia-touch-review .sf-phone.is-sms .sf-receipt,#sofia-touch-review .sf-phone.is-busy .sf-receipt,#sofia-touch-review .sf-phone.is-order .sf-receipt{padding:6px 14px 8px;margin-bottom:min(1.4vh,10px)}
+#sofia-touch-review .sf-phone.is-workers .sf-receipt .sf-eyebrow,#sofia-touch-review .sf-phone.is-sms .sf-receipt .sf-eyebrow,#sofia-touch-review .sf-phone.is-busy .sf-receipt .sf-eyebrow{display:none}
+#sofia-touch-review .sf-phone.is-workers .sf-status-row,#sofia-touch-review .sf-phone.is-sms .sf-status-row,#sofia-touch-review .sf-phone.is-busy .sf-status-row{display:none}
+#sofia-touch-review .sf-receipt-info{padding-top:6px}
+#sofia-touch-review .sf-workers{gap:min(1.4vh,10px)}
+#sofia-touch-review .sf-workers button{min-height:clamp(38px,9vh,60px)}
+#sofia-touch-review .sf-phone.is-sms .sf-two,#sofia-touch-review .sf-phone.is-order .sf-two{margin-top:min(1.4vh,10px)}
+#sofia-touch-review .sf-phone.is-sms .sf-action,#sofia-touch-review .sf-phone.is-order .sf-action{min-height:clamp(48px,12vh,90px)}
+#sofia-touch-review .sf-busy{padding:2px 0}
+#sofia-touch-review .sf-busy h2{font-size:clamp(18px,4.5vh,29px);margin:4px 0}
+}
+@media(orientation:landscape) and (max-height:460px){
+#sofia-touch-review .sf-stage{padding:4px 6px}
+#sofia-touch-review .sf-body{padding:6px 14px}
+#sofia-touch-review .sf-top{padding-top:4px;padding-bottom:4px}
+#sofia-touch-review footer{padding-top:2px;padding-bottom:2px}
+#sofia-touch-review .sf-phone.is-keypad .sf-body{display:grid;grid-template-columns:1fr 1fr;column-gap:16px;align-content:center}
+#sofia-touch-review .sf-phone.is-keypad .sf-body>*{grid-column:1}
+#sofia-touch-review .sf-phone.is-keypad .sf-keypad{grid-column:2;grid-row:1 / span 6;margin:0;align-self:center}
+#sofia-touch-review .sf-phone.is-keypad .sf-signature{font-size:clamp(28px,9vh,44px)}
+#sofia-touch-review .sf-phone.is-keypad .sf-keypad button{min-height:clamp(30px,10vh,46px)}
+#sofia-touch-review .sf-phone.is-home .sf-welcome{padding:0 0 8px}
+#sofia-touch-review .sf-busy p{margin:2px 0}
+#sofia-touch-review .sf-wide{margin-top:6px}
+}
+#sofia-touch-review .sf-dismiss{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;padding:2px 14px 4px}
+#sofia-touch-review .sf-dismiss[hidden]{display:none}
+#sofia-touch-review .sf-dismiss button{border:1px solid #e2c99a;border-radius:10px;background:#fff8ea;color:#8a5a14;font:600 12px/1.2 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;padding:6px 10px}
 </style><script src="receipt-icons.js"></script><script src="counter.js"></script></body></html>

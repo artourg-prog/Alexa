@@ -119,6 +119,10 @@ class TouchActivity : Activity() {
                     reply(id, event?.let(::finishJson) ?: error("Saved request unavailable. Check pending work."))
                 }
                 "queue" -> reply(id, queueJson())
+                "dismiss" -> writes.execute {
+                    val ok = finishes.dismiss(body.optString("id"))
+                    reply(id, if (ok) queueJson() else error("Couldn't mark it reviewed. Nothing was changed."))
+                }
                 else -> reply(id, error("Unsupported action"))
             }
         }
@@ -210,8 +214,10 @@ class TouchActivity : Activity() {
             it.scan in setOf("HELD", "REJECTED") || stuck(it) || it.sendSms && it.sms in Finishes.SMS_FINAL && it.sms != "SENT"
         }.map { "#${it.receipt}: ${Finishes.scanText(it, false)} · ${Finishes.smsText(it, false)}" }
         val problems = listOfNotNull(finishes.warning(), pickups.warning()) + workProblems + pickups.toCheck().map { Pickups.problemText(it.receipt, it.status) }
+        // Not-in-the-sheet entries over a day old with no SMS can be marked reviewed by a person (Finishes.dismiss).
+        val dismiss = JSONArray(finishes.dismissable().map { JSONObject().put("id", it.scanId).put("receipt", it.receipt) })
         return JSONObject().put("ok", true).put("work", pendingWork).put("pickups", pendingPickups)
-            .put("warning", problems.joinToString("\n"))
+            .put("warning", problems.joinToString("\n")).put("dismiss", dismiss)
     }
 
     private fun synchronizeQueues() {
