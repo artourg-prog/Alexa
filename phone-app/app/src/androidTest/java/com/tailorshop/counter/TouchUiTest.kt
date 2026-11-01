@@ -38,7 +38,7 @@ class TouchUiTest {
             File(ins.targetContext.cacheDir, "touch-$name.png").outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
         }
     }
-    private fun fixture(scanState: String = "ADDED", smsState: String = "SENT"): Triple<TouchActivity, Finishes, Pickups> {
+    private fun fixture(scanState: String = "ADDED", smsState: String = "SENT", saved: () -> Boolean = { true }): Triple<TouchActivity, Finishes, Pickups> {
         check(android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.MODEL.contains("sdk")) { "Emulator only" }
         val a = ins.startActivitySync(Intent(ins.targetContext, TouchActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) as TouchActivity
         val dir = File(ins.targetContext.cacheDir, "touch-fixture-${System.nanoTime()}").apply { mkdirs() }
@@ -46,7 +46,8 @@ class TouchUiTest {
             .put("workers", org.json.JSONArray(listOf("Andrei", "Artour", "Carolina", "Emma", "Tsegi", "Tumur"))).toString())
         File(dir, "pickup-config.json").writeText("{\"url\":\"https://invalid.test\",\"secret\":\"synthetic\"}")
         val f = Finishes(dir, poster = { _, body -> when (body.optString("mode")) {
-            "addScan", "scanStatus" -> JSONObject().put("ok", true).put("status", scanState).put("appliedCents", 4500)
+            "addScan", "scanStatus" -> JSONObject().put("ok", true).put("status", scanState).put("appliedCents", 4500).put("workday", "2026-11-01")
+            "receiptReportStatus" -> JSONObject().put("ok", true).put("records", org.json.JSONArray(if(saved()) "[{\"date\":\"2026-11-01\",\"worker\":\"andrei\"}]" else "[]"))
             "pickup" -> JSONObject().put("ok", true).put("state", smsState)
             else -> error("Unexpected mode")
         } })
@@ -99,10 +100,27 @@ class TouchUiTest {
         try {
             click(a, "[data-go='report']"); number(a, "48321"); waitFor(a, "!!document.querySelector('.sf-workers button')")
             click(a, ".sf-workers button"); click(a, "[data-finish=sms]")
-            waitFor(a, "document.querySelector('.sf-busy-title')?.textContent==='Saving…'")
+            waitFor(a, "document.querySelector('.sf-busy-title')?.textContent==='Waiting for the tablet…'")
             assertEquals("ACCEPTED", f.all().single().scan)
             assertEquals("false", js(a, "!!document.querySelector('.sf-report-confirmation')"))
             assertEquals("false", js(a, "document.querySelector('.sf-body').textContent.includes('Customer SMS sent')"))
         } finally { ins.runOnMainSync { a.finish() } }
     }
+    @Test fun tabletAddedDoesNotConfirmUntilWorkerDayIsSaved() {
+        val persisted = java.util.concurrent.atomic.AtomicBoolean(false)
+        val (a, f, _) = fixture(saved = { persisted.get() })
+        try {
+            click(a, "[data-go='report']"); number(a, "48321")
+            waitFor(a, "!!document.querySelector('.sf-workers button')")
+            click(a, ".sf-workers button"); click(a, "[data-finish=save]")
+            waitFor(a, "document.querySelector('.sf-busy-title')?.textContent==='Saving Daily Report…'")
+            assertFalse(Finishes.recorded(f.all().single()))
+            assertEquals("false", js(a, "!!document.querySelector('.sf-report-confirmation')"))
+            persisted.set(true)
+            waitFor(a, "!!document.querySelector('.sf-report-confirmation')")
+            assertTrue(Finishes.recorded(f.all().single()))
+            assertEquals(1, f.all().size)
+        } finally { ins.runOnMainSync { a.finish() } }
+    }
+
 }

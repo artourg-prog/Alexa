@@ -186,6 +186,8 @@ class TouchActivity : Activity() {
         .put("number", i.receipt).put("worker", i.worker).put("at", i.scannedAt).put("scan", i.scan)
         .put("smsRequested", i.sendSms).put("sms", i.sms).put("scanText", Finishes.scanText(i, false))
         .put("smsText", Finishes.smsText(i, false)).put("reason", i.reason)
+        .put("recorded",Finishes.recorded(i)).put("workday",i.workday)
+        .put("reportState",i.reportState).put("reportReason",i.reportReason)
 
     private fun savePickup(id: String, number: String) {
         if (!pickups.configured()) { reply(id, error("Pickup connection is not configured.")); return }
@@ -204,7 +206,7 @@ class TouchActivity : Activity() {
         // master) is a problem to check, not "processing" forever (0.48 showed old test receipts as processing).
         val hourAgo = System.currentTimeMillis() - 3_600_000L
         fun stuck(i: Finishes.Item) = i.scan == "UNVERIFIED" && i.createdMs < hourAgo
-        val pendingWork = finishes.all().count { !stuck(it) && (it.scan !in Finishes.SCAN_FINAL || it.sendSms && it.sms !in Finishes.SMS_FINAL) }
+        val pendingWork = finishes.all().count { !stuck(it) && (it.scan !in Finishes.SCAN_FINAL || Finishes.reportPending(it) || it.sendSms && it.sms !in Finishes.SMS_FINAL) }
         val pendingPickups = pickups.pending().count { pickups.latest(it)?.status !in Pickups.DONE }
         val workProblems = finishes.all().filter {
             it.scan in setOf("HELD", "REJECTED") || stuck(it) || it.sendSms && it.sms in Finishes.SMS_FINAL && it.sms != "SENT"

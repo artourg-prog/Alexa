@@ -29,15 +29,29 @@ class Finishes(
         var reason: String = "", var appliedCents: Long = -1, var receiptId: String = "",
         var smsId: String = "", var sms: String = "", // "", REQUESTED, QUEUED, SENDING, HELD, SENT, UNSURE, FAILED, …
         var durable: Boolean = false,
+        var workday: String = "",
+        var reportState: String = "", // WAITING / UNCONFIRMED / RECORDED in the saved payroll report
+        var reportReason: String = "", var confirmedMs: Long = 0,
     )
 
     companion object {
         val SCAN_FINAL = setOf("ADDED", "ALREADY", "REJECTED", "HELD")
+        val SCAN_APPLIED = setOf("ADDED", "ALREADY")
         val SMS_FINAL = setOf("SENT", "FAILED", "NO_PHONE", "BAD_PHONE", "AMBIGUOUS", "NOT_FOUND", "UNSURE", "REJECTED")
         private const val TIMEOUT_MS = 10_000
 
-        /** One plain line for the screen, from the Reader's answers only. */
-        fun scanText(i: Item, russian: Boolean): String = if (russian) when (i.scan) {
+        fun recorded(i: Item) = i.scan in SCAN_APPLIED && i.reportState == "RECORDED" && ReportConfirmation.validDay(i.workday)
+        fun reportPending(i: Item) = i.scan in SCAN_APPLIED && !recorded(i)
+
+        /** ADDED proves tablet application only, not a saved payroll report. */
+        fun scanText(i: Item, russian: Boolean): String {
+            if(recorded(i))return if(russian)"Сохранено в отчёте для ${i.worker}" else "Saved in Daily Report for ${i.worker}"
+            if(i.scan in SCAN_APPLIED)return if(russian) {
+                if(i.reportState=="UNCONFIRMED")"Запись на планшете; сохранение отчёта не подтверждено" else "На планшете у ${i.worker}; сохраняется в отчёт…"
+            } else {
+                if(i.reportState=="UNCONFIRMED")"On the tablet; Daily Report save not confirmed" else "On ${i.worker}'s tablet report; saving…"
+            }
+            return if (russian) when (i.scan) {
             "ADDED" -> "Сохранено для ${i.worker}" + (if (i.appliedCents >= 0) ", ${dollars(i.appliedCents)}" else "")
             "ALREADY" -> "Уже сохранено"
             "REJECTED" -> "Не сохранено: ${i.reason}"
@@ -53,6 +67,7 @@ class Finishes(
             "UNVERIFIED" -> "Waiting: receipt not in the sheet yet"
             "ACCEPTED" -> "Queued — waiting for the tablet"
             else -> "Sending…"
+        }
         }
 
         fun smsText(i: Item, russian: Boolean): String = if (!i.sendSms) (if (russian) "Без SMS" else "No SMS") else if (russian) when (i.sms) {
@@ -109,7 +124,10 @@ class Finishes(
         val day=java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
         val existing=items.lastOrNull { it.worker==worker && it.receipt==Lookup.digits(receipt) &&
             java.time.Instant.ofEpochMilli(it.createdMs).atZone(zone).toLocalDate()==day && it.scan!="REJECTED" }
-        if(existing!=null) return if(existing.durable || save()) existing.copy() else null
+        if(existing!=null) {
+            if(recorded(existing)) { existing.reportState="WAITING";existing.reportReason="";existing.durable=false }
+            return if(existing.durable || save()) existing.copy() else null
+        }
         return add(worker,receipt,false,nowMs)
     }
 
@@ -136,18 +154,35 @@ class Finishes(
         val changed = mutableListOf<Item>()
         val todo = synchronized(this) {
             if (items.any { !it.durable }) save()
-            items.filter { it.durable && (it.scan !in SCAN_FINAL || (it.sendSms && it.sms !in SMS_FINAL)) }.toList()
+            items.filter { it.durable && (it.scan !in SCAN_FINAL || reportPending(it) || (it.sendSms && it.sms !in SMS_FINAL)) }
+                .sortedByDescending { it.createdMs }
         }
         for (i in todo) {
             val before = i.copy()
+            try {
             if (i.scan == "" || i.scan == "UNKNOWN") {
                 val scan = JSONObject().put("scanId", i.scanId).put("workerId", i.worker).put("receipt", i.receipt).put("scannedAt", i.scannedAt)
                 val r = post(url, JSONObject().put("secret", secret).put("mode", "addScan").put("scan", scan))
                 if (!r.optBoolean("ok", false)) { if (!r.optBoolean("retry", false)) synchronized(this) { i.reason = r.optString("error") }; continue }
                 synchronized(this) { applyScan(i, r) }
-            } else if (i.scan !in SCAN_FINAL) {
+            } else if (i.scan !in SCAN_FINAL || reportPending(i) && !ReportConfirmation.validDay(i.workday)) {
                 val r = post(url, JSONObject().put("secret", secret).put("mode", "scanStatus").put("scanId", i.scanId))
                 if (r.optBoolean("ok", true)) synchronized(this) { applyScan(i, r) }
+            }
+            if(reportPending(i)) {
+                if(!ReportConfirmation.validDay(i.workday)) {
+                    synchronized(this) { i.reportState="UNCONFIRMED";i.reportReason="Waiting for the Reader's work date" }
+                } else {
+                    val r=post(url,JSONObject().put("secret",secret).put("mode","receiptReportStatus").put("number",i.receipt))
+                    synchronized(this) {
+                        if(ReportConfirmation.matches(r,i.workday,i.worker)) {
+                            i.reportState="RECORDED";i.reportReason="";i.confirmedMs=System.currentTimeMillis()
+                        } else {
+                            i.reportState=if(r.optBoolean("ok",false))"WAITING" else "UNCONFIRMED"
+                            i.reportReason=if(r.optBoolean("ok",false))"Not in the saved worker/day report yet" else "Could not verify Daily Report save"
+                        }
+                    }
+                }
             }
             // The SMS is requested once the scan row exists and isn't refused or held (coordinator 6489109587).
             val smsRequest=synchronized(this) {
@@ -161,6 +196,11 @@ class Finishes(
                 val st = r.optString("state", r.optString("status", ""))
                 if (st.isNotEmpty()) synchronized(this) { i.sms = st }
             }
+            } catch (_: Exception) {
+                synchronized(this) {
+                    if(reportPending(i)) { i.reportState="UNCONFIRMED";i.reportReason="Connection unavailable; Daily Report save not confirmed" }
+                }
+            }
             if (i != before) changed += i.copy()
         }
         synchronized(this) { save() }
@@ -172,6 +212,7 @@ class Finishes(
         i.reason = r.optString("reason", i.reason)
         if (r.has("appliedCents")) i.appliedCents = r.optLong("appliedCents", -1)
         r.optString("receiptId").takeIf { it.isNotEmpty() }?.let { i.receiptId = it }
+        r.optString("workday").takeIf(ReportConfirmation::validDay)?.let { i.workday = it }
     }
 
     // Apps Script answers a POST with a redirect to the result, which must be fetched with GET.
@@ -210,7 +251,8 @@ class Finishes(
             for (k in 0 until a.length()) a.getJSONObject(k).run {
                 items += Item(getString("scanId"), getString("worker"), getString("receipt"), getString("scannedAt"), getLong("createdMs"),
                     optBoolean("sendSms"), optString("scan"), optString("reason"), optLong("appliedCents", -1), optString("receiptId"),
-                    optString("smsId"), optString("sms"), durable = true)
+                    optString("smsId"), optString("sms"), durable = true,
+                    workday=optString("workday"),reportState=optString("reportState"),reportReason=optString("reportReason"),confirmedMs=optLong("confirmedMs",0))
             }
         } catch (e: Exception) {
             items.clear() // a partially parsed file must not masquerade as a complete recovered queue
@@ -223,11 +265,13 @@ class Finishes(
         if(recoveryBlocked) { saveFailed=true;return false }
         val a = JSONArray()
         val dayAgo = System.currentTimeMillis() - 24 * 3600_000L
-        items.removeAll { it.createdMs < dayAgo && it.scan in SCAN_FINAL && (!it.sendSms || it.sms in SMS_FINAL) }
+        items.removeAll { (if(recorded(it))it.confirmedMs else it.createdMs) < dayAgo && it.scan in SCAN_FINAL &&
+            !reportPending(it) && (!it.sendSms || it.sms in SMS_FINAL) }
         items.forEach { a.put(JSONObject().put("scanId", it.scanId).put("worker", it.worker).put("receipt", it.receipt)
             .put("scannedAt", it.scannedAt).put("createdMs", it.createdMs).put("sendSms", it.sendSms).put("scan", it.scan)
             .put("reason", it.reason).put("appliedCents", it.appliedCents).put("receiptId", it.receiptId)
-            .put("smsId", it.smsId).put("sms", it.sms)) }
+            .put("smsId", it.smsId).put("sms", it.sms).put("workday",it.workday).put("reportState",it.reportState)
+            .put("reportReason",it.reportReason).put("confirmedMs",it.confirmedMs)) }
         val ok = try {
             FileOutputStream(tmpFile).use { it.write(a.toString().toByteArray()); it.fd.sync() }
             replace(tmpFile, queueFile)

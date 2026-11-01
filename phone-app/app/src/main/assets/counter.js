@@ -3,7 +3,7 @@
   const root = document.getElementById('sofia-touch-review');
   const body = root.querySelector('.sf-body'), phone = root.querySelector('.sf-phone');
   const pending = new Map(); let serial = 0, polling = null, returnTimer = null, revision = 0;
-  const state = { step: 'home', flow: 'lookup', digits: '', selected: null, worker: '', workers: [], sound: true, spoken: '', matches: [], event: null, history: [] };
+  const state = { step: 'home', flow: 'lookup', digits: '', selected: null, worker: '', workers: [], sound: true, spoken: '', matches: [], event: null, history: [], checkStartedAt: 0 };
   window.counterReply = function (id, json) {
     const request = pending.get(id); if (!request) return; pending.delete(id);
     try { const result = JSON.parse(json); result.ok ? request.resolve(result) : request.reject(new Error(result.error || 'Please try again.')); }
@@ -93,11 +93,11 @@
     enter.onclick = find; sync();
   }
   async function save(sms) {
-    const rev = ++revision; state.event = null; change('busy');
+    const rev = ++revision; state.event = null; state.checkStartedAt = Date.now(); change('busy');
     try {
       const result = await call('save', { number: state.selected.number, worker: state.worker, sms });
       if (rev !== revision) return;
-      state.event = result; updateFinish(); polling = setInterval(updateFinish, 2000);
+      state.event = result; polling = setInterval(updateFinish, 2000); updateFinish();
     } catch (error) { if (rev === revision) { change('sms', false); fail(error); } }
   }
   let checking = false;
@@ -105,19 +105,28 @@
     if (!state.event || checking) return; checking = true; const rev = revision;
     try {
       const item = await call('status', { id: state.event.id }); if (rev !== revision) return; state.event = item;
-      const finalScan = item.scan === 'ADDED' || item.scan === 'ALREADY';
-      const smsDone = !item.smsRequested || item.sms === 'SENT';
-      if (finalScan && smsDone) {
-        clearInterval(polling); polling = null; state.step = 'report-result'; render();
-        say('Recorded. Квитанция ' + item.number + '. Записано на имя ' + item.worker + '. ' + (item.smsRequested ? 'Сообщение клиенту отправлено.' : 'Без SMS.'));
-        returnTimer = setTimeout(home, 25000);
+      const tabletApplied = item.scan === 'ADDED' || item.scan === 'ALREADY';
+      const smsDone = !item.smsRequested || ['SENT', 'FAILED', 'NO_PHONE', 'BAD_PHONE', 'AMBIGUOUS', 'NOT_FOUND', 'UNSURE', 'REJECTED'].includes(item.sms);
+      if (item.recorded === true) {
+        const firstConfirmation = state.step !== 'report-result';
+        if (smsDone) { clearInterval(polling); polling = null; }
+        state.step = 'report-result'; render();
+        if (firstConfirmation) {
+          say('Recorded. Квитанция ' + item.number + '. Записано на имя ' + item.worker + '.' + (item.smsRequested && item.sms === 'SENT' ? ' Сообщение клиенту отправлено.' : !item.smsRequested ? ' Без SMS.' : ''));
+          returnTimer = setTimeout(home, 25000);
+        }
       } else {
         state.step = 'busy'; render();
-        const message = item.scan === 'REJECTED' || item.scan === 'HELD' ? item.scanText : finalScan ? 'Sending…' : 'Saving…';
+        const message = item.scan === 'REJECTED' || item.scan === 'HELD' ? item.scanText : tabletApplied ? 'Saving Daily Report…' : 'Waiting for the tablet…';
         body.querySelector('.sf-busy-title').textContent = message;
         const line = body.querySelector('.sf-busy p');
-        line.textContent = ['FAILED', 'NO_PHONE', 'BAD_PHONE', 'AMBIGUOUS', 'NOT_FOUND', 'UNSURE', 'REJECTED', 'HELD'].includes(item.sms) ? item.smsText : 'Please wait for confirmation';
-        if (item.scan === 'REJECTED' || item.scan === 'HELD' || ['FAILED', 'NO_PHONE', 'BAD_PHONE', 'AMBIGUOUS', 'NOT_FOUND', 'UNSURE', 'REJECTED'].includes(item.sms)) { clearInterval(polling); polling = null; }
+        line.textContent = [item.reportReason || 'Saved only after confirmation for this worker and day.', item.smsRequested ? item.smsText : ''].filter(Boolean).join(' · ');
+        if (item.scan === 'REJECTED' || item.scan === 'HELD') { clearInterval(polling); polling = null; }
+        else if (Date.now() - state.checkStartedAt > 90000) {
+          clearInterval(polling); polling = null;
+          body.querySelector('.sf-busy-title').textContent = 'Daily Report not confirmed';
+          line.textContent = 'Check Daily Report on the tablet. This request is retained; do not enter it again. Start lets you continue with another receipt.';
+        }
       }
     } catch (error) { if (rev === revision) fail(error); } finally { checking = false; }
   }
@@ -165,8 +174,8 @@
       const next = document.createElement('button'); next.type = 'button'; next.className = 'sf-wide neutral sf-pending-next'; next.textContent = 'Start'; next.onclick = home; body.append(next);
     } else if (step === 'report-result') {
       body.replaceChildren(clone('sf-report-recorded-screen')); body.querySelector('.sf-receipt-number').textContent = state.event.number;
-      body.querySelector('.sf-confirmation-worker').textContent = state.event.worker; body.querySelector('.sf-confirmation-date').textContent = today(state.event.at);
-      body.querySelector('.sf-delivery-status').textContent = state.event.smsRequested ? 'Customer SMS sent' : 'Saved · no SMS';
+      body.querySelector('.sf-confirmation-worker').textContent = state.event.worker; body.querySelector('.sf-confirmation-date').textContent = today(state.event.workday + 'T12:00:00Z');
+      body.querySelector('.sf-delivery-status').textContent = state.event.smsRequested ? state.event.sms === 'SENT' ? 'Customer SMS sent' : state.event.smsText || 'Customer SMS not confirmed' : 'Saved · no SMS';
     }
     decorate();
   }

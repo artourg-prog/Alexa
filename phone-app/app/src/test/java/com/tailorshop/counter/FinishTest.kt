@@ -95,11 +95,12 @@ class FinishTest {
 
     private class FakeReader {
         val calls = mutableListOf<JSONObject>()
-        var scanStatus = "ACCEPTED"; var applied = -1L; var smsState = "REQUESTED"; var busy = 0
+        var saved = false; var scanStatus = "ACCEPTED"; var applied = -1L; var smsState = "REQUESTED"; var busy = 0
         fun post(url: String, b: JSONObject): JSONObject { calls += b; return when (b.getString("mode")) {
             "addScan" -> if (busy-- > 0) JSONObject().put("ok", false).put("retry", true)
-                else JSONObject().put("ok", true).put("scanId", b.getJSONObject("scan").getString("scanId")).put("status", "ACCEPTED").put("receiptId", "r-1")
-            "scanStatus" -> JSONObject().put("ok", true).put("status", scanStatus).apply { if (applied >= 0) put("appliedCents", applied) }
+                else JSONObject().put("ok", true).put("scanId", b.getJSONObject("scan").getString("scanId")).put("status", "ACCEPTED").put("receiptId", "r-1").put("workday", "2026-11-01")
+            "scanStatus" -> JSONObject().put("ok", true).put("status", scanStatus).put("workday", "2026-11-01").apply { if (applied >= 0) put("appliedCents", applied) }
+            "receiptReportStatus" -> JSONObject().put("ok", true).put("records", org.json.JSONArray(if(saved) "[{\"date\":\"2026-11-01\",\"worker\":\"andrei\"}]" else "[]"))
             else -> JSONObject().put("ok", true).put("state", smsState)
         } }
         fun count(mode: String) = calls.count { it.getString("mode") == mode }
@@ -120,7 +121,10 @@ class FinishTest {
         assertEquals("Queued — waiting for the tablet", Finishes.scanText(f.get(i.scanId)!!, false))
         r.scanStatus = "ADDED"; r.applied = 0                        // fully claimed by others: $0, not an error
         f.sync()
-        assertEquals("Saved for Andrei, $0.00", Finishes.scanText(f.get(i.scanId)!!, false))
+        assertFalse(Finishes.recorded(f.get(i.scanId)!!))
+        r.saved = true; f.sync()
+        assertTrue(Finishes.recorded(f.get(i.scanId)!!))
+        assertEquals("Saved in Daily Report for Andrei", Finishes.scanText(f.get(i.scanId)!!, false))
         assertEquals(0, r.count("pickup"))                           // no "send the message": no SMS
     }
 
@@ -163,7 +167,7 @@ class FinishTest {
         val base = Finishes.Item("s", "Andrei", "26316", "t", 0)
         assertEquals("Waiting: receipt not in the sheet yet", Finishes.scanText(base.copy(scan = "UNVERIFIED"), false))
         assertEquals("Held for owner review", Finishes.scanText(base.copy(scan = "HELD"), false))
-        assertEquals("Already saved", Finishes.scanText(base.copy(scan = "ALREADY"), false))
+        assertEquals("On Andrei's tablet report; saving…", Finishes.scanText(base.copy(scan = "ALREADY"), false))
         assertEquals("Не сохранено: unknown worker", Finishes.scanText(base.copy(scan = "REJECTED", reason = "unknown worker"), true))
         assertEquals("SMS: held (quiet hours)", Finishes.smsText(base.copy(sendSms = true, sms = "HELD"), false))
         assertEquals("SMS: not confirmed", Finishes.smsText(base.copy(sendSms = true, sms = "UNSURE"), false))
