@@ -170,4 +170,40 @@
 @media(max-width:380px){#sofia-touch-review .sf-stage{padding:16px 3px 24px}#sofia-touch-review .sf-body{padding:21px 14px}#sofia-touch-review .sf-two{gap:11px}#sofia-touch-review .sf-action strong{font-size:16px}#sofia-touch-review .sf-result-word{font-size:27px}#sofia-touch-review .sf-receipt-number{font-size:51px}}
 </style>
 
-<style>#sofia-touch-review .sf-stage{padding:8px 7px 16px}#sofia-touch-review .sf-phone{min-height:calc(100dvh - 30px)}#sofia-touch-review .sf-body{min-height:420px}#sofia-touch-review .sf-live-queue{padding:10px 15px;color:#805619;background:#fff4d8;font:13px/1.4 sans-serif;white-space:pre-line}#sofia-touch-review .sf-pending-next{margin-top:20px}#sofia-touch-review .sf-native-error{color:#a3222d;font-size:14px;margin:12px 0}#sofia-touch-review .sf-home-symbol{height:70px}</style><script src="receipt-icons.js"></script><script src="counter.js"></script></body></html>
+<style>#sofia-touch-review .sf-stage{padding:8px 7px 16px}#sofia-touch-review .sf-phone{min-height:calc(100dvh - 30px)}#sofia-touch-review .sf-body{min-height:420px}#sofia-touch-review .sf-live-queue{padding:10px 15px;color:#805619;background:#fff4d8;font:13px/1.4 sans-serif;white-space:pre-line}#sofia-touch-review .sf-pending-next{margin-top:20px}#sofia-touch-review .sf-native-error{color:#a3222d;font-size:14px;margin:12px 0}#sofia-touch-review .sf-home-symbol{height:70px}
+/* 0.51 (Art 11-01): fit the real window on the Fold, portrait and landscape, folded and unfolded, with no
+   vertical scroll. The mockup's fixed heights are replaced by the window height; big elements scale with it. */
+html,body{height:100%;margin:0;overflow:hidden}
+#sofia-touch-review{height:100%}
+#sofia-touch-review .sf-stage{height:100%;box-sizing:border-box;padding:min(2vh,14px) 10px;align-items:stretch}
+#sofia-touch-review .sf-phone{min-height:0;height:100%;box-sizing:border-box;max-width:min(560px,100%);overflow:hidden}
+#sofia-touch-review .sf-body{min-height:0;flex:1 1 auto;overflow:hidden;display:flex;flex-direction:column;justify-content:center;padding:min(2.4vh,23px) 18px}
+#sofia-touch-review .sf-phone.is-home .sf-body,#sofia-touch-review .sf-phone.is-keypad .sf-body,#sofia-touch-review .sf-phone.is-order .sf-body,#sofia-touch-review .sf-phone.is-report-result .sf-body{padding-top:min(3vh,30px)}
+#sofia-touch-review .sf-signature{font-size:clamp(40px,10vh,88px);line-height:1.15}
+#sofia-touch-review .sf-phone.is-keypad .sf-signature{font-size:clamp(34px,7vh,64px)}
+#sofia-touch-review .sf-phone.is-home .sf-welcome{padding:min(2vh,22px) 0 min(3vh,35px)}
+#sofia-touch-review .sf-hello{font-size:clamp(18px,3.2vh,25px);margin-top:4px}
+#sofia-touch-review .sf-action{min-height:clamp(70px,14vh,109px)}
+#sofia-touch-review .sf-two{margin-top:min(2.4vh,21px)}
+#sofia-touch-review .sf-keypad-heading{margin:min(1.2vh,12px) 0 min(1.6vh,19px);font-size:clamp(16px,2.6vh,20px)}
+#sofia-touch-review .sf-digits{min-height:clamp(44px,8vh,68px);font-size:clamp(26px,5vh,35px);padding:4px 7px}
+#sofia-touch-review .sf-keypad{margin:min(1.6vh,17px) 0 min(1.8vh,20px);gap:min(1.1vh,9px)}
+#sofia-touch-review .sf-keypad button,#sofia-touch-review .sf-phone.is-keypad .sf-keypad button{min-height:clamp(34px,6.4vh,55px);font-size:clamp(20px,3.6vh,27px)}
+#sofia-touch-review .sf-wide{min-height:clamp(40px,6vh,51px);margin-top:min(1.8vh,19px)}
+#sofia-touch-review .sf-receipt{padding:min(2vh,19px) 16px;margin-bottom:min(2.4vh,23px)}
+#sofia-touch-review .sf-phone .sf-receipt .sf-receipt-number{font-size:clamp(44px,11vh,80px);padding:2px 0 min(1.4vh,14px)}
+#sofia-touch-review .sf-matches{overflow-y:auto;min-height:0}
+/* Daily Report worker choice (6 names): three columns when there's room, button height follows the window, and a
+   smaller receipt card on the worker / SMS screens, so it fits 720x530 landscape. Never clip: scroll as a last resort. */
+#sofia-touch-review .sf-body{overflow-y:auto}
+#sofia-touch-review .sf-workers{grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:min(1.4vh,13px)}
+#sofia-touch-review .sf-workers button{min-height:clamp(42px,8.5vh,78px);font-size:clamp(15px,2.6vh,18px)}
+#sofia-touch-review .sf-worker-heading{margin:0 0 min(1.6vh,17px)}
+#sofia-touch-review .sf-phone.is-workers .sf-receipt,#sofia-touch-review .sf-phone.is-sms .sf-receipt{padding:min(1.4vh,14px) 14px;margin-bottom:min(1.6vh,16px)}
+#sofia-touch-review .sf-phone.is-workers .sf-receipt .sf-receipt-number,#sofia-touch-review .sf-phone.is-sms .sf-receipt .sf-receipt-number{font-size:clamp(34px,7.5vh,64px);padding-bottom:min(1vh,10px)}
+#sofia-touch-review .sf-phone.is-workers .sf-work,#sofia-touch-review .sf-phone.is-sms .sf-work{display:none}
+/* Status lines live inside the rounded frame as plain text: no square box, no second copy of what Sofia says. */
+#sofia-touch-review .sf-speech{display:none!important}
+#sofia-touch-review .sf-live-queue{background:transparent;color:#8a5a14;font:600 13px/1.35 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;text-align:center;padding:6px 14px 2px;margin:0}
+#sofia-touch-review .sf-native-error{text-align:center;font-weight:650;margin:6px 0}
+</style><script src="receipt-icons.js"></script><script src="counter.js"></script></body></html>
