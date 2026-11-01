@@ -137,9 +137,16 @@ class TouchActivity : Activity() {
         if (action == "report" && !number.matches(Regex("[0-9]{3,9}"))) { reply(id, error("Enter a receipt number.")); return }
         if (loadedAt == 0L || System.currentTimeMillis() - loadedAt > 60_000L) runCatching { refreshOrders() }
         if (action == "find" && loadedAt == 0L) { reply(id, error("Orders not loaded. Connect to the internet and try again.")); return }
-        val results = if (action == "find") Lookup.find(Query.Last4(number), orders)
+        fun search() = if (action == "find") Lookup.find(Query.Last4(number), orders)
             .filter { Lookup.digits(it.receipt) !in pickups.pending() }
             else Lookup.find(Query.Receipt(number), orders)
+        var results = search()
+        // A miss is only an answer when the list is fresh: re-read once on a miss, and if the read fails say so
+        // instead of a false "no matching receipt" from an old copy (the 0.41 reread-on-miss rule).
+        if (results.isEmpty()) { runCatching { refreshOrders() }; results = search() }
+        if (action == "find" && results.isEmpty() && offline) {
+            reply(id, error("Couldn't refresh the orders list, so no answer yet. Check Wi-Fi and try again.")); return
+        }
         // A work entry may not yet be in the ready-orders mirror. It is validated by the existing Reader when saved.
         val cards = if (action == "report" && results.isEmpty()) listOf(Card(number, "", "")) else results
         reply(id, JSONObject().put("ok", true).put("receipts", JSONArray().apply {
@@ -182,10 +189,14 @@ class TouchActivity : Activity() {
     }
 
     private fun queueJson(): JSONObject {
-        val pendingWork = finishes.all().count { it.scan !in Finishes.SCAN_FINAL || it.sendSms && it.sms !in Finishes.SMS_FINAL }
+        // Waiting on the tablet / Reader = processing. UNVERIFIED for over an hour (the receipt isn't in the
+        // master) is a problem to check, not "processing" forever (0.48 showed old test receipts as processing).
+        val hourAgo = System.currentTimeMillis() - 3_600_000L
+        fun stuck(i: Finishes.Item) = i.scan == "UNVERIFIED" && i.createdMs < hourAgo
+        val pendingWork = finishes.all().count { !stuck(it) && (it.scan !in Finishes.SCAN_FINAL || it.sendSms && it.sms !in Finishes.SMS_FINAL) }
         val pendingPickups = pickups.pending().count { pickups.latest(it)?.status !in Pickups.DONE }
         val workProblems = finishes.all().filter {
-            it.scan in setOf("HELD", "REJECTED") || it.sendSms && it.sms in Finishes.SMS_FINAL && it.sms != "SENT"
+            it.scan in setOf("HELD", "REJECTED") || stuck(it) || it.sendSms && it.sms in Finishes.SMS_FINAL && it.sms != "SENT"
         }.map { "#${it.receipt}: ${Finishes.scanText(it, false)} · ${Finishes.smsText(it, false)}" }
         val problems = listOfNotNull(finishes.warning(), pickups.warning()) + workProblems + pickups.toCheck().map { Pickups.problemText(it.receipt, it.status) }
         return JSONObject().put("ok", true).put("work", pendingWork).put("pickups", pendingPickups)
