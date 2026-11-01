@@ -66,7 +66,7 @@
     const ready = fragment.querySelector('.sf-ready');
     const paid = { PAID: 'Paid', DUE: 'Not paid', ACCOUNT: 'Store account', UNKNOWN: 'Payment unavailable' }[item.pay] || 'Payment unavailable';
     // From the Order Index: its own state line (not ready + promised time / already picked up / unknown), no payment guess.
-    ready.textContent = item.state ? item.stateText + (item.stale ? ' · index may be out of date' : '')
+    ready.textContent = item.pickupNote ? item.pickupNote : item.state ? item.stateText + (item.stale ? ' · index may be out of date' : '')
       : item.unverified ? 'Receipt entered · checked when saved' : paid + ' · ' + (item.ready ? 'Ready for pickup' : 'In progress');
     ready.classList.toggle('not-paid', item.pay === 'DUE'); ready.classList.toggle('in-progress', !item.ready);
     fragment.querySelector('.sf-today').textContent = today(); return fragment;
@@ -166,7 +166,7 @@
       body.replaceChildren(clone('sf-matches-screen')); body.querySelector('.sf-flow-name').textContent = 'CHOOSE RECEIPT'; body.querySelector('.sf-match-count').textContent = state.matches.length + ' receipts';
       state.matches.forEach(item => { const entry = clone('sf-match-item'); entry.querySelector('.sf-match-number').textContent = item.number; entry.querySelector('.sf-match-customer').textContent = item.name || ''; entry.querySelector('.sf-match-work').textContent = item.work || ''; entry.querySelector('.sf-match-total').textContent = item.total || ''; entry.querySelector('button').onclick = () => select(item); body.querySelector('.sf-matches').append(entry); });
     } else if (step === 'order') {
-      body.replaceChildren(clone('sf-order-screen')); body.querySelector('.sf-detail-slot').append(receipt()); body.querySelector('.sf-pickup').disabled = !state.selected.ready;
+      body.replaceChildren(clone('sf-order-screen')); body.querySelector('.sf-detail-slot').append(receipt()); body.querySelector('.sf-pickup').disabled = !state.selected.ready || !!state.selected.pickupNote;
       body.querySelector('.sf-pickup').onclick = pickup; body.querySelector('.sf-not-picked-up').onclick = () => { home(); say('Not picked up. Заказ остаётся в списке готовых к выдаче.'); };
     } else if (step === 'workers') {
       body.replaceChildren(clone('sf-workers-screen')); body.querySelector('.sf-detail-slot').append(receipt()); body.querySelector('.sf-work-date').textContent = today();

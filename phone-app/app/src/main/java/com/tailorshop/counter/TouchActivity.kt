@@ -148,9 +148,9 @@ class TouchActivity : Activity() {
         if (action == "report" && !number.matches(Regex("[0-9]{3,9}"))) { reply(id, error("Enter a receipt number.")); return }
         if (loadedAt == 0L || System.currentTimeMillis() - loadedAt > 60_000L) runCatching { refreshOrders() }
         if (action == "find" && loadedAt == 0L) { reply(id, error("Orders not loaded. Connect to the internet and try again.")); return }
-        fun search() = if (action == "find") Lookup.find(Query.Last4(number), orders)
-            .filter { Lookup.digits(it.receipt) !in pickups.pending() }
-            else Lookup.find(Query.Receipt(number), orders)
+        // An order already tapped Picked up stays visible with its pickup state (0.53 hid it, so a listed order could
+        // answer "No matching receipt" while its tap was waiting or settled; owner report 11-01, last four 5502).
+        fun search() = Lookup.find(if (action == "find") Query.Last4(number) else Query.Receipt(number), orders)
         var results = search()
         // A miss is only an answer when the list is fresh: re-read once on a miss, and if the read fails say so
         // instead of a false "no matching receipt" from an old copy (the 0.41 reread-on-miss rule).
@@ -165,7 +165,9 @@ class TouchActivity : Activity() {
         val extra = if (action == "find") OrderIndex.find(number, index).filter { e -> results.none { Lookup.digits(it.receipt) == Lookup.digits(e.receipt) } } else emptyList()
         val nowShop = java.time.LocalDateTime.now(java.time.ZoneId.of("America/Los_Angeles"))
         reply(id, JSONObject().put("ok", true).put("receipts", JSONArray().apply {
-            cards.forEach { card -> put(cardJson(card, action == "report" && results.isEmpty())) }
+            cards.forEach { card -> put(cardJson(card, action == "report" && results.isEmpty()).also { json ->
+                val tap = if (action == "find" && Lookup.digits(card.receipt) in pickups.pending()) pickups.latest(card.receipt) else null
+                if (tap != null) json.put("pickupNote", Pickups.stateText(tap)) }) }
             extra.forEach { e -> put(cardJson(Card(e.receipt, e.customer, ""), false).put("ready", false)
                 .put("state", e.state.name).put("stateText", OrderIndex.stateText(e)).put("stale", OrderIndex.stale(e, nowShop))) }
         }).put("offline", offline).put("loadedAt", loadedAt))
