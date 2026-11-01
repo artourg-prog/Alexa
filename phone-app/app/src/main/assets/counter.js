@@ -59,7 +59,9 @@
     fragment.querySelector('.sf-receipt').classList.toggle('sf-unpaid', item.pay === 'DUE');
     const ready = fragment.querySelector('.sf-ready');
     const paid = { PAID: 'Paid', DUE: 'Not paid', ACCOUNT: 'Store account', UNKNOWN: 'Payment unavailable' }[item.pay] || 'Payment unavailable';
-    ready.textContent = item.unverified ? 'Receipt entered · checked when saved' : paid + ' · ' + (item.ready ? 'Ready for pickup' : 'In progress');
+    // From the Order Index: its own state line (not ready + promised time / already picked up / unknown), no payment guess.
+    ready.textContent = item.state ? item.stateText + (item.stale ? ' · index may be out of date' : '')
+      : item.unverified ? 'Receipt entered · checked when saved' : paid + ' · ' + (item.ready ? 'Ready for pickup' : 'In progress');
     ready.classList.toggle('not-paid', item.pay === 'DUE'); ready.classList.toggle('in-progress', !item.ready);
     fragment.querySelector('.sf-today').textContent = today(); return fragment;
   }
@@ -77,7 +79,9 @@
   function select(item) {
     state.selected = item; change(state.flow === 'report' ? 'workers' : 'order');
     const payment = item.pay === 'PAID' ? 'Оплачено.' : item.pay === 'DUE' ? 'Не оплачено.' : item.pay === 'ACCOUNT' ? 'Счёт магазина.' : '';
-    if (!item.unverified) say('Квитанция ' + item.number.split('').join(' ') + '. ' + payment + ' ' + (item.ready ? 'Готова к выдаче.' : 'Работа ещё не закончена.'));
+    const spokenState = { NOT_READY: 'Ещё не готова.', COLLECTED: 'Уже выдана.', UNKNOWN: 'Статус неизвестен, проверьте на планшете.', READY: 'Готова к выдаче.' }[item.state];
+    if (item.state) say('Квитанция ' + item.number.split('').join(' ') + '. ' + spokenState);
+    else if (!item.unverified) say('Квитанция ' + item.number.split('').join(' ') + '. ' + payment + ' ' + (item.ready ? 'Готова к выдаче.' : 'Работа ещё не закончена.'));
   }
   function bindKeys() {
     const input = body.querySelector('.sf-digits'), enter = body.querySelector('.sf-find');

@@ -124,11 +124,16 @@ class TouchActivity : Activity() {
         }
     }
 
+    @Volatile private var index: List<OrderIndex.Entry> = emptyList()
+
     private fun refreshOrders() {
         try {
             val rows = sheets.readRows(); val parsed = Lookup.parseOrders(rows); val at = System.currentTimeMillis()
             cache.save(rows, at); orders = parsed; loadedAt = at; offline = false
         } catch (e: Exception) { offline = true; if (loadedAt == 0L) throw e }
+        // The compact Order Index (not-ready / collected states), when the Pickups projection publishes it.
+        // A failed read keeps the last copy; no tab yet = empty, and Find works from the ready list alone.
+        runCatching { sheets.readIndex() }.onSuccess { rows -> index = rows?.let(OrderIndex::parse) ?: emptyList() }
     }
 
     private fun lookup(id: String, action: String, value: String) {
@@ -149,8 +154,14 @@ class TouchActivity : Activity() {
         }
         // A work entry may not yet be in the ready-orders mirror. It is validated by the existing Reader when saved.
         val cards = if (action == "report" && results.isEmpty()) listOf(Card(number, "", "")) else results
+        // Find also lists the same digits from the Order Index when they aren't in the ready list, each with its own
+        // state (not ready + promised time / already picked up / unknown). Picked up stays ready-list only.
+        val extra = if (action == "find") OrderIndex.find(number, index).filter { e -> results.none { Lookup.digits(it.receipt) == Lookup.digits(e.receipt) } } else emptyList()
+        val nowShop = java.time.LocalDateTime.now(java.time.ZoneId.of("America/Los_Angeles"))
         reply(id, JSONObject().put("ok", true).put("receipts", JSONArray().apply {
             cards.forEach { card -> put(cardJson(card, action == "report" && results.isEmpty())) }
+            extra.forEach { e -> put(cardJson(Card(e.receipt, e.customer, ""), false).put("ready", false)
+                .put("state", e.state.name).put("stateText", OrderIndex.stateText(e)).put("stale", OrderIndex.stale(e, nowShop))) }
         }).put("offline", offline).put("loadedAt", loadedAt))
     }
 

@@ -22,6 +22,21 @@ class Sheets(keyFile: File, private val reader:(()->List<List<String>>)?=null) {
 
     fun hasKey() = reader!=null || auth.hasKey()
 
+    /**
+     * The "Order Index" tab (see OrderIndex), read-only. Null when the tab doesn't exist yet (the API answers
+     * 400 for an unknown range), so the phone keeps working from All Receipts alone. Other failures throw.
+     */
+    fun readIndex(): List<List<String>>? {
+        if (reader != null) return null
+        val url = "https://sheets.googleapis.com/v4/spreadsheets/$SPREADSHEET_ID/values/" +
+            URLEncoder.encode("'Order Index'!A1:Z", "UTF-8").replace("+", "%20")
+        val token = try { auth.accessToken() } catch (e: GoogleAuth.KeyMissing) { throw KeyMissing() }
+        val body = try { String(GoogleAuth.http(url, null, "Bearer $token")) }
+            catch (e: Exception) { if (e.message == "HTTP 400") return null else throw e }
+        val values = JSONObject(body).optJSONArray("values") ?: return emptyList()
+        return (0 until values.length()).map { i -> val row = values.getJSONArray(i); (0 until row.length()).map { j -> row.optString(j, "") } }
+    }
+
     /** Header row first. Throws on any failure; the caller keeps the last good copy. */
     fun readRows(): List<List<String>> {
         reader?.let { return it() }
