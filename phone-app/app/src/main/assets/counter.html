@@ -245,4 +245,17 @@ html,body{height:100%;margin:0;overflow:hidden}
    hold on "Sofia", so Settings and Check for update couldn't be reached on the phone. */
 #sofia-touch-review{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 #sofia-touch-review .sf-signature{touch-action:none;cursor:default}
+/* 0.56: the Sofia name is the home page's size on every page (Art 11-01); the header's small SOFIA text would repeat it. */
+#sofia-touch-review .sf-phone[class] .sf-signature{font-size:clamp(40px,10vh,88px);line-height:1.15;text-align:center;margin:0}
+#sofia-touch-review .sf-top div{visibility:hidden}
+/* Low landscape (cover screen): room for the full-size name — no header on busy/matches (Back is on the page / in the
+   footer), compact action buttons without icons, no read-only hint under Picked up. */
+@media(orientation:landscape) and (max-height:460px){
+#sofia-touch-review .sf-phone.is-busy .sf-top,#sofia-touch-review .sf-phone.is-matches .sf-top{display:none}
+#sofia-touch-review .sf-phone:not(.is-home) .sf-action{min-height:52px}
+#sofia-touch-review .sf-phone:not(.is-home) .sf-two{margin-top:6px}
+#sofia-touch-review .sf-phone:not(.is-home) .sf-two .sf-action svg,#sofia-touch-review .sf-phone:not(.is-home) .sf-two .sf-action .sf-icon{display:none}
+#sofia-touch-review .sf-phone .sf-receipt{padding-top:6px;padding-bottom:6px}
+#sofia-touch-review .sf-phone.is-busy .sf-busy svg,#sofia-touch-review .sf-phone.is-order .sf-readonly{display:none}
+}
 </style><script src="receipt-icons.js"></script><script src="counter.js"></script></body></html>

@@ -40,7 +40,7 @@
   function icons() {
     const glyph = { house: '⌂', 'volume-2': '♫', search: '⌕', 'notebook-pen': '▤', 'arrow-left': '←', 'arrow-right': '→', delete: '⌫', 'phone-outgoing': '✉', files: '▤', 'user-round': '♙', 'shopping-bag': '✓', 'circle-check': '✓', check: '✓', send: '➤' };
     root.querySelectorAll('i[data-lucide]').forEach(icon => {
-      const name = { 'phone-outgoing': 'phone', files: 'files', 'notebook-pen': 'files', 'circle-check': 'check', check: 'check', 'shopping-bag': 'check', send: 'send' }[icon.dataset.lucide]; if (name) { icon.replaceWith(window.receiptIcon(name)); return; } const span = document.createElement('span'); span.textContent = glyph[icon.dataset.lucide] || '✓'; span.setAttribute('aria-hidden', 'true'); span.className = 'sf-icon'; icon.replaceWith(span);
+      const name = { 'phone-outgoing': 'phone', files: 'files', 'notebook-pen': 'files', 'circle-check': 'check', check: 'check', 'shopping-bag': 'check', send: 'send', search: 'search' }[icon.dataset.lucide]; if (name) { icon.replaceWith(window.receiptIcon(name)); return; } const span = document.createElement('span'); span.textContent = glyph[icon.dataset.lucide] || '✓'; span.setAttribute('aria-hidden', 'true'); span.className = 'sf-icon'; icon.replaceWith(span);
     });
   }
   // Receipt digits: in landscape they grow to fill the card's width (Art 11-01), in portrait they only shrink to fit;
@@ -183,6 +183,8 @@
       body.querySelector('.sf-confirmation-worker').textContent = state.event.worker; body.querySelector('.sf-confirmation-date').textContent = today(state.event.workday + 'T12:00:00Z');
       body.querySelector('.sf-delivery-status').textContent = state.event.smsRequested ? state.event.sms === 'SENT' ? 'Customer SMS sent' : state.event.smsText || 'Customer SMS not confirmed' : 'Saved · no SMS';
     }
+    // The Sofia name on every page, at the home page's size (Art 11-01); holding it opens Settings as on home.
+    if (!body.querySelector('.sf-signature')) { const name = document.createElement('h1'); name.className = 'sf-signature'; name.textContent = 'Sofia'; body.prepend(name); }
     decorate();
   }
   // No bottom notice strip (Art 11-01): old receipt notices stayed there and couldn't be cleared. Pending work stays in Settings.

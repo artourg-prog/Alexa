@@ -3,6 +3,7 @@ const paths = {
   files: '<rect x="8" y="7" width="13" height="15" rx="2"/><path d="M16 7V4a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4m4-6h5m-5 4h5"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
   send: '<path d="m22 2-7 20-4-9-9-4 20-7ZM22 2 11 13"/>',
+  search: '<circle cx="10.5" cy="10.5" r="7"/><path d="m21 21-5.5-5.5"/>',
 };
 window.receiptIcon = function(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
