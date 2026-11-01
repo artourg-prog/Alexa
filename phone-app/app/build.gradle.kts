@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 53 // touch workflow release
-        versionName = "0.53"
+        versionCode = 54 // touch workflow release
+        versionName = "0.54"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
