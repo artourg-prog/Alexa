@@ -103,6 +103,14 @@ class TouchActivity : Activity() {
             when (action) {
                 "speak" -> main.post { speak(body.optString("text").take(700)); reply(id, JSONObject().put("ok", true)) }
                 "settings" -> main.post { settings(); reply(id, JSONObject().put("ok", true)) }
+                // Art (11-01): Touch + voice. Listen opens the existing tap-to-talk voice screen, listening at once;
+                // it returns here by itself when the voice session is over.
+                "voice" -> main.post {
+                    startActivity(android.content.Intent(this@TouchActivity, MainActivity::class.java)
+                        .putExtra(MainActivity.EXTRA_FROM_TOUCH, true).putExtra(MainActivity.EXTRA_LISTEN, true)
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                    reply(id, JSONObject().put("ok", true))
+                }
                 "load" -> reply(id, JSONObject().put("ok", true).put("workers", JSONArray(finishes.workers()))
                     .put("finishConfigured", finishes.configured()).put("pickupConfigured", pickups.configured()))
                 "find", "report" -> reads.execute {
