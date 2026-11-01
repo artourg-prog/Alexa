@@ -63,6 +63,8 @@ class TouchActivity : Activity() {
             builtInZoomControls = false
         }
         web.setBackgroundColor(android.graphics.Color.rgb(238, 245, 238))
+        // No text-selection mode on a long press: the page uses the hold on "Sofia" to open Settings.
+        web.setOnLongClickListener { true }; web.isLongClickable = false
         web.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) = true
         }

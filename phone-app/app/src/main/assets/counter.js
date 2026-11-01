@@ -149,8 +149,9 @@
     root.querySelector('.sf-back').hidden = ['home', 'busy', 'report-result'].includes(state.step);
     icons(); fitNumbers();
     root.querySelectorAll('.sf-signature').forEach(logo => {
-      let timer; logo.onpointerdown = () => { timer = setTimeout(() => call('settings').catch(fail), 1000); };
-      logo.onpointerup = logo.onpointercancel = () => clearTimeout(timer);
+      let timer; logo.onpointerdown = () => { clearTimeout(timer); timer = setTimeout(() => call('settings').catch(fail), 1000); };
+      logo.onpointerup = logo.onpointerleave = () => clearTimeout(timer);
+      logo.oncontextmenu = event => event.preventDefault();
     });
   }
   function render() {
