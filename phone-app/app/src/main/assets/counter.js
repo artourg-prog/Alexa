@@ -43,11 +43,17 @@
       const name = { 'phone-outgoing': 'phone', files: 'files', 'notebook-pen': 'files', 'circle-check': 'check', check: 'check', 'shopping-bag': 'check', send: 'send' }[icon.dataset.lucide]; if (name) { icon.replaceWith(window.receiptIcon(name)); return; } const span = document.createElement('span'); span.textContent = glyph[icon.dataset.lucide] || '✓'; span.setAttribute('aria-hidden', 'true'); span.className = 'sf-icon'; icon.replaceWith(span);
     });
   }
+  // Receipt digits: in landscape they grow to fill the card's width (Art 11-01), in portrait they only shrink to fit;
+  // either way they shrink further until the screen needs no scrolling.
   function fitNumbers() {
+    const wide = matchMedia('(orientation: landscape)').matches;
     root.querySelectorAll('.sf-receipt-number').forEach(number => {
       number.style.fontSize = ''; const range = document.createRange(); range.selectNodeContents(number);
-      let size = parseFloat(getComputedStyle(number).fontSize);
-      while (range.getBoundingClientRect().width > number.clientWidth - 4 && size > 28) number.style.fontSize = (--size) + 'px';
+      const fits = size => { number.style.fontSize = size + 'px'; return range.getBoundingClientRect().width <= number.clientWidth - 4 && body.scrollHeight <= body.clientHeight; };
+      let low = 28, high = wide ? 400 : parseFloat(getComputedStyle(number).fontSize);
+      if (fits(high)) return;
+      while (high - low > 1) { const mid = Math.floor((low + high) / 2); if (fits(mid)) low = mid; else high = mid; }
+      number.style.fontSize = low + 'px';
     });
   }
   function receipt() {
@@ -139,7 +145,7 @@
     } catch (error) { if (rev === revision) { change('order', false); fail(error); } }
   }
   function decorate() {
-    ['home', 'keypad', 'order', 'workers', 'sms', 'report-result'].forEach(step => phone.classList.toggle('is-' + step, state.step === step));
+    ['home', 'keypad', 'order', 'workers', 'sms', 'busy', 'report-result'].forEach(step => phone.classList.toggle('is-' + step, state.step === step));
     root.querySelector('.sf-back').hidden = ['home', 'busy', 'report-result'].includes(state.step);
     icons(); fitNumbers();
     root.querySelectorAll('.sf-signature').forEach(logo => {
@@ -184,12 +190,27 @@
       const result = await call('queue'); const line = root.querySelector('.sf-live-queue');
       const messages = [result.warning, result.work ? 'Work processing: ' + result.work : '', result.pickups ? 'Pickup confirmations processing: ' + result.pickups : ''].filter(Boolean);
       line.hidden = !messages.length; line.textContent = messages.join('\n');
+      dismissButtons(result.dismiss || []);
     } catch (_) {}
+  }
+  // Old "not in the sheet" entries (no SMS) can be marked reviewed; two taps, so a stray touch changes nothing.
+  function dismissButtons(entries) {
+    const box = root.querySelector('.sf-dismiss'), key = entries.map(entry => entry.id).join();
+    if (box.dataset.key === key) return; box.dataset.key = key; box.replaceChildren(); box.hidden = !entries.length;
+    entries.forEach(entry => {
+      const button = document.createElement('button'); button.type = 'button'; button.textContent = 'Reviewed · hide #' + entry.receipt; let armed;
+      button.onclick = () => {
+        if (!armed) { button.textContent = 'Tap again to hide #' + entry.receipt; armed = setTimeout(() => { armed = null; button.textContent = 'Reviewed · hide #' + entry.receipt; }, 4000); return; }
+        clearTimeout(armed); button.disabled = true;
+        call('dismiss', { id: entry.id }).then(() => { box.dataset.key = ''; queueStatus(); }).catch(error => { button.disabled = false; fail(error); });
+      };
+      box.append(button);
+    });
   }
   root.querySelector('.sf-home').onclick = home;
   root.querySelector('.sf-back').onclick = () => { ++revision; clearTimers(); state.step = state.history.pop() || 'home'; render(); };
   root.querySelector('.sf-repeat').onclick = () => say(state.spoken);
   root.querySelector('.sf-sound').onclick = () => { state.sound = !state.sound; root.querySelector('.sf-sound').setAttribute('aria-pressed', String(state.sound)); };
-  window.addEventListener('resize', fitNumbers);
+  new ResizeObserver(fitNumbers).observe(body);
   render(); call('load').then(result => { state.workers = result.workers; }).catch(fail); queueStatus(); setInterval(queueStatus, 5000);
 })();

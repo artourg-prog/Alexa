@@ -87,6 +87,8 @@ class Finishes(
     private val queueFile = File(dir, "finish-queue.json")
     private val tmpFile = File(dir, "finish-queue.tmp")
     private val items = mutableListOf<Item>()
+    private val reviewedFile = File(dir, "finish-reviewed.json")
+    private val reviewedTmp = File(dir, "finish-reviewed.tmp")
     private val warningFile=File(dir,"finish-queue.warning")
     private val recoveryAck=File(dir,"finish-queue.recovery-ack")
     private fun latestBackup():Long=dir.listFiles().orEmpty().mapNotNull {
@@ -145,6 +147,32 @@ class Finishes(
         if (!i.sendSms) { i.sendSms = true; i.smsId = UUID.randomUUID().toString(); i.durable=false }
         return save()
     }
+
+    /** A receipt the Reader keeps answering UNVERIFIED for (not in 2026 RECEIPTS, e.g. a deleted test receipt) never
+     *  becomes final, so its notice would stay forever. After a day, with no SMS ever requested, a person may mark it
+     *  reviewed: it moves to finish-reviewed.json (kept, never deleted) and stops being re-checked. Nothing is sent to
+     *  the tablet, the Reader or the customer, and no credit changes. */
+    @Synchronized fun dismissable(nowMs: Long = System.currentTimeMillis()): List<Item> =
+        items.filter { it.durable && it.scan == "UNVERIFIED" && it.createdMs < nowMs - 24 * 3600_000L && !it.sendSms && it.smsId.isEmpty() && it.sms.isEmpty() }
+            .map { it.copy() }
+
+    @Synchronized fun dismiss(scanId: String, nowMs: Long = System.currentTimeMillis()): Boolean {
+        val i = dismissable(nowMs).firstOrNull { it.scanId == scanId } ?: return false
+        val history = try { JSONArray(reviewedFile.readText()) } catch (_: Exception) { if (reviewedFile.exists()) return false else JSONArray() }
+        if ((0 until history.length()).none { history.getJSONObject(it).optString("scanId") == scanId }) {
+            history.put(json(i).put("reviewedAt", java.time.Instant.ofEpochMilli(nowMs).toString()))
+            val ok = try {
+                FileOutputStream(reviewedTmp).use { it.write(history.toString().toByteArray()); it.fd.sync() }
+                replace(reviewedTmp, reviewedFile)
+            } catch (_: Exception) { false }
+            if (!ok) return false
+        }
+        val at = items.indexOfFirst { it.scanId == scanId }; val original = items.removeAt(at)
+        if (save()) return true
+        items.add(at, original); return false
+    }
+
+    @Synchronized fun reviewed(): JSONArray = try { JSONArray(reviewedFile.readText()) } catch (_: Exception) { JSONArray() }
 
     /** Sends / asks about everything not final. Network: off the main thread. Returns the items that changed. */
     fun sync(): List<Item> {
@@ -261,17 +289,19 @@ class Finishes(
         }
     }
 
+    private fun json(it: Item) = JSONObject().put("scanId", it.scanId).put("worker", it.worker).put("receipt", it.receipt)
+        .put("scannedAt", it.scannedAt).put("createdMs", it.createdMs).put("sendSms", it.sendSms).put("scan", it.scan)
+        .put("reason", it.reason).put("appliedCents", it.appliedCents).put("receiptId", it.receiptId)
+        .put("smsId", it.smsId).put("sms", it.sms).put("workday",it.workday).put("reportState",it.reportState)
+        .put("reportReason",it.reportReason).put("confirmedMs",it.confirmedMs)
+
     private fun save(): Boolean {
         if(recoveryBlocked) { saveFailed=true;return false }
         val a = JSONArray()
         val dayAgo = System.currentTimeMillis() - 24 * 3600_000L
         items.removeAll { (if(recorded(it))it.confirmedMs else it.createdMs) < dayAgo && it.scan in SCAN_FINAL &&
             !reportPending(it) && (!it.sendSms || it.sms in SMS_FINAL) }
-        items.forEach { a.put(JSONObject().put("scanId", it.scanId).put("worker", it.worker).put("receipt", it.receipt)
-            .put("scannedAt", it.scannedAt).put("createdMs", it.createdMs).put("sendSms", it.sendSms).put("scan", it.scan)
-            .put("reason", it.reason).put("appliedCents", it.appliedCents).put("receiptId", it.receiptId)
-            .put("smsId", it.smsId).put("sms", it.sms).put("workday",it.workday).put("reportState",it.reportState)
-            .put("reportReason",it.reportReason).put("confirmedMs",it.confirmedMs)) }
+        items.forEach { a.put(json(it)) }
         val ok = try {
             FileOutputStream(tmpFile).use { it.write(a.toString().toByteArray()); it.fd.sync() }
             replace(tmpFile, queueFile)
