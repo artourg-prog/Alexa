@@ -29,14 +29,22 @@
   // reports (no male voice, engine error, media volume off) is shown under the spoken words, never hidden.
   function say(text, voice = 'sofia') {
     state.spoken = text; state.spokenVoice = voice; root.querySelector('.sf-spoken').textContent = text; root.querySelector('.sf-speech').hidden = false;
+    root.querySelector('.sf-listen').disabled = !text;
     voiceNote('');
     if (state.sound) call('speak', { text, voice }).then(result => voiceNote(result.problem || '')).catch(error => voiceNote(error.message));
   }
   function voiceNote(text) { const note = root.querySelector('.sf-voice-note'); note.textContent = text; note.hidden = !text; }
   window.counterVoice = voiceNote;
+  function listen() {
+    if (!state.spoken) return;
+    voiceNote('');
+    return call('speak', { text: state.spoken, voice: state.spokenVoice || 'sofia' })
+      .then(result => voiceNote(result.problem || '')).catch(error => voiceNote(error.message));
+  }
   function clearTimers() { clearInterval(polling); polling = null; clearTimeout(returnTimer); returnTimer = null; }
   function home() {
     ++revision; clearTimers(); state.step = 'home'; state.digits = ''; state.selected = null; state.worker = ''; state.event = null; state.history = [];
+    state.spoken = ''; root.querySelector('.sf-listen').disabled = true; voiceNote('');
     root.querySelector('.sf-speech').hidden = true; render();
   }
   // Returning from the waiting screen (remember=false) drops the step it saved, so Back then really goes back (0.56 kept
@@ -93,6 +101,7 @@
   }
   async function find() {
     const rev = ++revision; const number = state.digits;
+    state.spoken = ''; root.querySelector('.sf-listen').disabled = true; voiceNote('');
     change('busy');
     try {
       const result = await call(state.flow === 'report' ? 'report' : 'find', { number });
@@ -221,7 +230,8 @@
     ++revision; clearTimers(); state.step = state.history.pop() || 'home'; render();
   };
   window.counterBack = () => { if (state.step === 'home') return false; root.querySelector('.sf-back').click(); return true; };
-  root.querySelector('.sf-repeat').onclick = () => say(state.spoken, state.spokenVoice);
+  root.querySelector('.sf-repeat').onclick = listen;
+  root.querySelector('.sf-listen').onclick = listen;
   root.querySelector('.sf-sound').onclick = () => { state.sound = !state.sound; root.querySelector('.sf-sound').setAttribute('aria-pressed', String(state.sound)); };
   new ResizeObserver(fitNumbers).observe(body);
   render(); call('load').then(result => { state.workers = result.workers; }).catch(fail);
