@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 59 // larger action labels and explicit Listen button
-        versionName = "0.59"
+        versionCode = 60 // monochrome speaking-person Listen icon
+        versionName = "0.60"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
