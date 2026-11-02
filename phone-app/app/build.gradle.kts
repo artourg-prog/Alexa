@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 61 // large worker/date, clear Not Found and matching sound icon
-        versionName = "0.61"
+        versionCode = 62 // Listen reads current report receipt and selected worker
+        versionName = "0.62"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

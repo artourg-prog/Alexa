@@ -35,10 +35,21 @@
   }
   function voiceNote(text) { const note = root.querySelector('.sf-voice-note'); note.textContent = text; note.hidden = !text; }
   window.counterVoice = voiceNote;
+  function currentAnnouncement() {
+    if (state.flow === 'report' && state.selected && !['home', 'keypad', 'matches', 'report-result'].includes(state.step)) {
+      const item = state.selected, digits = item.number.split('').join(' '), worker = state.worker || (state.event && state.event.worker) || '';
+      if (item.pay === 'DUE') return { voice: 'male-en', text: 'Receipt ' + digits + '. '
+        + (worker ? 'Worker: ' + worker + '. ' : 'Choose a worker. ')
+        + (item.due ? 'Outstanding balance due: ' + item.due + '.' : 'Outstanding balance is due. The amount due is not shown; check the receipt.') };
+      return { voice: 'sofia', text: 'Квитанция ' + digits + '. ' + (worker ? 'Работник ' + worker + '.' : 'Выберите работника.')
+        + (state.event && state.event.receiptNotFound === true ? ' Квитанция не найдена.' : '') };
+    }
+    return state.spoken ? { text: state.spoken, voice: state.spokenVoice || 'sofia' } : null;
+  }
   function listen() {
-    if (!state.spoken) return;
+    const announcement = currentAnnouncement(); if (!announcement) return;
     voiceNote('');
-    return call('speak', { text: state.spoken, voice: state.spokenVoice || 'sofia' })
+    return call('speak', announcement)
       .then(result => voiceNote(result.problem || '')).catch(error => voiceNote(error.message));
   }
   function clearTimers() { clearInterval(polling); polling = null; clearTimeout(returnTimer); returnTimer = null; }
@@ -188,6 +199,7 @@
     ['home', 'keypad', 'matches', 'order', 'workers', 'sms', 'busy', 'report-result'].forEach(step => phone.classList.toggle('is-' + step, state.step === step));
     // Back is on every screen but home (owner 11-02): while waiting or after Recorded it returns home; the request is kept.
     root.querySelector('.sf-back').hidden = state.step === 'home';
+    root.querySelector('.sf-listen').disabled = !currentAnnouncement();
     icons(); fitNumbers();
     root.querySelectorAll('.sf-signature').forEach(logo => {
       let timer; logo.onpointerdown = () => { clearTimeout(timer); timer = setTimeout(() => call('settings').catch(fail), 1000); };
