@@ -19,11 +19,11 @@ class ReceiptIdentityTest {
 
     private class FakeReader(var liveTx: String?) {
         val calls = mutableListOf<JSONObject>()
-        var offline = false; var busy = 0; var scanReply: (JSONObject) -> JSONObject = { JSONObject().put("ok", true).put("status", "ACCEPTED") }
+        var offline = false; var busy = 0; var identity: String? = "tx-v1"; var scanReply: (JSONObject) -> JSONObject = { JSONObject().put("ok", true).put("status", "ACCEPTED") }
         var statusReply = JSONObject().put("ok", true).put("status", "ADDED").put("workday", "2026-11-01")
         var saved = JSONArray()
         fun post(url: String, b: JSONObject): JSONObject { calls += b; if (offline) throw Exception("offline"); return when (b.getString("mode")) {
-            "findReceipt" -> JSONObject().put("ok", true).put("number", b.getString("number")).put("receipts", JSONArray().apply {
+            "findReceipt" -> JSONObject().put("ok", true).put("number", b.getString("number")).apply { identity?.let { put("identity", it) } }.put("receipts", JSONArray().apply {
                 liveTx?.let { put(JSONObject().put("receiptId", "n:" + b.getString("number") + ":walk-in").put("txId", it)) } })
             "addScan" -> if (busy-- > 0) JSONObject().put("ok", false).put("retry", true)
                 else scanReply(b.getJSONObject("scan")).put("scanId", b.getJSONObject("scan").getString("scanId")).put("workday", "2026-11-01")
@@ -138,8 +138,17 @@ class ReceiptIdentityTest {
         assertEquals("0264", scan.getString("receipt")); assertEquals(txB, scan.getString("txId")); assertEquals("0264", i.receipt)
     }
 
+    @Test fun aReaderWithoutTheIdentityContractNeverBinds() {
+        val d = tmp.newFolder(); setup(d); val r = FakeReader(txB).apply { identity = null }
+        val f = Finishes(d, poster = r::post)
+        val i = f.addOrReuse("Andrei", "26600", resolved = f.resolve("26600"))!!
+        assertEquals("", i.expectedTx); assertFalse(i.bound)                                          // exactly as 0.56
+        f.sync(); assertFalse(r.of("addScan").single().getJSONObject("scan").has("txId"))
+        assertEquals(Finishes.Resolution(false), Finishes.resolution(JSONObject("{\"ok\":true,\"identity\":\"tx-v0\",\"receipts\":[{\"txId\":\"$txB\"}]}")))
+    }
+
     @Test fun onlyOneLiveReceiptBinds() {
-        fun res(a: String) = Finishes.resolution(JSONObject("{\"ok\":true,\"receipts\":$a}"))
+        fun res(a: String) = Finishes.resolution(JSONObject("{\"ok\":true,\"identity\":\"tx-v1\",\"receipts\":$a}"))
         assertEquals(Finishes.Resolution(true, txB), res("[{\"receiptId\":\"n:1:walk-in\",\"txId\":\"$txB\"}]"))
         assertEquals(Finishes.Resolution(true, ""), res("[{\"receiptId\":\"n:1:walk-in\"}]"))              // older sheet shape
         assertEquals(Finishes.Resolution(true, ""), res("[{\"txId\":\"$txA\"},{\"txId\":\"$txB\"}]"))      // several: the Reader decides

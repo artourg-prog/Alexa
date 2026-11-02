@@ -50,9 +50,13 @@ class Finishes(
 
         fun recorded(i: Item) = i.scan in SCAN_APPLIED && i.reportState == "RECORDED" && ReportConfirmation.validDay(i.workday)
 
-        /** findReceipt reply → the txId to bind. Only exactly one live receipt binds; 0 or 2+ leave the decision to the Reader. */
+        /** The Reader's receipt-identity contract (DR 6904a4a): a fresh event is bound only by a Reader that enforces it. */
+        const val IDENTITY = "tx-v1"
+
+        /** findReceipt reply → the txId to bind. Only exactly one live receipt binds; 0 or 2+ leave the decision to the Reader.
+         *  A Reader without identity "tx-v1" (older deployment) → unresolved: the event stays unbound, as in 0.56. */
         fun resolution(r: JSONObject): Resolution {
-            if (!r.optBoolean("ok", false)) return Resolution(false)
+            if (!r.optBoolean("ok", false) || r.optString("identity") != IDENTITY) return Resolution(false)
             val a = r.optJSONArray("receipts") ?: return Resolution(false)
             return Resolution(true, if (a.length() == 1) a.optJSONObject(0)?.optString("txId").orEmpty().trim() else "")
         }

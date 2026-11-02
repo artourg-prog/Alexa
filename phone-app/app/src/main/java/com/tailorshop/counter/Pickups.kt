@@ -33,8 +33,13 @@ class Pickups(
     private val poster: ((String, JSONObject) -> JSONObject)? = null, // tests: a fake server
 ) {
     // durable = this exact record (with its id) is in the queue file; not stored, true for everything read back.
+    // txn = the Txn of the row the person tapped (Pickups 25a539c), fixed when the tap is made and sent on every retry;
+    // "" for a tap made without one (column absent, or saved by 0.56): never given one later.
     data class Req(val id: String, val receipt: String, val at: Long, var sent: Boolean = false, var status: String = "",
-                   var resolved: Boolean = false, var sentAt: Long = 0L, var durable: Boolean = false)
+                   var resolved: Boolean = false, var sentAt: Long = 0L, var durable: Boolean = false, val txn: String = "") {
+        /** This tap is about that row: same number, and the same Txn whenever both are known (number only otherwise). */
+        fun about(receipt: String, txn: String) = this.receipt == Lookup.digits(receipt) && (this.txn.isEmpty() || txn.isEmpty() || this.txn == txn)
+    }
 
     /** What one sync found, for short messages: newly sent, confirmed by the tablet, needing a person, key refused. */
     data class Outcome(val sent: List<Req>, val confirmed: List<Req>, val problems: List<Req>, val denied: Boolean)
@@ -121,9 +126,13 @@ class Pickups(
     @Synchronized fun pending(): Set<String> =
         reqs.filter { !it.resolved && it.status !in UNRESOLVED }.map { it.receipt }.toSet()
 
-    /** The newest tap for a receipt, for the line under it. */
-    @Synchronized fun latest(receipt: String): Req? =
-        reqs.filter { it.receipt == Lookup.digits(receipt) }.maxByOrNull { it.at }?.copy()
+    /** A tap in progress or settled for this row (no new button for it). A reused number's B is not blocked by A's bound tap. */
+    @Synchronized fun pendingFor(receipt: String, txn: String): Boolean =
+        reqs.any { !it.resolved && it.status !in UNRESOLVED && it.about(receipt, txn) }
+
+    /** The newest tap for a receipt (and its Txn when known), for the line under it. */
+    @Synchronized fun latest(receipt: String, txn: String = ""): Req? =
+        reqs.filter { it.about(receipt, txn) }.maxByOrNull { it.at }?.copy()
 
     /** Taps a person must check, oldest first. */
     @Synchronized fun toCheck(now: Long = System.currentTimeMillis()): List<Req> =
@@ -133,10 +142,13 @@ class Pickups(
     @Synchronized fun dismiss(id: String) { reqs.firstOrNull { it.id == id }?.resolved = true; save() }
 
     /** A repeat tap retries the same durable request; a failed save never creates a second id. */
-    @Synchronized fun addOrReuse(receipt:String):Boolean {
+    /** Only a tap with the same Txn is reused: an old unbound tap is never given the new row's Txn. */
+    @Synchronized fun addOrReuse(receipt:String,txn:String=""):Boolean {
         val number=Lookup.digits(receipt)
-        val prior=reqs.lastOrNull { it.receipt==number && !it.resolved && it.status !in UNRESOLVED }
-        return if(prior!=null) prior.durable || save() else add(listOf(number))
+        val prior=reqs.lastOrNull { it.receipt==number && it.txn==txn && !it.resolved && it.status !in UNRESOLVED }
+        if(prior!=null) return prior.durable || save()
+        reqs += Req(UUID.randomUUID().toString(), number, System.currentTimeMillis(), txn = txn)
+        return save()
     }
 
     /** Saves the taps; false = couldn't save (the warning is shown). */
@@ -161,7 +173,8 @@ class Pickups(
         }
         for (r in todo.filter { !it.sent }) {
             val res = post(url, JSONObject().put("secret", secret).put("mode", "pickupRequest").put("requestId", r.id)
-                .put("receipt", r.receipt).put("revision", "").put("at", java.time.Instant.ofEpochMilli(r.at).toString()))
+                .put("receipt", r.receipt).put("revision", "").put("at", java.time.Instant.ofEpochMilli(r.at).toString())
+                .also { if (r.txn.isNotEmpty()) it.put("txnId", r.txn) })
             val result = res.optString("result")
             if (result == "DENIED") return out(true)
             val next = afterRequest(result) ?: continue
@@ -216,7 +229,7 @@ class Pickups(
             for (i in 0 until a.length()) a.getJSONObject(i).run {
                 // Older files lack "resolved"/"sentAt": read as not checked / unknown, nothing pending is lost.
                 reqs += Req(getString("id"), getString("receipt"), getLong("at"), optBoolean("sent"), optString("status"),
-                    optBoolean("resolved"), optLong("sentAt", if (optBoolean("sent")) getLong("at") else 0L), durable = true)
+                    optBoolean("resolved"), optLong("sentAt", if (optBoolean("sent")) getLong("at") else 0L), durable = true, txn = optString("txn"))
             }
         } catch (e: Exception) {
             reqs.clear()
@@ -231,7 +244,7 @@ class Pickups(
         if (queueBlocked) { saveFailed = true; return false }
         val a = JSONArray()
         reqs.forEach { a.put(JSONObject().put("id", it.id).put("receipt", it.receipt).put("at", it.at).put("sent", it.sent)
-            .put("status", it.status).put("resolved", it.resolved).put("sentAt", it.sentAt)) }
+            .put("status", it.status).put("resolved", it.resolved).put("sentAt", it.sentAt).put("txn", it.txn)) }
         val ok = try {
             FileOutputStream(tmpFile).use { it.write(a.toString().toByteArray()); it.fd.sync() }
             replace(tmpFile, queueFile)

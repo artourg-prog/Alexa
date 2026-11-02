@@ -113,7 +113,7 @@ class TouchActivity : Activity() {
                 }
                 "save", "pickup" -> writes.execute {
                     try {
-                        if (action == "save") saveWork(id, body) else savePickup(id, body.optString("number"))
+                        if (action == "save") saveWork(id, body) else savePickup(id, body.optString("number"), body.optString("txn"))
                     } catch (_: Exception) { reply(id, error("Could not save. Please try again.")) }
                 }
                 "status" -> {
@@ -166,7 +166,7 @@ class TouchActivity : Activity() {
         val nowShop = java.time.LocalDateTime.now(java.time.ZoneId.of("America/Los_Angeles"))
         reply(id, JSONObject().put("ok", true).put("receipts", JSONArray().apply {
             cards.forEach { card -> put(cardJson(card, action == "report" && results.isEmpty()).also { json ->
-                val tap = if (action == "find" && Lookup.digits(card.receipt) in pickups.pending()) pickups.latest(card.receipt) else null
+                val tap = if (action == "find" && pickups.pendingFor(card.receipt, card.txn)) pickups.latest(card.receipt, card.txn) else null
                 if (tap != null) json.put("pickupNote", Pickups.stateText(tap)) }) }
             extra.forEach { e -> put(cardJson(Card(e.receipt, e.customer, ""), false).put("ready", false)
                 .put("state", e.state.name).put("stateText", OrderIndex.stateText(e)).put("stale", OrderIndex.stale(e, nowShop))) }
@@ -175,7 +175,7 @@ class TouchActivity : Activity() {
 
     private fun cardJson(c: Card, unverified: Boolean = false) = JSONObject()
         .put("number", c.receipt).put("name", c.customer).put("total", c.total).put("work", c.work)
-        .put("ready", c.ready).put("pay", c.pay.name).put("unverified", unverified)
+        .put("ready", c.ready).put("pay", c.pay.name).put("unverified", unverified).put("txn", c.txn)
 
     private fun saveWork(id: String, body: JSONObject) {
         val worker = body.optString("worker"); val number = body.optString("number")
@@ -198,13 +198,15 @@ class TouchActivity : Activity() {
         .put("recorded",Finishes.recorded(i)).put("workday",i.workday)
         .put("reportState",i.reportState).put("reportReason",i.reportReason)
 
-    private fun savePickup(id: String, number: String) {
+    private fun savePickup(id: String, number: String, txn: String) {
         if (!pickups.configured()) { reply(id, error("Pickup connection is not configured.")); return }
+        // The tapped card's Txn must still be the row in the list: a reused number's new receipt is never marked for the old one.
         val matches = orders.filter { Lookup.digits(it.receipt) == number }
-            .distinctBy { listOf(Lookup.digits(it.receipt), Lookup.digits(it.phone), it.customer) }
+            .distinctBy { listOf(Lookup.digits(it.receipt), Lookup.digits(it.phone), it.customer, it.txn) }
         if (matches.size != 1 || !matches.single().ready) { reply(id, error("Pickup is unavailable or ambiguous. Check the order.")); return }
-        if (!pickups.addOrReuse(number)) { reply(id, error("Pickup not saved on this phone. Please retry.")); return }
-        val request = pickups.latest(number)!!
+        if (matches.single().txn != txn) { reply(id, error("This order changed. Look it up again.")); return }
+        if (!pickups.addOrReuse(number, txn)) { reply(id, error("Pickup not saved on this phone. Please retry.")); return }
+        val request = pickups.latest(number, txn)!!
         reply(id, JSONObject().put("ok", true).put("number", number).put("status", request.status)
             .put("message", Pickups.stateText(request)))
         synchronizeQueues()

@@ -11,12 +11,13 @@ import java.text.Normalizer
 // (Art's rule), so a filled M.T. = ready for pickup, blank = not finished yet.
 
 data class Order(val receipt: String, val customer: String, val phone: String, val date: String, val ready: Boolean = false,
-                 val pay: Pay = Pay.UNKNOWN, val tailor: String = "", val total: String = "", val work: String = "")
+                 val pay: Pay = Pay.UNKNOWN, val tailor: String = "", val total: String = "", val work: String = "",
+                 val txn: String = "") // hidden "Txn" column (Pickups 25a539c): the receipt's stable id; "" until it exists
 
 // tailor / total / date / work are only for Sofia's follow-up answers (never the customer or phone).
 data class Card(val receipt: String, val customer: String, val phone: String, val ready: Boolean = false,
                 val pay: Pay = Pay.UNKNOWN, val tailor: String = "", val total: String = "", val date: String = "",
-                val work: String = "")
+                val work: String = "", val txn: String = "")
 
 /** Follow-up questions about the receipt on screen (Art): tailor, amount, paid or due, drop-off date, work. */
 enum class Topic { TAILOR, AMOUNT, PAY, DATE, WORK }
@@ -42,6 +43,7 @@ object Lookup {
         "payment" to listOf("payment type", "payment_type", "payment"),
         "total" to listOf("total"),
         "work" to listOf("description", "work"),
+        "txn" to listOf("txn"),
     )
 
     private val PAID_WORDS = listOf("card", "cash", "zelle", "venmo", "check", "paid")
@@ -82,7 +84,7 @@ object Lookup {
             val receipt = cell(row, r)
             if (receipt.isEmpty()) null
             else Order(receipt, cell(row, idx["customer"]), cell(row, p), cell(row, idx["date"]), cell(row, idx["tailor"]).isNotEmpty() || cell(row, idx["source"]).equals("Old Receipts", ignoreCase=true),
-                payOf(cell(row, idx["payment"])), cell(row, idx["tailor"]), cell(row, idx["total"]), cell(row, idx["work"]))
+                payOf(cell(row, idx["payment"])), cell(row, idx["tailor"]), cell(row, idx["total"]), cell(row, idx["work"]), cell(row, idx["txn"]))
         }
     }
 
@@ -414,7 +416,7 @@ object Lookup {
         }
         return hits
             .sortedWith(compareByDescending<Order> { dateKey(it.date) }.thenByDescending { digits(it.receipt).toLongOrNull() ?: 0L })
-            .map { Card(it.receipt, it.customer, prettyPhone(it.phone), it.ready, it.pay, it.tailor, it.total, it.date, it.work) }
+            .map { Card(it.receipt, it.customer, prettyPhone(it.phone), it.ready, it.pay, it.tailor, it.total, it.date, it.work, it.txn) }
     }
 
     fun findAll(said: String, orders: List<Order>): List<Card> =
