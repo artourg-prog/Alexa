@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 57 // reviewed Touch UI, voice and navigation repair
-        versionName = "0.57"
+        versionCode = 58 // Find label on phone search keypad
+        versionName = "0.58"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

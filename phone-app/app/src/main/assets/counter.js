@@ -118,6 +118,7 @@
   function bindKeys() {
     const input = body.querySelector('.sf-digits'), enter = body.querySelector('.sf-find');
     const phoneMode = state.flow === 'lookup'; input.maxLength = phoneMode ? 4 : 9; input.value = state.digits;
+    enter.firstChild.textContent = phoneMode ? 'Find' : 'Enter';
     input.placeholder = phoneMode ? '····' : '········'; input.setAttribute('aria-label', phoneMode ? 'Last four phone digits' : 'Receipt number');
     const sync = () => { state.digits = input.value.replace(/[^0-9]/g, '').slice(0, phoneMode ? 4 : 9); input.value = state.digits; enter.disabled = phoneMode ? state.digits.length !== 4 : state.digits.length < 3; };
     input.oninput = sync; input.onkeydown = event => { if (event.key === 'Enter' && !enter.disabled) find(); };
