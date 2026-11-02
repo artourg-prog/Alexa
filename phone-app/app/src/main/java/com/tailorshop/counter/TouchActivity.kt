@@ -231,6 +231,7 @@ class TouchActivity : Activity() {
         .put("smsRequested", i.sendSms).put("sms", i.sms).put("scanText", Finishes.scanText(i, false))
         .put("smsText", Finishes.smsText(i, false)).put("reason", i.reason)
         .put("recorded",Finishes.recorded(i)).put("workday",i.workday)
+        .put("receiptNotFound", Finishes.receiptNotFound(i))
         .put("reportState",i.reportState).put("reportReason",i.reportReason)
 
     private fun savePickup(id: String, number: String, txn: String) {

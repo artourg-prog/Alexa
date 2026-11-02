@@ -6,7 +6,7 @@
       <header class="sf-top"><button class="sf-home cursor-interaction" type="button" aria-label="На главный экран"><i data-lucide="house" aria-hidden="true"></i></button><div><strong>SOFIA</strong><small>24 HOUR TAILORING</small></div><button class="sf-sound cursor-interaction" type="button" aria-pressed="true" aria-label="Выключить озвучивание"><i data-lucide="volume-2" aria-hidden="true"></i></button></header>
       <div class="sf-body" aria-live="polite"></div>
       <div class="sf-speech" hidden><div class="sf-speech-label"><i data-lucide="volume-2" aria-hidden="true"></i>Голос Софии<button class="sf-repeat cursor-interaction" type="button">Повторить</button></div><p class="sf-spoken"></p></div>
-      <footer><button class="sf-back cursor-interaction" type="button"><i data-lucide="arrow-left" aria-hidden="true"></i>Back</button><button class="sf-listen cursor-interaction" type="button" aria-label="Listen to announcement" disabled><svg class="sf-speaking-person" viewBox="0 0 40 32" width="32" height="32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M26 29v-6c6-2 10-7 10-12C36 5 32 2 26 2s-10 4-10 10l-4 6h5v4c0 2 2 3 5 3v4"/><path d="M17 21h4M9 14c-2 2-2 6 0 8M5 10c-5 5-5 13 0 18"/><circle cx="21" cy="11" r="1" fill="currentColor" stroke="none"/></svg>Listen</button></footer><p class="sf-voice-note" role="status" hidden></p>
+      <footer><button class="sf-back cursor-interaction" type="button"><i data-lucide="arrow-left" aria-hidden="true"></i>Back</button><button class="sf-listen cursor-interaction" type="button" aria-label="Listen to announcement" disabled><i data-lucide="volume-2" aria-hidden="true"></i>Listen</button></footer><p class="sf-voice-note" role="status" hidden></p>
     </article>
   </div>
   <template id="sf-home-screen"><div class="sf-welcome"><h1 class="sf-signature">Sofia</h1><p class="sf-hello">Hello</p></div><div class="sf-two sf-home-actions"><button type="button" class="sf-action violet cursor-interaction" data-go="report"><i data-lucide="notebook-pen" aria-hidden="true"></i><strong>Daily Report</strong></button><button type="button" class="sf-action green cursor-interaction" data-go="lookup"><i data-lucide="search" aria-hidden="true"></i><strong>Find</strong></button></div></template>
@@ -175,7 +175,7 @@
 #sofia-touch-review .sf-find.violet{background:#ddd0f1}
 #sofia-touch-review .sf-find:disabled{opacity:1;background:#dce4df;color:#34433a;border:2px solid #97a69d}
 #sofia-touch-review .sf-listen{display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;min-width:120px;padding:6px 14px;border:2px solid #9fbcaa;border-radius:14px;background:#fff;color:#111;font-size:20px;font-weight:750;box-shadow:0 3px 0 #ccdbd0}
-#sofia-touch-review .sf-listen .sf-speaking-person{width:32px;height:32px;flex-shrink:0}
+#sofia-touch-review .sf-listen .sf-icon{font-size:28px;line-height:1;min-width:28px}
 #sofia-touch-review .sf-listen:disabled{opacity:1;background:#e4e9e5;color:#647269;border-color:#b9c3bc;box-shadow:none}
 #sofia-touch-review .sf-listen:focus-visible{outline:4px solid #234d3c;outline-offset:3px}
 #sofia-touch-review .sf-voice-note{padding:4px 14px;background:#fff;flex-shrink:0}
@@ -309,8 +309,15 @@ html,body{height:100%;margin:0;overflow:hidden}
 #sofia-touch-review .sf-find.violet{background:#ddd0f1}
 #sofia-touch-review .sf-find:disabled{opacity:1;background:#dce4df;color:#34433a;border:2px solid #97a69d}
 #sofia-touch-review .sf-listen{display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;min-width:120px;padding:6px 14px;border:2px solid #9fbcaa;border-radius:14px;background:#fff;color:#111;font-size:20px;font-weight:750;box-shadow:0 3px 0 #ccdbd0}
-#sofia-touch-review .sf-listen .sf-speaking-person{width:32px;height:32px;flex-shrink:0}
+#sofia-touch-review .sf-listen .sf-icon{font-size:28px;line-height:1;min-width:28px}
 #sofia-touch-review .sf-listen:disabled{opacity:1;background:#e4e9e5;color:#647269;border-color:#b9c3bc;box-shadow:none}
 #sofia-touch-review .sf-listen:focus-visible{outline:4px solid #234d3c;outline-offset:3px}
 #sofia-touch-review .sf-voice-note{padding:4px 14px;background:#fff;flex-shrink:0}
+
+/* Owner: same sound symbol as the old header, large worker/date, clear receipt miss. */
+#sofia-touch-review .sf-top{display:none!important}
+#sofia-touch-review .sf-worker-chip{font-size:26px;font-weight:750;padding:12px 16px;justify-content:center;color:#39254d}
+#sofia-touch-review .sf-worker-chip .sf-icon,#sofia-touch-review .sf-worker-chip svg{font-size:26px;width:26px;height:26px}
+#sofia-touch-review .sf-today,#sofia-touch-review .sf-work-date{font-size:22px;font-weight:700}
+#sofia-touch-review .sf-busy-title.sf-not-found{font-size:clamp(30px,6vh,52px);font-weight:800;color:#8f1d26}
 </style><script src="receipt-icons.js"></script><script src="counter.js"></script></body></html>

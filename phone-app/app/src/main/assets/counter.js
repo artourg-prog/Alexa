@@ -159,15 +159,20 @@
         }
       } else {
         if (state.step !== 'busy') { state.step = 'busy'; render(); } // update in place: Back is never replaced mid-tap
-        const message = item.scan === 'REJECTED' || item.scan === 'HELD' ? item.scanText : tabletApplied ? 'Saving Daily Report…' : 'Waiting for the tablet…';
-        body.querySelector('.sf-busy-title').textContent = message;
+        const missing = item.receiptNotFound === true;
+        const message = missing ? 'NOT FOUND' : item.scan === 'REJECTED' || item.scan === 'HELD' ? item.scanText : tabletApplied ? 'Saving Daily Report…' : 'Waiting for the tablet…';
+        const title = body.querySelector('.sf-busy-title');
+        title.textContent = message; title.className = 'sf-busy-title' + (missing ? ' sf-not-found' : '');
         const line = body.querySelector('.sf-busy p');
-        line.textContent = [item.reportReason || 'Saved only after confirmation for this worker and day.', item.smsRequested ? item.smsText : ''].filter(Boolean).join(' · ');
+        line.textContent = missing ? 'Receipt not found in the master list. Check the receipt number.'
+          : [item.reportReason || 'Saved only after confirmation for this worker and day.', item.smsRequested ? item.smsText : ''].filter(Boolean).join(' · ');
         if (item.scan === 'REJECTED' || item.scan === 'HELD') { clearInterval(polling); polling = null; }
         else if (Date.now() - state.checkStartedAt > 90000) {
           clearInterval(polling); polling = null;
-          body.querySelector('.sf-busy-title').textContent = 'Daily Report not confirmed';
-          line.textContent = 'Check Daily Report on the tablet. This request is retained; do not enter it again. Back lets you continue with another receipt.';
+          if (!missing) {
+            title.textContent = 'Daily Report not confirmed';
+            line.textContent = 'Check Daily Report on the tablet. This request is retained; do not enter it again. Back lets you continue with another receipt.';
+          }
         }
       }
     } catch (error) { if (rev === revision) fail(error); } finally { if (checking === rev) checking = -1; }

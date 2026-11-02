@@ -50,6 +50,10 @@ class Finishes(
 
         fun recorded(i: Item) = i.scan in SCAN_APPLIED && i.reportState == "RECORDED" && ReportConfirmation.validDay(i.workday)
 
+        /** An explicit Reader miss in the master list, not a network error or a missing saved report. */
+        fun receiptNotFound(i: Item) = i.scan == "UNVERIFIED" &&
+            i.reason.startsWith("UNVERIFIED: receipt ${i.receipt} is not in 2026 RECEIPTS")
+
         /** The Reader's receipt-identity contract (DR 6904a4a): a fresh event is bound only by a Reader that enforces it. */
         const val IDENTITY = "tx-v1"
 
