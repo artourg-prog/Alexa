@@ -36,15 +36,24 @@
   function voiceNote(text) { const note = root.querySelector('.sf-voice-note'); note.textContent = text; note.hidden = !text; }
   window.counterVoice = voiceNote;
   function currentAnnouncement() {
+    if (state.step === 'home') return { voice: 'sofia', text: 'Здравствуйте. Выберите дневной отчёт, чтобы записать работу, или поиск, чтобы найти заказ.' };
+    if (state.step === 'keypad') return { voice: 'sofia', text: (state.flow === 'report' ? 'Введите номер квитанции.' : 'Введите последние четыре цифры телефона.')
+      + (state.digits ? ' Введено: ' + state.digits.split('').join(' ') + '.' : '') };
+    if (state.step === 'matches') return { voice: 'sofia', text: 'Найдено квитанций: ' + state.matches.length + '. Выберите нужную квитанцию.' };
+    if (state.step === 'report-result' && state.event) return { voice: 'sofia', text: (state.event.recorded === true ? 'Записано.' : 'Сохранение не подтверждено.')
+      + ' Квитанция ' + String(state.event.number || '').split('').join(' ') + '. Работник ' + (state.event.worker || state.worker) + '.' };
+    if (state.step === 'busy' && !state.selected) return { voice: 'sofia', text: (state.flow === 'report' ? 'Ищу квитанцию.' : 'Ищу заказ по последним четырём цифрам телефона.')
+      + (state.digits ? ' Номер: ' + state.digits.split('').join(' ') + '.' : '') + ' Пожалуйста, подождите.' };
     if (state.flow === 'report' && state.selected && !['home', 'keypad', 'matches', 'report-result'].includes(state.step)) {
       const item = state.selected, digits = item.number.split('').join(' '), worker = state.worker || (state.event && state.event.worker) || '';
       if (item.pay === 'DUE') return { voice: 'male-en', text: 'Receipt ' + digits + '. '
         + (worker ? 'Worker: ' + worker + '. ' : 'Choose a worker. ')
         + (item.due ? 'Outstanding balance due: ' + item.due + '.' : 'Outstanding balance is due. The amount due is not shown; check the receipt.') };
       return { voice: 'sofia', text: 'Квитанция ' + digits + '. ' + (worker ? 'Работник ' + worker + '.' : 'Выберите работника.')
-        + (state.event && state.event.receiptNotFound === true ? ' Квитанция не найдена.' : '') };
+        + (state.event && state.event.receiptNotFound === true ? ' Квитанция не найдена.' : state.step === 'busy' ? ' Ожидаю подтверждения.' : '') };
     }
-    return state.spoken ? { text: state.spoken, voice: state.spokenVoice || 'sofia' } : null;
+    return state.spoken ? { text: state.spoken, voice: state.spokenVoice || 'sofia' }
+      : { text: 'Выберите действие на экране.', voice: 'sofia' };
   }
   function listen() {
     const announcement = currentAnnouncement(); if (!announcement) return;
@@ -165,7 +174,7 @@
         if (smsDone) { clearInterval(polling); polling = null; }
         state.step = 'report-result'; render();
         if (firstConfirmation) {
-          say('Recorded. Квитанция ' + item.number + '. Записано на имя ' + item.worker + '.' + (item.smsRequested && item.sms === 'SENT' ? ' Сообщение клиенту отправлено.' : !item.smsRequested ? ' Без SMS.' : ''));
+          say('Записано. Квитанция ' + item.number.split('').join(' ') + '. Работник ' + item.worker + '.' + (item.smsRequested && item.sms === 'SENT' ? ' Сообщение клиенту отправлено.' : !item.smsRequested ? ' Без сообщения клиенту.' : ''));
           returnTimer = setTimeout(home, 25000);
         }
       } else {
