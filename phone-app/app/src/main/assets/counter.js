@@ -213,14 +213,14 @@
         title.textContent = message; title.className = 'sf-busy-title' + (missing ? ' sf-not-found' : '');
         const line = body.querySelector('.sf-busy p');
         line.textContent = missing ? 'Receipt not found in the master list. Check the receipt number.'
-          : [item.reportReason || 'Saved only after confirmation for this worker and day.', item.smsRequested ? item.smsText : ''].filter(Boolean).join(' · ');
-        if (item.scan === 'REJECTED' || item.scan === 'HELD') { clearInterval(polling); polling = null; }
+          : ['#' + item.number + ' for ' + item.worker, item.reportReason || 'Saved only after confirmation for this worker and day.', item.smsRequested ? item.smsText : ''].filter(Boolean).join(' · ');
+        // The first entry is followed until the Reader confirms it (owner 11-02, 26448: 0.64 stopped checking after 90 s and
+        // said "not confirmed", so it took a second entry to see Recorded). The phone keeps checking the same saved event
+        // (same scan id; nothing is sent again from here); a long wait says so, and Recorded still appears by itself.
+        if (item.scan === 'REJECTED' || item.scan === 'HELD' || missing) { clearInterval(polling); polling = null; }
         else if (Date.now() - state.checkStartedAt > 90000) {
-          clearInterval(polling); polling = null;
-          if (!missing) {
-            title.textContent = 'Daily Report not confirmed';
-            line.textContent = 'Check Daily Report on the tablet. This request is retained; do not enter it again. Back lets you continue with another receipt.';
-          }
+          title.textContent = 'Still waiting for Daily Report';
+          line.textContent = '#' + item.number + ' for ' + item.worker + ' is kept on this phone and still being checked — no need to enter it again. It will say Recorded here when the tablet saves it.';
         }
       }
     } catch (error) { if (rev === revision) fail(error); } finally { if (checking === rev) checking = -1; }
@@ -244,17 +244,34 @@
       logo.oncontextmenu = event => event.preventDefault();
     });
   }
+  // Home: today's Daily Report entries from this phone, with the saved time only as the Reader reports it (owner 11-02).
+  async function loadOverview() {
+    const rev = revision;
+    try {
+      const result = await call('overview'); if (rev !== revision || state.step !== 'home') return;
+      const list = body.querySelector('.sf-overview-report'); if (!list) return;
+      list.replaceChildren(...result.report.map(entry => {
+        const li = document.createElement('li'); li.className = entry.recorded ? 'is-recorded' : '';
+        const n = document.createElement('strong'); n.textContent = entry.number;
+        const w = document.createElement('span'); w.textContent = entry.worker;
+        const t = document.createElement('small'); t.textContent = entry.line;
+        li.append(n, w, t); return li;
+      }));
+      body.querySelector('.sf-overview-empty').hidden = result.report.length > 0;
+    } catch (_) { const empty = body.querySelector('.sf-overview-empty'); if (empty) { empty.hidden = false; empty.textContent = 'List unavailable right now.'; } }
+  }
   function render() {
     const step = state.step;
     if (step === 'home') {
       body.replaceChildren(clone('sf-home-screen'));
       body.querySelectorAll('[data-go]').forEach(button => button.onclick = () => { ++revision; clearTimers(); state.flow = button.dataset.go; state.digits = ''; change('keypad'); });
+      clearInterval(polling); polling = setInterval(loadOverview, 5000); loadOverview();
     } else if (step === 'keypad') {
       body.replaceChildren(clone('sf-keypad-screen')); body.querySelector('.sf-keypad-heading').textContent = state.flow === 'report' ? 'Please enter receipt number' : 'Please enter last four';
       body.querySelector('.sf-find').classList.toggle('violet', state.flow === 'report'); body.querySelector('.sf-find').classList.toggle('green', state.flow === 'lookup'); bindKeys();
     } else if (step === 'matches') {
       body.replaceChildren(clone('sf-matches-screen')); body.querySelector('.sf-flow-name').textContent = 'CHOOSE RECEIPT'; body.querySelector('.sf-match-count').textContent = state.matches.length + ' receipts';
-      state.matches.forEach(item => { const entry = clone('sf-match-item'); entry.querySelector('.sf-match-number').textContent = item.number; entry.querySelector('.sf-match-customer').textContent = item.name || ''; entry.querySelector('.sf-match-work').remove(); entry.querySelector('.sf-match-total').textContent = item.total || ''; entry.querySelector('.sf-match').classList.toggle('sf-unpaid', item.pay === 'DUE'); entry.querySelector('button').onclick = () => select(item); body.querySelector('.sf-matches').append(entry); });
+      state.matches.forEach(item => { const entry = clone('sf-match-item'); entry.querySelector('.sf-match-number').textContent = item.number; entry.querySelector('.sf-match-customer').textContent = item.name || ''; entry.querySelector('.sf-match-work').remove(); const pick = entry.querySelector('.sf-match-pickup'); if (item.pickupLine) { pick.textContent = item.pickupLine; pick.classList.toggle('is-picked', /^Picked up/.test(item.pickupLine)); pick.classList.toggle('is-unsure', /unavailable|conflicting/.test(item.pickupLine)); } else pick.remove(); entry.querySelector('.sf-match-total').textContent = item.total || ''; entry.querySelector('.sf-match').classList.toggle('sf-unpaid', item.pay === 'DUE'); entry.querySelector('button').onclick = () => select(item); body.querySelector('.sf-matches').append(entry); });
     } else if (step === 'order') {
       body.replaceChildren(clone('sf-order-screen')); body.querySelector('.sf-detail-slot').append(receipt()); body.querySelector('.sf-pickup').disabled = !state.selected.ready || !!state.selected.pickupNote;
       body.querySelector('.sf-pickup').onclick = pickup; body.querySelector('.sf-not-picked-up').onclick = () => { home(); say('Not picked up. Заказ остаётся в списке готовых к выдаче.'); };

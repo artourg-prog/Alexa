@@ -156,6 +156,7 @@ class TouchActivity : Activity() {
                     reply(id, event?.let(::finishJson) ?: error("Saved request unavailable. Check pending work."))
                 }
                 "queue" -> reply(id, queueJson())
+                "overview" -> reply(id, overviewJson())
                 "dismiss" -> saves.execute {
                     val ok = finishes.dismiss(body.optString("id"))
                     reply(id, if (ok) queueJson() else error("Couldn't mark it reviewed. Nothing was changed."))
@@ -208,15 +209,19 @@ class TouchActivity : Activity() {
         // Find also lists the same digits from the Order Index when they aren't in the ready list, each with its own
         // state (not ready + promised time / already picked up / unknown). Picked up stays ready-list only.
         if (action == "find") refreshIndex()
+        val readyFresh = !offline
+        fun sameNumber(r: String) = index.filter { Lookup.digits(it.receipt) == Lookup.digits(r) && Lookup.digits(it.phone).takeLast(4) == number }
         val extra = if (action == "find") OrderIndex.find(number, index).filter { e -> results.none { Lookup.digits(it.receipt) == Lookup.digits(e.receipt) } } else emptyList()
         val nowShop = java.time.LocalDateTime.now(java.time.ZoneId.of("America/Los_Angeles"))
         reply(id, JSONObject().put("ok", true).put("receipts", JSONArray().apply {
             cards.forEach { card -> put(cardJson(card, action == "report" && results.isEmpty()).also { json ->
                 val tap = if (action == "find" && pickups.pendingFor(card.receipt, card.txn)) pickups.latest(card.receipt, card.txn) else null
-                if (tap != null) json.put("pickupNote", Pickups.stateText(tap)) }) }
+                if (tap != null) json.put("pickupNote", Pickups.stateText(tap))
+                if (action == "find") json.put("pickupLine", tap?.let(Pickups::stateText) ?: OrderIndex.pickupLine(true, readyFresh, indexFresh, sameNumber(card.receipt))) }) }
             extra.forEach { e -> put(cardJson(Card(e.receipt, e.customer, ""), false).put("ready", false)
                 .put("state", e.state.name).put("stateText", OrderIndex.stateText(e) + if (indexFresh) "" else " · couldn't refresh, may be out of date")
-                .put("stale", indexFresh && e.state != OrderIndex.State.COLLECTED && OrderIndex.stale(e, nowShop))) }
+                .put("stale", indexFresh && e.state != OrderIndex.State.COLLECTED && OrderIndex.stale(e, nowShop))
+                .put("pickupLine", OrderIndex.pickupLine(false, readyFresh, indexFresh, listOf(e)))) }
         }).put("offline", offline).put("loadedAt", loadedAt))
     }
 
@@ -277,12 +282,29 @@ class TouchActivity : Activity() {
             .put("warning", problems.joinToString("\n")).put("dismiss", dismiss)
     }
 
+    /** Home overview: today's Daily Report entries made on this phone, newest first. Saved time only from the Reader. */
+    private fun overviewJson(): JSONObject {
+        val zone = java.time.ZoneId.of("America/Los_Angeles"); val today = java.time.LocalDate.now(zone)
+        val list = finishes.all().filter { java.time.Instant.ofEpochMilli(it.createdMs).atZone(zone).toLocalDate() == today }
+            .sortedByDescending { it.createdMs }.take(30)
+        return JSONObject().put("ok", true).put("report", JSONArray(list.map { i ->
+            JSONObject().put("number", i.receipt).put("worker", i.worker).put("recorded", Finishes.recorded(i))
+                .put("line", Finishes.overviewLine(i)) }))
+    }
+
     private fun synchronizeQueues() {
         if (!syncing.compareAndSet(false, true)) return
         writes.execute {
-            try { runCatching { finishes.sync() }; runCatching { pickups.sync() } }
+            try { runCatching { finishes.sync().forEach(::logPhases) }; runCatching { pickups.sync() } }
             finally { syncing.set(false) }
         }
+    }
+
+    // Phase timings for a slow confirmation (owner 11-02, 26448), seconds after the entry: accepted / applied / confirmed.
+    private fun logPhases(i: Finishes.Item) {
+        fun s(ms: Long) = if (ms == 0L) "-" else ((ms - i.createdMs) / 1000).toString()
+        android.util.Log.d("TailorCounter", "report phases ${i.scanId.take(8)}: accepted=${s(i.sentMs)}s applied=${s(i.appliedMs)}s " +
+            "confirmed=${s(if (Finishes.recorded(i)) i.confirmedMs else 0)}s scan=${i.scan} report=${i.reportState}")
     }
 
     private fun voiceProblem(message: String) {

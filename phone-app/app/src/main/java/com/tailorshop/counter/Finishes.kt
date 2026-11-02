@@ -37,6 +37,9 @@ class Finishes(
         // retry, report check and SMS request. An event saved offline or by an older version stays unbound ("") and is
         // never given a txId later: the Reader's reuse fence decides it. replyTx = the txId the Reader answered.
         val expectedTx: String = "", val bound: Boolean = false, var replyTx: String = "",
+        // Phase times (owner 11-02, 26448: measure before optimizing): Reader first accepted the scan / tablet applied it.
+        // savedAt = the Reader's own "Saved at" of the confirming record, shop time; "" when not reported (never our clock).
+        var sentMs: Long = 0, var appliedMs: Long = 0, var savedAt: String = "",
     )
 
     /** findReceipt's answer: ok = the Reader was reached; txId = the one live receipt's txId ("" when none, several or none carried). */
@@ -46,7 +49,7 @@ class Finishes(
         val SCAN_FINAL = setOf("ADDED", "ALREADY", "REJECTED", "HELD")
         val SCAN_APPLIED = setOf("ADDED", "ALREADY")
         val SMS_FINAL = setOf("SENT", "FAILED", "NO_PHONE", "BAD_PHONE", "AMBIGUOUS", "NOT_FOUND", "UNSURE", "REJECTED")
-        private const val TIMEOUT_MS = 10_000
+        private const val TIMEOUT_MS = 25_000 // Apps Script can take over 10 s on a cold start; every call is safe to repeat
 
         fun recorded(i: Item) = i.scan in SCAN_APPLIED && i.reportState == "RECORDED" && ReportConfirmation.validDay(i.workday)
 
@@ -101,6 +104,13 @@ class Finishes(
             "SENT" -> "SMS sent"; "", "REQUESTED", "QUEUED", "SENDING" -> "SMS: waiting to send"
             "HELD" -> "SMS: held (quiet hours)"; "UNSURE" -> "SMS: not confirmed"
             else -> "SMS not sent: ${i.sms}"
+        }
+
+        /** One line for the home Daily Report list: the Reader's saved time, or "save time not reported" — never our clock. */
+        fun overviewLine(i: Item): String = when {
+            recorded(i) -> "Saved" + if (i.savedAt.isNotBlank()) " · ${i.savedAt}" else " · save time not reported"
+            i.scan == "REJECTED" || i.scan == "HELD" || receiptNotFound(i) -> scanText(i, false)
+            else -> "Waiting for Daily Report confirmation"
         }
 
         fun dollars(cents: Long) = "$" + (cents / 100) + "." + (cents % 100).toString().padStart(2, '0')
@@ -219,7 +229,7 @@ class Finishes(
                     .also { if (i.expectedTx.isNotEmpty()) it.put("txId", i.expectedTx) }
                 val r = post(url, JSONObject().put("secret", secret).put("mode", "addScan").put("scan", scan))
                 if (!r.optBoolean("ok", false)) { if (!r.optBoolean("retry", false)) synchronized(this) { i.reason = r.optString("error") }; continue }
-                synchronized(this) { applyScan(i, r) }
+                synchronized(this) { if (i.sentMs == 0L) i.sentMs = System.currentTimeMillis(); applyScan(i, r) }
             } else if (i.scan !in SCAN_FINAL || reportPending(i) && !ReportConfirmation.validDay(i.workday)) {
                 val r = post(url, JSONObject().put("secret", secret).put("mode", "scanStatus").put("scanId", i.scanId))
                 if (r.optBoolean("ok", true)) synchronized(this) { applyScan(i, r) }
@@ -231,8 +241,10 @@ class Finishes(
                     val r=post(url,JSONObject().put("secret",secret).put("mode","receiptReportStatus").put("number",i.receipt)
                         .also { if(i.expectedTx.isNotEmpty())it.put("receiptId",i.expectedTx) })
                     synchronized(this) {
-                        if(ReportConfirmation.matches(r,i.workday,i.worker,i.expectedTx)) {
+                        val record=ReportConfirmation.match(r,i.workday,i.worker,i.expectedTx)
+                        if(record!=null) {
                             i.reportState="RECORDED";i.reportReason="";i.confirmedMs=System.currentTimeMillis()
+                            i.savedAt=ReportConfirmation.savedAt(record)
                         } else {
                             i.reportState=if(r.optBoolean("ok",false))"WAITING" else "UNCONFIRMED"
                             i.reportReason=if(r.optBoolean("ok",false))"Not in the saved worker/day report yet" else "Could not verify Daily Report save"
@@ -273,6 +285,7 @@ class Finishes(
             return
         }
         r.optString("status").takeIf { it.isNotEmpty() }?.let { i.scan = it }
+        if (i.scan in SCAN_APPLIED && i.appliedMs == 0L) i.appliedMs = System.currentTimeMillis()
         i.reason = r.optString("reason", i.reason)
         if (r.has("appliedCents")) i.appliedCents = r.optLong("appliedCents", -1)
         r.optString("receiptId").takeIf { it.isNotEmpty() }?.let { i.receiptId = it }
@@ -327,7 +340,8 @@ class Finishes(
                     optBoolean("sendSms"), optString("scan"), optString("reason"), optLong("appliedCents", -1), optString("receiptId"),
                     optString("smsId"), optString("sms"), durable = true,
                     workday=optString("workday"),reportState=optString("reportState"),reportReason=optString("reportReason"),confirmedMs=optLong("confirmedMs",0),
-                    expectedTx=optString("expectedTx"),bound=optBoolean("bound"),replyTx=optString("replyTx"))
+                    expectedTx=optString("expectedTx"),bound=optBoolean("bound"),replyTx=optString("replyTx"),
+                    sentMs=optLong("sentMs"),appliedMs=optLong("appliedMs"),savedAt=optString("savedAt"))
             }
         } catch (e: Exception) {
             items.clear() // a partially parsed file must not masquerade as a complete recovered queue
@@ -342,6 +356,7 @@ class Finishes(
         .put("smsId", it.smsId).put("sms", it.sms).put("workday",it.workday).put("reportState",it.reportState)
         .put("reportReason",it.reportReason).put("confirmedMs",it.confirmedMs)
         .put("expectedTx",it.expectedTx).put("bound",it.bound).put("replyTx",it.replyTx)
+        .put("sentMs",it.sentMs).put("appliedMs",it.appliedMs).put("savedAt",it.savedAt)
 
     private fun save(): Boolean {
         if(recoveryBlocked) { saveFailed=true;return false }

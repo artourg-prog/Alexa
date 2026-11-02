@@ -86,6 +86,22 @@ object OrderIndex {
         return out
     }
 
+    /**
+     * The pickup line on a Choose-the-receipt card (owner 11-02, read-only). [inReady] = the card is a row of the ready
+     * list; [rows] = Order Index / Picked Up rows with the same receipt number. "Not picked up" only when both reads are
+     * fresh; a picked-up row beside a ready row is a conflict, never resolved by guessing; a missing time stays unknown.
+     */
+    fun pickupLine(inReady: Boolean, readyFresh: Boolean, indexFresh: Boolean, rows: List<Entry>): String {
+        val collected = rows.filter { it.state == State.COLLECTED }
+        if (inReady && collected.isNotEmpty()) return "Pickup status conflicting — check the tablet"
+        collected.firstOrNull { it.collectedAt.isNotBlank() }?.let { return "Picked up · ${pretty(it.collectedAt)}" }
+        if (collected.isNotEmpty()) return "Picked up · pickup time unknown"
+        val fresh = readyFresh && indexFresh
+        if (!fresh) return "Pickup status unavailable — couldn't refresh"
+        if (inReady || rows.any { it.state == State.READY || it.state == State.NOT_READY }) return "Not picked up"
+        return "Pickup status unavailable"
+    }
+
     /** True when the index row is older than 24 h ("Updated At" in shop time, YYYY-MM-DD HH:MM). */
     fun stale(e: Entry, nowShop: java.time.LocalDateTime): Boolean {
         val m = Regex("^(\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{1,2}):(\\d{2})").find(e.updatedAt.trim()) ?: return true
