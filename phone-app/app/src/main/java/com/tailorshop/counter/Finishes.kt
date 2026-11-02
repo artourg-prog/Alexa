@@ -32,7 +32,15 @@ class Finishes(
         var workday: String = "",
         var reportState: String = "", // WAITING / UNCONFIRMED / RECORDED in the saved payroll report
         var reportReason: String = "", var confirmedMs: Long = 0,
+        // Reusable receipt numbers (Alexa #4 6571368558, DR PR #38): the Receipts txId this event is about, resolved by a
+        // read-only findReceipt BEFORE the first addScan of a new online submission (bound) and sent unchanged on every
+        // retry, report check and SMS request. An event saved offline or by an older version stays unbound ("") and is
+        // never given a txId later: the Reader's reuse fence decides it. replyTx = the txId the Reader answered.
+        val expectedTx: String = "", val bound: Boolean = false, var replyTx: String = "",
     )
+
+    /** findReceipt's answer: ok = the Reader was reached; txId = the one live receipt's txId ("" when none, several or none carried). */
+    data class Resolution(val ok: Boolean, val txId: String = "")
 
     companion object {
         val SCAN_FINAL = setOf("ADDED", "ALREADY", "REJECTED", "HELD")
@@ -41,6 +49,13 @@ class Finishes(
         private const val TIMEOUT_MS = 10_000
 
         fun recorded(i: Item) = i.scan in SCAN_APPLIED && i.reportState == "RECORDED" && ReportConfirmation.validDay(i.workday)
+
+        /** findReceipt reply → the txId to bind. Only exactly one live receipt binds; 0 or 2+ leave the decision to the Reader. */
+        fun resolution(r: JSONObject): Resolution {
+            if (!r.optBoolean("ok", false)) return Resolution(false)
+            val a = r.optJSONArray("receipts") ?: return Resolution(false)
+            return Resolution(true, if (a.length() == 1) a.optJSONObject(0)?.optString("txId").orEmpty().trim() else "")
+        }
         fun reportPending(i: Item) = i.scan in SCAN_APPLIED && !recorded(i)
 
         /** ADDED proves tablet application only, not a saved payroll report. */
@@ -121,22 +136,25 @@ class Finishes(
     @Synchronized fun get(scanId: String): Item? = items.firstOrNull { it.scanId == scanId }?.copy()
 
     /** Repeated speech reuses today's durable event, including its SMS request id. */
-    @Synchronized fun addOrReuse(worker:String,receipt:String,nowMs:Long=System.currentTimeMillis()):Item? {
+    /** A new online submission reuses today's event only when it is about the same receipt (same resolved txId). */
+    @Synchronized fun addOrReuse(worker:String,receipt:String,nowMs:Long=System.currentTimeMillis(),resolved:Resolution?=null):Item? {
         val zone=java.time.ZoneId.of("America/Los_Angeles")
         val day=java.time.Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
         val existing=items.lastOrNull { it.worker==worker && it.receipt==Lookup.digits(receipt) &&
-            java.time.Instant.ofEpochMilli(it.createdMs).atZone(zone).toLocalDate()==day && it.scan!="REJECTED" }
+            java.time.Instant.ofEpochMilli(it.createdMs).atZone(zone).toLocalDate()==day && it.scan!="REJECTED" &&
+            (resolved==null || !resolved.ok || it.expectedTx==resolved.txId) }
         if(existing!=null) {
             if(recorded(existing)) { existing.reportState="WAITING";existing.reportReason="";existing.durable=false }
             return if(existing.durable || save()) existing.copy() else null
         }
-        return add(worker,receipt,false,nowMs)
+        return add(worker,receipt,false,nowMs,resolved?.takeIf { it.ok })
     }
 
     /** Creates the event and saves it before anything is sent. Null = couldn't save (nothing will be sent). */
-    @Synchronized fun add(worker: String, receipt: String, sendSms: Boolean, nowMs: Long = System.currentTimeMillis()): Item? {
+    @Synchronized fun add(worker: String, receipt: String, sendSms: Boolean, nowMs: Long = System.currentTimeMillis(), resolved: Resolution? = null): Item? {
         val i = Item(UUID.randomUUID().toString(), worker, Lookup.digits(receipt), java.time.Instant.ofEpochMilli(nowMs).toString(), nowMs,
-            sendSms = sendSms, smsId = if (sendSms) UUID.randomUUID().toString() else "")
+            sendSms = sendSms, smsId = if (sendSms) UUID.randomUUID().toString() else "",
+            expectedTx = resolved?.txId.orEmpty(), bound = resolved != null)
         items += i
         return if (save()) i.copy() else null
     }
@@ -190,6 +208,7 @@ class Finishes(
             try {
             if (i.scan == "" || i.scan == "UNKNOWN") {
                 val scan = JSONObject().put("scanId", i.scanId).put("workerId", i.worker).put("receipt", i.receipt).put("scannedAt", i.scannedAt)
+                    .also { if (i.expectedTx.isNotEmpty()) it.put("txId", i.expectedTx) }
                 val r = post(url, JSONObject().put("secret", secret).put("mode", "addScan").put("scan", scan))
                 if (!r.optBoolean("ok", false)) { if (!r.optBoolean("retry", false)) synchronized(this) { i.reason = r.optString("error") }; continue }
                 synchronized(this) { applyScan(i, r) }
@@ -201,9 +220,10 @@ class Finishes(
                 if(!ReportConfirmation.validDay(i.workday)) {
                     synchronized(this) { i.reportState="UNCONFIRMED";i.reportReason="Waiting for the Reader's work date" }
                 } else {
-                    val r=post(url,JSONObject().put("secret",secret).put("mode","receiptReportStatus").put("number",i.receipt))
+                    val r=post(url,JSONObject().put("secret",secret).put("mode","receiptReportStatus").put("number",i.receipt)
+                        .also { if(i.expectedTx.isNotEmpty())it.put("receiptId",i.expectedTx) })
                     synchronized(this) {
-                        if(ReportConfirmation.matches(r,i.workday,i.worker)) {
+                        if(ReportConfirmation.matches(r,i.workday,i.worker,i.expectedTx)) {
                             i.reportState="RECORDED";i.reportReason="";i.confirmedMs=System.currentTimeMillis()
                         } else {
                             i.reportState=if(r.optBoolean("ok",false))"WAITING" else "UNCONFIRMED"
@@ -216,7 +236,8 @@ class Finishes(
             val smsRequest=synchronized(this) {
                 if (i.durable && i.sendSms && i.sms !in SMS_FINAL && i.scan in setOf("ACCEPTED", "UNVERIFIED", "ADDED", "ALREADY")) {
                     JSONObject().put("requestId",i.smsId).put("receipt",i.receipt).put("choice",if(i.sms=="")"now" else "status")
-                        .put("by",i.worker).put("source","sofia").also { if(i.receiptId.isNotEmpty())it.put("receiptId",i.receiptId) }
+                        .put("by",i.worker).put("source","sofia").also { if(i.receiptId.isNotEmpty())it.put("receiptId",i.receiptId)
+                            if(i.expectedTx.isNotEmpty())it.put("txId",i.expectedTx) }
                 } else null
             }
             if(smsRequest!=null) {
@@ -236,6 +257,13 @@ class Finishes(
     }
 
     private fun applyScan(i: Item, r: JSONObject) {
+        val tx = r.optString("txId").trim()
+        if (tx.isNotEmpty()) i.replyTx = tx
+        if (i.expectedTx.isNotEmpty() && tx.isNotEmpty() && tx != i.expectedTx) {
+            // The Reader answered about another receipt than the one this event names: never take its state as ours.
+            i.scan = "REJECTED"; i.reason = "IDENTITY_MISMATCH: the Reader answered for a different receipt — check the tablet"
+            return
+        }
         r.optString("status").takeIf { it.isNotEmpty() }?.let { i.scan = it }
         i.reason = r.optString("reason", i.reason)
         if (r.has("appliedCents")) i.appliedCents = r.optLong("appliedCents", -1)
@@ -265,6 +293,16 @@ class Finishes(
         return JSONObject(text)
     }
 
+    /** Read-only: the live receipts behind a number (findReceipt), for binding a NEW online submission before its
+     *  first addScan. Any failure → Resolution(false): the event is saved unbound, exactly as before. Network: off main. */
+    fun resolve(number: String): Resolution = try {
+        if (!configured()) Resolution(false) else {
+            val cfg = JSONObject(configFile.readText())
+            resolution(post(cfg.getString("url"), JSONObject().put("secret", cfg.getString("secret"))
+                .put("mode", "findReceipt").put("number", Lookup.digits(number))))
+        }
+    } catch (_: Exception) { Resolution(false) }
+
     /** Separate read-only endpoint; does not add/change a scan or request SMS. */
     fun reportStatus(number: String): JSONObject {
         val cfg = JSONObject(configFile.readText())
@@ -280,7 +318,8 @@ class Finishes(
                 items += Item(getString("scanId"), getString("worker"), getString("receipt"), getString("scannedAt"), getLong("createdMs"),
                     optBoolean("sendSms"), optString("scan"), optString("reason"), optLong("appliedCents", -1), optString("receiptId"),
                     optString("smsId"), optString("sms"), durable = true,
-                    workday=optString("workday"),reportState=optString("reportState"),reportReason=optString("reportReason"),confirmedMs=optLong("confirmedMs",0))
+                    workday=optString("workday"),reportState=optString("reportState"),reportReason=optString("reportReason"),confirmedMs=optLong("confirmedMs",0),
+                    expectedTx=optString("expectedTx"),bound=optBoolean("bound"),replyTx=optString("replyTx"))
             }
         } catch (e: Exception) {
             items.clear() // a partially parsed file must not masquerade as a complete recovered queue
@@ -294,6 +333,7 @@ class Finishes(
         .put("reason", it.reason).put("appliedCents", it.appliedCents).put("receiptId", it.receiptId)
         .put("smsId", it.smsId).put("sms", it.sms).put("workday",it.workday).put("reportState",it.reportState)
         .put("reportReason",it.reportReason).put("confirmedMs",it.confirmedMs)
+        .put("expectedTx",it.expectedTx).put("bound",it.bound).put("replyTx",it.replyTx)
 
     private fun save(): Boolean {
         if(recoveryBlocked) { saveFailed=true;return false }

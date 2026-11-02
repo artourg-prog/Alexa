@@ -368,7 +368,7 @@ class MainActivity:Activity() {
                 val rev=dialog.revision
                 if(!finishes.configured()) { dispatch(dialog.saved(null,SystemClock.elapsedRealtime()));return@forEach }
                 storage.execute {
-                    val saved=finishes.addOrReuse(effect.worker,effect.receipt)
+                    val saved=finishes.addOrReuse(effect.worker,effect.receipt,resolved=finishes.resolve(effect.receipt))
                     main.post {
                         // Storage results still exist after a cancelled UI; never attach them to a newer conversation.
                         if(resumed && rev==dialog.revision) {

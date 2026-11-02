@@ -181,7 +181,8 @@ class TouchActivity : Activity() {
         val worker = body.optString("worker"); val number = body.optString("number")
         if (!finishes.configured()) { reply(id, error("Daily Report connection is not configured.")); return }
         if (worker !in finishes.workers() || !number.matches(Regex("[0-9]{3,9}"))) { reply(id, error("Choose an approved worker and receipt number.")); return }
-        val item = finishes.addOrReuse(worker, number)
+        // Reusable numbers: a new online submission names its exact receipt (read-only findReceipt) before the first send.
+        val item = finishes.addOrReuse(worker, number, resolved = finishes.resolve(number))
         if (item == null) { reply(id, error("Not saved on this phone. Please retry.")); return }
         if (body.optBoolean("sms") && !finishes.requestSms(item.scanId)) {
             reply(id, error("Work saved locally, but the SMS choice could not be saved. Check pending work.")); return

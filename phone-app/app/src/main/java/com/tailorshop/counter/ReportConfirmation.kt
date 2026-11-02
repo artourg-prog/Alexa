@@ -9,14 +9,16 @@ object ReportConfirmation {
     fun validDay(day: String): Boolean = day.matches(Regex("[0-9]{4}-[0-9]{2}-[0-9]{2}")) &&
         runCatching { LocalDate.parse(day); true }.getOrDefault(false)
 
-    fun matches(response: JSONObject, workday: String, worker: String): Boolean {
+    /** With a txId, only a saved record bound to exactly that receipt counts (a reused number never inherits "Recorded"). */
+    fun matches(response: JSONObject, workday: String, worker: String, txId: String = ""): Boolean {
         if(!response.optBoolean("ok",false)||!validDay(workday))return false
         val wanted=worker.trim().split(Regex("\\s+")).firstOrNull().orEmpty().lowercase(Locale.ROOT)
         if(wanted.isBlank())return false
         val rows=response.optJSONArray("records")?:return false
         return (0 until rows.length()).any { n ->
             val row=rows.optJSONObject(n)
-            row!=null && row.optString("date")==workday && row.optString("worker").trim().lowercase(Locale.ROOT)==wanted
+            row!=null && row.optString("date")==workday && row.optString("worker").trim().lowercase(Locale.ROOT)==wanted &&
+                (txId.isEmpty() || row.optString("receiptId").trim()==txId)
         }
     }
 }
