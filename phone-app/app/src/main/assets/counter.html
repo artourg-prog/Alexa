@@ -5,16 +5,16 @@
     <article class="sf-phone" aria-label="София — управление кнопками">
       <header class="sf-top"><button class="sf-home cursor-interaction" type="button" aria-label="На главный экран"><i data-lucide="house" aria-hidden="true"></i></button><div><strong>SOFIA</strong><small>24 HOUR TAILORING</small></div><button class="sf-sound cursor-interaction" type="button" aria-pressed="true" aria-label="Выключить озвучивание"><i data-lucide="volume-2" aria-hidden="true"></i></button></header>
       <div class="sf-body" aria-live="polite"></div>
-      <div class="sf-speech" hidden><div class="sf-speech-label"><i data-lucide="volume-2" aria-hidden="true"></i>Голос Софии<button class="sf-repeat cursor-interaction" type="button">Повторить</button></div><p class="sf-spoken"></p></div>
+      <div class="sf-speech" hidden><div class="sf-speech-label"><i data-lucide="volume-2" aria-hidden="true"></i>Голос Софии<button class="sf-repeat cursor-interaction" type="button">Повторить</button></div><p class="sf-spoken"></p><p class="sf-voice-note" role="status" hidden></p></div>
       <footer><button class="sf-back cursor-interaction" type="button"><i data-lucide="arrow-left" aria-hidden="true"></i>Back</button><span>TOUCH · VOICE ANNOUNCEMENTS</span></footer>
     </article>
   </div>
   <template id="sf-home-screen"><div class="sf-welcome"><h1 class="sf-signature">Sofia</h1><p class="sf-hello">Hello</p></div><div class="sf-two sf-home-actions"><button type="button" class="sf-action violet cursor-interaction" data-go="report"><i data-lucide="notebook-pen" aria-hidden="true"></i><strong>Daily Report</strong></button><button type="button" class="sf-action green cursor-interaction" data-go="lookup"><i data-lucide="search" aria-hidden="true"></i><strong>Find</strong></button></div></template>
   <template id="sf-keypad-screen"><h1 class="sf-signature">Sofia</h1><h2 class="sf-keypad-heading">Please enter last four</h2><input id="sf-digits" class="sf-digits" type="text" inputmode="none" autocomplete="off" maxlength="4" placeholder="— — — —" aria-label="Последние четыре цифры телефона"><p class="sf-error" role="alert"></p><div class="sf-keypad"><button type="button" data-key="1" class="cursor-interaction">1</button><button type="button" data-key="2" class="cursor-interaction">2</button><button type="button" data-key="3" class="cursor-interaction">3</button><button type="button" data-key="4" class="cursor-interaction">4</button><button type="button" data-key="5" class="cursor-interaction">5</button><button type="button" data-key="6" class="cursor-interaction">6</button><button type="button" data-key="7" class="cursor-interaction">7</button><button type="button" data-key="8" class="cursor-interaction">8</button><button type="button" data-key="9" class="cursor-interaction">9</button><button type="button" data-key="clear" class="sf-key-small cursor-interaction" aria-label="Clear all digits">C</button><button type="button" data-key="0" class="cursor-interaction">0</button><button type="button" data-key="delete" aria-label="Стереть последнюю цифру" class="cursor-interaction"><i data-lucide="delete" aria-hidden="true"></i></button></div><button type="button" class="sf-wide green cursor-interaction sf-find" disabled>Enter<i data-lucide="arrow-right" aria-hidden="true"></i></button></template>
   <template id="sf-matches-screen"><span class="sf-eyebrow sf-flow-name"></span><h2>Choose the receipt</h2><p class="sf-match-count"></p><div class="sf-matches"></div></template>
-  <template id="sf-match-item"><button class="sf-match cursor-interaction" type="button"><div><strong class="sf-match-number"></strong><span class="sf-match-customer"></span><small class="sf-match-work"></small></div><div class="sf-match-side"><span class="sf-match-total"></span><i data-lucide="chevron-right" aria-hidden="true"></i></div></button></template>
+  <template id="sf-match-item"><button class="sf-match cursor-interaction" type="button"><div><strong class="sf-match-number"></strong><span class="sf-match-customer"></span><small class="sf-match-work"></small></div><div class="sf-match-side"><span class="sf-match-total"></span><span class="sf-arrow" aria-hidden="true">›</span></div></button></template>
   <template id="sf-receipt-details"><div class="sf-receipt"><span class="sf-eyebrow">RECEIPT NUMBER</span><strong class="sf-receipt-number"></strong><div class="sf-receipt-info"><span class="sf-customer"></span><strong class="sf-total"></strong></div><small class="sf-work"></small><div class="sf-status-row"><span class="sf-ready"></span><time class="sf-today" aria-label="Today’s date"></time></div></div></template>
-  <template id="sf-order-screen"><div class="sf-detail-slot"></div><div class="sf-two sf-pickup-actions"><button type="button" class="sf-action green cursor-interaction sf-pickup"><i data-lucide="shopping-bag" aria-hidden="true"></i><strong>Picked up</strong></button><button type="button" class="sf-action violet cursor-interaction sf-not-picked-up"><i data-lucide="arrow-left" aria-hidden="true"></i><strong>Not picked up</strong></button></div><p class="sf-readonly">Viewing this receipt does not mark it picked up.</p></template>
+  <template id="sf-order-screen"><div class="sf-detail-slot"></div><div class="sf-two sf-pickup-actions"><button type="button" class="sf-action green cursor-interaction sf-pickup"><i data-lucide="shopping-bag" aria-hidden="true"></i><strong>Picked up</strong></button><button type="button" class="sf-action violet cursor-interaction sf-not-picked-up"><span class="sf-arrow" aria-hidden="true">←</span><strong>Not picked up</strong></button></div><p class="sf-readonly">Viewing this receipt does not mark it picked up.</p></template>
   <template id="sf-workers-screen"><div class="sf-detail-slot"></div><div class="sf-worker-heading"><h2>Who did the work?</h2><time class="sf-work-date" aria-label="Report date"></time></div><div class="sf-workers"></div></template>
   <template id="sf-sms-screen"><div class="sf-detail-slot"></div><div class="sf-worker-chip"><i data-lucide="user-round" aria-hidden="true"></i><span></span></div><div class="sf-two"><button type="button" class="sf-action green cursor-interaction" data-finish="sms" aria-label="Сохранить работу и отправить клиенту SMS о готовности"><i data-lucide="phone-outgoing" aria-hidden="true"></i><strong>SMS</strong><small>Save + notify client</small></button><button type="button" class="sf-action violet cursor-interaction" data-finish="save" aria-label="Сохранить работу без SMS клиенту"><i data-lucide="files" aria-hidden="true"></i><strong>SAVE</strong><small>No SMS</small></button></div></template>
   <template id="sf-pickup-confirm"><div class="sf-detail-slot"></div><h2>Confirm pickup?</h2><p class="sf-confirm-copy">Has the customer collected this order?</p><div class="sf-two"><button type="button" class="sf-action green cursor-interaction sf-confirm-pickup"><i data-lucide="check" aria-hidden="true"></i><strong>Yes, picked up</strong></button><button type="button" class="sf-action neutral cursor-interaction sf-cancel-pickup"><i data-lucide="arrow-left" aria-hidden="true"></i><strong>Not yet</strong></button></div></template>
@@ -258,4 +258,37 @@ html,body{height:100%;margin:0;overflow:hidden}
 #sofia-touch-review .sf-phone .sf-receipt{padding-top:6px;padding-bottom:6px}
 #sofia-touch-review .sf-phone.is-busy .sf-busy svg,#sofia-touch-review .sf-phone.is-order .sf-readonly{display:none}
 }
+/* 11-02 owner: bigger Back, bigger selector arrows, readable number + customer at the amount's size, whole card red
+   when a balance is due, voice problems shown. */
+#sofia-touch-review .sf-back{min-height:56px;min-width:120px;padding:8px 18px;font-size:20px;font-weight:700;gap:8px;border:2px solid #9fbcaa;border-radius:14px;background:#fff;box-shadow:0 3px 0 #ccdbd0}
+#sofia-touch-review .sf-back .sf-icon,#sofia-touch-review .sf-back svg{width:24px;height:24px;font-size:24px}
+#sofia-touch-review .sf-arrow{display:inline-flex;align-items:center;justify-content:center;font-size:40px;line-height:1;min-width:48px;min-height:48px;font-weight:700}
+#sofia-touch-review .sf-pickup-actions .sf-action{min-height:72px}
+#sofia-touch-review .sf-pickup-actions .sf-action .sf-icon,#sofia-touch-review .sf-pickup-actions .sf-action svg{width:40px;height:40px;font-size:40px}
+#sofia-touch-review .sf-receipt-info .sf-customer,#sofia-touch-review .sf-receipt-info .sf-total{font-size:22px;font-weight:700;line-height:1.2}
+#sofia-touch-review .sf-receipt-info .sf-customer{color:#234d3c;text-align:left;overflow-wrap:anywhere}
+#sofia-touch-review .sf-match-number,#sofia-touch-review .sf-match-customer,#sofia-touch-review .sf-match-side{font-size:22px;font-weight:700}
+#sofia-touch-review .sf-phone.is-order .sf-work{display:none}
+/* DUE (owner 11-02, supersedes the outline): the whole card is dark red and everything on it is white (8:1 contrast);
+   never red text on red. Only an actual "Due" payment type — unknown balances keep the normal theme. */
+#sofia-touch-review .sf-receipt.sf-unpaid,#sofia-touch-review .sf-match.sf-unpaid{background:#8f1d26;border:0;box-shadow:0 3px 0 #5c1118,0 10px 18px #5c111830;color:#fff}
+#sofia-touch-review .sf-unpaid .sf-receipt-number,#sofia-touch-review .sf-unpaid .sf-total,#sofia-touch-review .sf-unpaid .sf-customer,
+#sofia-touch-review .sf-unpaid .sf-eyebrow,#sofia-touch-review .sf-unpaid .sf-today,#sofia-touch-review .sf-unpaid .sf-work,
+#sofia-touch-review .sf-match.sf-unpaid .sf-match-number,#sofia-touch-review .sf-match.sf-unpaid .sf-match-customer,
+#sofia-touch-review .sf-match.sf-unpaid .sf-match-work,#sofia-touch-review .sf-match.sf-unpaid .sf-match-side,#sofia-touch-review .sf-match.sf-unpaid .sf-arrow{color:#fff}
+#sofia-touch-review .sf-unpaid .sf-receipt-info{border-top-color:#ffffff99}
+#sofia-touch-review .sf-unpaid .sf-ready,#sofia-touch-review .sf-unpaid .sf-ready.not-paid,#sofia-touch-review .sf-unpaid .sf-ready.in-progress{background:transparent;color:#fff;border:2px solid #fff}
+#sofia-touch-review .sf-match.sf-unpaid:focus-visible{outline:4px solid #234d3c;outline-offset:3px}
+#sofia-touch-review .sf-pickup-actions .sf-action:focus-visible,#sofia-touch-review .sf-back:focus-visible{outline:4px solid #234d3c;outline-offset:3px}
+#sofia-touch-review .sf-pickup-actions .sf-action:disabled{opacity:1;background:#d9e2dc;color:#3d5247;border:2px dashed #7d9487}
+@media(orientation:landscape) and (max-height:460px){
+#sofia-touch-review .sf-back{min-height:48px;font-size:18px;padding:4px 14px}
+#sofia-touch-review .sf-receipt-info .sf-customer,#sofia-touch-review .sf-receipt-info .sf-total{font-size:18px}
+#sofia-touch-review .sf-receipt.sf-unpaid{border-width:4px}
+#sofia-touch-review .sf-phone.is-order .sf-status-row .sf-today{display:none}
+#sofia-touch-review .sf-phone.is-order .sf-receipt .sf-eyebrow{display:none}
+#sofia-touch-review .sf-pickup-actions .sf-arrow{font-size:34px;min-height:44px}
+#sofia-touch-review .sf-phone .sf-pickup-actions .sf-action{flex-direction:row;gap:10px;min-height:52px;padding:4px 10px}
+}
+#sofia-touch-review .sf-voice-note{margin:4px 0 0;font-size:12px;font-weight:650;color:#a3222d}
 </style><script src="receipt-icons.js"></script><script src="counter.js"></script></body></html>

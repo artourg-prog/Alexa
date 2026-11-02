@@ -5,7 +5,10 @@ import android.app.AlertDialog
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -22,7 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 class TouchActivity : Activity() {
     private val main = Handler(Looper.getMainLooper())
     private val reads = Executors.newSingleThreadExecutor()
-    private val writes = Executors.newSingleThreadExecutor()
+    private val writes = Executors.newSingleThreadExecutor()   // queue sync (network)
+    private val saves = Executors.newSingleThreadExecutor()    // a person's Save / Picked up: never waits behind a sync pass
     private val updating = Executors.newSingleThreadExecutor()
     private val syncing = AtomicBoolean(false)
     private lateinit var web: WebView
@@ -37,7 +41,11 @@ class TouchActivity : Activity() {
     private var destroyed = false
     private var tts: TextToSpeech? = null
     private var voiceReady = false
+    private var voiceFailed = false
     private var lastSpoken = ""
+    private var lastMale = false
+    private var waitingUtterance: Pair<String, Boolean>? = null // asked for before the engine was ready: spoken on init
+    private var utterance = 0
     private val ticker = object : Runnable {
         override fun run() {
             if (!resumed) return
@@ -71,7 +79,22 @@ class TouchActivity : Activity() {
         web.addJavascriptInterface(Bridge(), "Sofia")
         setContentView(web)
         web.loadUrl("file:///android_asset/counter.html")
-        tts = TextToSpeech(this) { code -> main.post { voiceReady = code == TextToSpeech.SUCCESS } }
+        // 0.56 dropped every announcement asked for before the engine finished starting, and never noticed engine or
+        // voice errors (silent on the owner's phone, 11-02). Now: spoken on init, played as assistant speech (the same
+        // audio usage as Sofia's chimes), and an engine/voice error or muted media is shown under the spoken text.
+        tts = TextToSpeech(this) { code -> main.post {
+            voiceReady = code == TextToSpeech.SUCCESS; voiceFailed = !voiceReady
+            if (!voiceReady) { voiceProblem("Voice engine unavailable on this phone — text only."); return@post }
+            tts?.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT)
+                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+            tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                override fun onStart(id: String?) {}
+                override fun onDone(id: String?) {}
+                @Deprecated("Android callback") override fun onError(id: String?) { onError(id, -1) }
+                override fun onError(id: String?, code: Int) { main.post { if (id == "touch-$utterance") voiceProblem("Voice playback failed (engine error $code) — text only.") } }
+            })
+            waitingUtterance?.let { (text, male) -> waitingUtterance = null; speak(text, male) }
+        } }
         Updater.scheduleNight(this)
         // Touch is now the primary input. Do not wake a microphone conversation in the background.
         Wake.cancel(this, 1); Wake.cancel(this, 3)
@@ -89,7 +112,14 @@ class TouchActivity : Activity() {
     override fun onDestroy() {
         destroyed = true; main.removeCallbacksAndMessages(null)
         web.removeJavascriptInterface("Sofia"); web.destroy(); tts?.shutdown()
-        reads.shutdown(); writes.shutdown(); updating.shutdown(); super.onDestroy()
+        reads.shutdown(); writes.shutdown(); saves.shutdown(); updating.shutdown(); super.onDestroy()
+    }
+
+    /** System Back steps back inside the page (as the on-screen Back does); on the home screen it leaves as before. */
+    @Deprecated("Activity back callback") override fun onBackPressed() {
+        web.evaluateJavascript("window.counterBack ? window.counterBack() : false") { result ->
+            @Suppress("DEPRECATION") if (result != "true" && !destroyed) super.onBackPressed()
+        }
     }
 
     private fun reply(id: String, result: JSONObject) {
@@ -100,10 +130,15 @@ class TouchActivity : Activity() {
 
     inner class Bridge {
         @JavascriptInterface fun request(id: String, action: String, json: String) {
-            if (id.length > 80 || json.length > 4096) return
+            // Every request is answered (0.56 dropped an oversized one silently, leaving the page waiting forever).
+            if (id.length > 80) return
+            if (json.length > 4096) { reply(id, error("Request too large.")); return }
             val body = runCatching { JSONObject(json) }.getOrElse { reply(id, error("Invalid request")); return }
             when (action) {
-                "speak" -> main.post { speak(body.optString("text").take(700)); reply(id, JSONObject().put("ok", true)) }
+                "speak" -> main.post {
+                    val problem = speak(body.optString("text").take(700), body.optString("voice") == "male-en")
+                    reply(id, JSONObject().put("ok", true).put("problem", problem ?: ""))
+                }
                 "settings" -> main.post { settings(); reply(id, JSONObject().put("ok", true)) }
                 "load" -> reply(id, JSONObject().put("ok", true).put("workers", JSONArray(finishes.workers()))
                     .put("finishConfigured", finishes.configured()).put("pickupConfigured", pickups.configured()))
@@ -111,7 +146,7 @@ class TouchActivity : Activity() {
                     try { lookup(id, action, body.optString("number")) }
                     catch (_: Exception) { reply(id, error("Orders unavailable. Check the connection and try again.")) }
                 }
-                "save", "pickup" -> writes.execute {
+                "save", "pickup" -> saves.execute {
                     try {
                         if (action == "save") saveWork(id, body) else savePickup(id, body.optString("number"), body.optString("txn"))
                     } catch (_: Exception) { reply(id, error("Could not save. Please try again.")) }
@@ -121,7 +156,7 @@ class TouchActivity : Activity() {
                     reply(id, event?.let(::finishJson) ?: error("Saved request unavailable. Check pending work."))
                 }
                 "queue" -> reply(id, queueJson())
-                "dismiss" -> writes.execute {
+                "dismiss" -> saves.execute {
                     val ok = finishes.dismiss(body.optString("id"))
                     reply(id, if (ok) queueJson() else error("Couldn't mark it reviewed. Nothing was changed."))
                 }
@@ -175,7 +210,7 @@ class TouchActivity : Activity() {
 
     private fun cardJson(c: Card, unverified: Boolean = false) = JSONObject()
         .put("number", c.receipt).put("name", c.customer).put("total", c.total).put("work", c.work)
-        .put("ready", c.ready).put("pay", c.pay.name).put("unverified", unverified).put("txn", c.txn)
+        .put("ready", c.ready).put("pay", c.pay.name).put("unverified", unverified).put("txn", c.txn).put("due", c.due)
 
     private fun saveWork(id: String, body: JSONObject) {
         val worker = body.optString("worker"); val number = body.optString("number")
@@ -237,19 +272,67 @@ class TouchActivity : Activity() {
         }
     }
 
-    private fun speak(text: String) {
-        lastSpoken = text
-        if (!voiceReady || !resumed) return
-        val lang = Locale("ru", "RU")
-        tts?.language = lang
-        val wanted = getSharedPreferences("voice", MODE_PRIVATE).getString("femaleVoice-ru", null)
-        tts?.voices?.firstOrNull { it.name == wanted && it.locale.language == "ru" }?.let { tts?.voice = it }
-        tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "touch-result")
+    private fun voiceProblem(message: String) {
+        if (!destroyed) web.evaluateJavascript("window.counterVoice&&window.counterVoice(${JSONObject.quote(message)})", null)
+    }
+
+    private fun options(t: TextToSpeech): List<Pair<Voices.Option, android.speech.tts.Voice>> = runCatching {
+        t.voices.orEmpty().map { v -> Voices.Option(v.name, v.locale.language,
+            TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED !in v.features.orEmpty(), v.isNetworkConnectionRequired) to v }
+    }.getOrDefault(emptyList())
+
+    private fun online() = runCatching {
+        val cm = getSystemService(android.net.ConnectivityManager::class.java)
+        cm.getNetworkCapabilities(cm.activeNetwork)?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+    }.getOrDefault(false)
+
+    /** One whole announcement in one voice: male English for a DUE order, the usual Sofia voice otherwise.
+     *  Returns what kept it from being spoken as asked (shown on screen), or null. */
+    private fun speak(text: String, male: Boolean = false): String? {
+        lastSpoken = text; lastMale = male
+        if (!resumed) return null
+        if (voiceFailed) return "Voice engine unavailable on this phone — text only."
+        if (!voiceReady) { waitingUtterance = text to male; return null }
+        val t = tts ?: return "Voice engine unavailable — text only."
+        val prefs = getSharedPreferences("voice", MODE_PRIVATE); val all = options(t); val net = online()
+        val pick = if (male) Voices.maleEnglish(all.map { it.first }, prefs.getString("maleVoice-en", null), net)
+                   else Voices.sofia(all.map { it.first }, prefs.getString("femaleVoice-ru", null), net)
+        t.setPitch(1f)
+        t.language = if (male) Locale.US else Locale("ru", "RU")
+        all.firstOrNull { it.first == pick }?.second?.let { t.voice = it }
+        val id = "touch-${++utterance}"
+        var problem: String? = null
+        if (t.speak(text, TextToSpeech.QUEUE_FLUSH, null, id) == TextToSpeech.ERROR) {
+            // the chosen voice can't play (e.g. needs data): the engine default for the language, and say so
+            t.language = if (male) Locale.US else Locale("ru", "RU")
+            problem = if (t.speak(text, TextToSpeech.QUEUE_FLUSH, null, "touch-${++utterance}") == TextToSpeech.ERROR)
+                "Voice playback failed — text only." else "Chosen voice unavailable — played with the phone's default voice."
+        }
+        if (male && pick == null) problem = "No male English voice installed or chosen — played with the phone's default English voice. Choose one in Settings → Due voice."
+        val audio = getSystemService(AudioManager::class.java)
+        if (audio != null && audio.getStreamVolume(AudioManager.STREAM_MUSIC) == 0) problem = (problem?.let { "$it " } ?: "") + "Media volume is off."
+        return problem
+    }
+
+    /** Owner picks the male English voice for DUE announcements after hearing it (no gender metadata exists). */
+    private fun chooseDueVoice() {
+        val t = tts?.takeIf { voiceReady } ?: run { AlertDialog.Builder(this).setMessage("Voice engine unavailable.").setPositiveButton("Close", null).show(); return }
+        val english = options(t).filter { it.first.language == "en" && it.first.installed }.sortedBy { it.first.name }
+        if (english.isEmpty()) { AlertDialog.Builder(this).setMessage("No English voices are installed on this phone.").setPositiveButton("Close", null).show(); return }
+        val names = english.map { it.first.name + if (it.first.network) " (online)" else "" }.toTypedArray()
+        var picked = -1
+        AlertDialog.Builder(this).setTitle("Due voice · tap to hear, then Save").setSingleChoiceItems(names, english.indexOfFirst {
+            it.first.name == getSharedPreferences("voice", MODE_PRIVATE).getString("maleVoice-en", null) }) { _, which ->
+            picked = which; t.setPitch(1f); t.language = Locale.US; t.voice = english[which].second
+            t.speak("Receipt 1 2 3 4 5. Outstanding balance due: 40 dollars.", TextToSpeech.QUEUE_FLUSH, null, "touch-preview")
+        }.setPositiveButton("Save as male voice") { _, _ ->
+            if (picked >= 0) getSharedPreferences("voice", MODE_PRIVATE).edit().putString("maleVoice-en", english[picked].first.name).apply()
+        }.setNegativeButton("Cancel", null).show()
     }
 
     private fun settings() {
         AlertDialog.Builder(this).setTitle("Sofia ${Updater.versionName(this)}")
-            .setItems(arrayOf("Check for update", "Refresh orders", "Pending work", "Repeat announcement")) { _, which ->
+            .setItems(arrayOf("Check for update", "Refresh orders", "Pending work", "Repeat announcement", "Due voice (male English)")) { _, which ->
                 when (which) {
                     0 -> {
                         val box = AlertDialog.Builder(this).setTitle("Sofia update").setMessage("Checking…").setPositiveButton("Close", null).show()
@@ -266,7 +349,8 @@ class TouchActivity : Activity() {
                             .setMessage("Work processing: ${q.optInt("work")}\nPickup confirmations: ${q.optInt("pickups")}\n\n${q.optString("warning")}")
                             .setPositiveButton("Close", null).show()
                     }
-                    3 -> speak(lastSpoken)
+                    3 -> speak(lastSpoken, lastMale)?.let(::voiceProblem)
+                    4 -> chooseDueVoice()
                 }
             }.setNegativeButton("Close", null).show()
     }

@@ -9,25 +9,43 @@
     try { const result = JSON.parse(json); result.ok ? request.resolve(result) : request.reject(new Error(result.error || 'Please try again.')); }
     catch (error) { request.reject(error); }
   };
+  // Every request ends: an answer, an error, or a timeout (owner 11-02 freeze: a request that never answered left the
+  // page waiting with no way out). A late answer after the timeout is ignored; nothing is re-sent from here.
+  const WAIT_MS = { save: 45000, pickup: 45000, find: 40000, report: 40000 };
+  const LATE = { save: 'Still saving on this phone. It is kept and will be sent — check Pending work in Settings before entering it again.',
+    pickup: 'Still saving the pickup on this phone. It is kept — check Pending work in Settings before tapping again.' };
   function call(action, data = {}) {
     return new Promise((resolve, reject) => {
-      const id = String(++serial); pending.set(id, { resolve, reject });
-      if (!window.Sofia) { pending.delete(id); reject(new Error('Sofia connection unavailable.')); return; }
-      window.Sofia.request(id, action, JSON.stringify(data));
+      const id = String(++serial);
+      const timer = setTimeout(() => { if (pending.delete(id)) reject(new Error(LATE[action] || 'Sofia did not answer. Please try again.')); }, WAIT_MS[action] || 20000);
+      pending.set(id, { resolve: value => { clearTimeout(timer); resolve(value); }, reject: error => { clearTimeout(timer); reject(error); } });
+      if (!window.Sofia) { pending.delete(id); clearTimeout(timer); reject(new Error('Sofia connection unavailable.')); return; }
+      try { window.Sofia.request(id, action, JSON.stringify(data)); } catch (error) { pending.delete(id); clearTimeout(timer); reject(error); }
     });
   }
   function clone(id) { return root.querySelector('#' + id).content.cloneNode(true); }
   function today(at) { return new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric' }).format(at ? new Date(at) : new Date()); }
-  function say(text) {
-    state.spoken = text; root.querySelector('.sf-spoken').textContent = text; root.querySelector('.sf-speech').hidden = false;
-    if (state.sound) call('speak', { text }).catch(() => {});
+  // voice: 'sofia' (the usual voice) or 'male-en' (a DUE order's whole announcement, owner 11-02). A problem the phone
+  // reports (no male voice, engine error, media volume off) is shown under the spoken words, never hidden.
+  function say(text, voice = 'sofia') {
+    state.spoken = text; state.spokenVoice = voice; root.querySelector('.sf-spoken').textContent = text; root.querySelector('.sf-speech').hidden = false;
+    voiceNote('');
+    if (state.sound) call('speak', { text, voice }).then(result => voiceNote(result.problem || '')).catch(error => voiceNote(error.message));
   }
+  function voiceNote(text) { const note = root.querySelector('.sf-voice-note'); note.textContent = text; note.hidden = !text; }
+  window.counterVoice = voiceNote;
   function clearTimers() { clearInterval(polling); polling = null; clearTimeout(returnTimer); returnTimer = null; }
   function home() {
     ++revision; clearTimers(); state.step = 'home'; state.digits = ''; state.selected = null; state.worker = ''; state.event = null; state.history = [];
     root.querySelector('.sf-speech').hidden = true; render();
   }
-  function change(step, remember = true) { if (remember) state.history.push(state.step); state.step = step; render(); }
+  // Returning from the waiting screen (remember=false) drops the step it saved, so Back then really goes back (0.56 kept
+  // it: after an error the first Back stayed on the same screen and looked dead, owner 11-02).
+  function change(step, remember = true) {
+    if (remember) { if (state.step !== 'busy') state.history.push(state.step); } // the waiting screen is never a Back target
+    else if (state.history[state.history.length - 1] === step) state.history.pop();
+    state.step = step; render();
+  }
   function fail(error) {
     // The message must be seen: on the Fold the bottom of the page is off screen, so a miss looked like nothing
     // happened (11-01). Prefer the slot under the digits, bring it into view, and Sofia says it.
@@ -50,7 +68,8 @@
     root.querySelectorAll('.sf-receipt-number').forEach(number => {
       number.style.fontSize = ''; const range = document.createRange(); range.selectNodeContents(number);
       const fits = size => { number.style.fontSize = size + 'px'; return range.getBoundingClientRect().width <= number.clientWidth - 4 && body.scrollHeight <= body.clientHeight; };
-      let low = 28, high = wide ? 400 : parseFloat(getComputedStyle(number).fontSize);
+      // As large as practical in both orientations (owner 11-02): grow to the card's width, then shrink until nothing scrolls.
+      let low = 28, high = wide ? 400 : 260;
       if (fits(high)) return;
       while (high - low > 1) { const mid = Math.floor((low + high) / 2); if (fits(mid)) low = mid; else high = mid; }
       number.style.fontSize = low + 'px';
@@ -61,7 +80,8 @@
     fragment.querySelector('.sf-receipt-number').textContent = item.number;
     fragment.querySelector('.sf-customer').textContent = item.name || '';
     fragment.querySelector('.sf-total').textContent = item.total || '—';
-    fragment.querySelector('.sf-work').textContent = item.work || '';
+    // The alterations description is not shown on the Find card (owner 11-02); the data is unchanged.
+    fragment.querySelector('.sf-work').textContent = state.step === 'order' ? '' : item.work || '';
     fragment.querySelector('.sf-receipt').classList.toggle('sf-unpaid', item.pay === 'DUE');
     const ready = fragment.querySelector('.sf-ready');
     const paid = { PAID: 'Paid', DUE: 'Not paid', ACCOUNT: 'Store account', UNKNOWN: 'Payment unavailable' }[item.pay] || 'Payment unavailable';
@@ -84,10 +104,16 @@
   }
   function select(item) {
     state.selected = item; change(state.flow === 'report' ? 'workers' : 'order');
-    const payment = item.pay === 'PAID' ? 'Оплачено.' : item.pay === 'DUE' ? 'Не оплачено.' : item.pay === 'ACCOUNT' ? 'Счёт магазина.' : '';
+    const payment = item.pay === 'PAID' ? 'Оплачено.' : item.pay === 'ACCOUNT' ? 'Счёт магазина.' : item.pay === 'DUE' ? '' : 'Оплата не известна.';
     const spokenState = { NOT_READY: 'Ещё не готова.', COLLECTED: 'Уже выдана.', UNKNOWN: 'Статус неизвестен, проверьте на планшете.', READY: 'Готова к выдаче.' }[item.state];
-    if (item.state) say('Квитанция ' + item.number.split('').join(' ') + '. ' + spokenState);
-    else if (!item.unverified) say('Квитанция ' + item.number.split('').join(' ') + '. ' + payment + ' ' + (item.ready ? 'Готова к выдаче.' : 'Работа ещё не закончена.'));
+    const digits = item.number.split('').join(' ');
+    if (item.state) say('Квитанция ' + digits + '. ' + spokenState);
+    else if (item.unverified) return;
+    // A DUE order: the whole announcement in English, male voice, and it says the outstanding amount (only when the
+    // mirror shows it exactly; a part-paid "Zelle + Due" balance has no amount there, and nothing is guessed).
+    else if (item.pay === 'DUE') say('Receipt ' + digits + '. ' + (item.due ? 'Outstanding balance due: ' + item.due + '.' : 'Outstanding balance is due. The amount due is not shown; check the receipt.')
+      + ' ' + (item.ready ? 'Ready for pickup.' : 'The work is not finished yet.'), 'male-en');
+    else say('Квитанция ' + digits + '. ' + payment + ' ' + (item.ready ? 'Готова к выдаче.' : 'Работа ещё не закончена.'));
   }
   function bindKeys() {
     const input = body.querySelector('.sf-digits'), enter = body.querySelector('.sf-find');
@@ -106,9 +132,9 @@
       state.event = result; polling = setInterval(updateFinish, 2000); updateFinish();
     } catch (error) { if (rev === revision) { change('sms', false); fail(error); } }
   }
-  let checking = false;
+  let checking = -1; // the revision whose status request is in flight: a stale one never blocks a newer entry
   async function updateFinish() {
-    if (!state.event || checking) return; checking = true; const rev = revision;
+    if (!state.event || checking === revision) return; const rev = revision; checking = rev;
     try {
       const item = await call('status', { id: state.event.id }); if (rev !== revision) return; state.event = item;
       const tabletApplied = item.scan === 'ADDED' || item.scan === 'ALREADY';
@@ -122,7 +148,7 @@
           returnTimer = setTimeout(home, 25000);
         }
       } else {
-        state.step = 'busy'; render();
+        if (state.step !== 'busy') { state.step = 'busy'; render(); } // update in place: Back is never replaced mid-tap
         const message = item.scan === 'REJECTED' || item.scan === 'HELD' ? item.scanText : tabletApplied ? 'Saving Daily Report…' : 'Waiting for the tablet…';
         body.querySelector('.sf-busy-title').textContent = message;
         const line = body.querySelector('.sf-busy p');
@@ -134,7 +160,7 @@
           line.textContent = 'Check Daily Report on the tablet. This request is retained; do not enter it again. Back lets you continue with another receipt.';
         }
       }
-    } catch (error) { if (rev === revision) fail(error); } finally { checking = false; }
+    } catch (error) { if (rev === revision) fail(error); } finally { if (checking === rev) checking = -1; }
   }
   async function pickup() {
     const number = state.selected.number, rev = ++revision; change('busy');
@@ -144,8 +170,9 @@
     } catch (error) { if (rev === revision) { change('order', false); fail(error); } }
   }
   function decorate() {
-    ['home', 'keypad', 'order', 'workers', 'sms', 'busy', 'report-result'].forEach(step => phone.classList.toggle('is-' + step, state.step === step));
-    root.querySelector('.sf-back').hidden = ['home', 'busy', 'report-result'].includes(state.step);
+    ['home', 'keypad', 'matches', 'order', 'workers', 'sms', 'busy', 'report-result'].forEach(step => phone.classList.toggle('is-' + step, state.step === step));
+    // Back is on every screen but home (owner 11-02): while waiting or after Recorded it returns home; the request is kept.
+    root.querySelector('.sf-back').hidden = state.step === 'home';
     icons(); fitNumbers();
     root.querySelectorAll('.sf-signature').forEach(logo => {
       let timer; logo.onpointerdown = () => { clearTimeout(timer); timer = setTimeout(() => call('settings').catch(fail), 1000); };
@@ -163,7 +190,7 @@
       body.querySelector('.sf-find').classList.toggle('violet', state.flow === 'report'); body.querySelector('.sf-find').classList.toggle('green', state.flow === 'lookup'); bindKeys();
     } else if (step === 'matches') {
       body.replaceChildren(clone('sf-matches-screen')); body.querySelector('.sf-flow-name').textContent = 'CHOOSE RECEIPT'; body.querySelector('.sf-match-count').textContent = state.matches.length + ' receipts';
-      state.matches.forEach(item => { const entry = clone('sf-match-item'); entry.querySelector('.sf-match-number').textContent = item.number; entry.querySelector('.sf-match-customer').textContent = item.name || ''; entry.querySelector('.sf-match-work').textContent = item.work || ''; entry.querySelector('.sf-match-total').textContent = item.total || ''; entry.querySelector('button').onclick = () => select(item); body.querySelector('.sf-matches').append(entry); });
+      state.matches.forEach(item => { const entry = clone('sf-match-item'); entry.querySelector('.sf-match-number').textContent = item.number; entry.querySelector('.sf-match-customer').textContent = item.name || ''; entry.querySelector('.sf-match-work').textContent = item.work || ''; entry.querySelector('.sf-match-total').textContent = item.total || ''; entry.querySelector('.sf-match').classList.toggle('sf-unpaid', item.pay === 'DUE'); entry.querySelector('button').onclick = () => select(item); body.querySelector('.sf-matches').append(entry); });
     } else if (step === 'order') {
       body.replaceChildren(clone('sf-order-screen')); body.querySelector('.sf-detail-slot').append(receipt()); body.querySelector('.sf-pickup').disabled = !state.selected.ready || !!state.selected.pickupNote;
       body.querySelector('.sf-pickup').onclick = pickup; body.querySelector('.sf-not-picked-up').onclick = () => { home(); say('Not picked up. Заказ остаётся в списке готовых к выдаче.'); };
@@ -177,7 +204,6 @@
     } else if (step === 'busy') {
       body.replaceChildren(clone('sf-busy-screen')); if (state.selected) body.querySelector('.sf-detail-slot').append(receipt());
       body.querySelector('.sf-busy-title').textContent = state.event ? 'Saving…' : state.selected ? 'Processing…' : 'Finding…';
-      const next = document.createElement('button'); next.type = 'button'; next.className = 'sf-wide neutral sf-pending-next'; next.textContent = 'Back'; next.onclick = home; body.append(next);
     } else if (step === 'report-result') {
       body.replaceChildren(clone('sf-report-recorded-screen')); body.querySelector('.sf-receipt-number').textContent = state.event.number;
       body.querySelector('.sf-confirmation-worker').textContent = state.event.worker; body.querySelector('.sf-confirmation-date').textContent = today(state.event.workday + 'T12:00:00Z');
@@ -189,8 +215,12 @@
   }
   // No bottom notice strip (Art 11-01): old receipt notices stayed there and couldn't be cleared. Pending work stays in Settings.
   root.querySelector('.sf-home').onclick = home;
-  root.querySelector('.sf-back').onclick = () => { ++revision; clearTimers(); state.step = state.history.pop() || 'home'; render(); };
-  root.querySelector('.sf-repeat').onclick = () => say(state.spoken);
+  root.querySelector('.sf-back').onclick = () => {
+    if (['busy', 'report-result'].includes(state.step)) { home(); return; }
+    ++revision; clearTimers(); state.step = state.history.pop() || 'home'; render();
+  };
+  window.counterBack = () => { if (state.step === 'home') return false; root.querySelector('.sf-back').click(); return true; };
+  root.querySelector('.sf-repeat').onclick = () => say(state.spoken, state.spokenVoice);
   root.querySelector('.sf-sound').onclick = () => { state.sound = !state.sound; root.querySelector('.sf-sound').setAttribute('aria-pressed', String(state.sound)); };
   new ResizeObserver(fitNumbers).observe(body);
   render(); call('load').then(result => { state.workers = result.workers; }).catch(fail);

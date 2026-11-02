@@ -12,12 +12,13 @@ import java.text.Normalizer
 
 data class Order(val receipt: String, val customer: String, val phone: String, val date: String, val ready: Boolean = false,
                  val pay: Pay = Pay.UNKNOWN, val tailor: String = "", val total: String = "", val work: String = "",
-                 val txn: String = "") // hidden "Txn" column (Pickups 25a539c): the receipt's stable id; "" until it exists
+                 val txn: String = "", // hidden "Txn" column (Pickups 25a539c): the receipt's stable id; "" until it exists
+                 val due: String = "") // the amount due, only when Payment Type is exactly "Due" (all of Total owed); "" = not known
 
 // tailor / total / date / work are only for Sofia's follow-up answers (never the customer or phone).
 data class Card(val receipt: String, val customer: String, val phone: String, val ready: Boolean = false,
                 val pay: Pay = Pay.UNKNOWN, val tailor: String = "", val total: String = "", val date: String = "",
-                val work: String = "", val txn: String = "")
+                val work: String = "", val txn: String = "", val due: String = "")
 
 /** Follow-up questions about the receipt on screen (Art): tailor, amount, paid or due, drop-off date, work. */
 enum class Topic { TAILOR, AMOUNT, PAY, DATE, WORK }
@@ -59,6 +60,11 @@ object Lookup {
         }
     }
 
+    /** The outstanding amount, only when it is certain: Payment Type exactly "Due" means the whole Total is owed.
+     *  "Zelle + Due" (part paid) or an unreadable Total → "" (the balance is due but its amount isn't in the mirror). */
+    fun dueOf(payment: String, total: String): String =
+        if (payment.trim().equals("due", true) && Regex("""\$?\s*[0-9][0-9,]*(\.[0-9]{1,2})?""").matches(total.trim())) total.trim() else ""
+
     // Words people say around the actual name or number.
     private val FILLER = setOf(
         "find", "look", "up", "lookup", "search", "check", "show", "order", "orders", "receipt",
@@ -84,7 +90,8 @@ object Lookup {
             val receipt = cell(row, r)
             if (receipt.isEmpty()) null
             else Order(receipt, cell(row, idx["customer"]), cell(row, p), cell(row, idx["date"]), cell(row, idx["tailor"]).isNotEmpty() || cell(row, idx["source"]).equals("Old Receipts", ignoreCase=true),
-                payOf(cell(row, idx["payment"])), cell(row, idx["tailor"]), cell(row, idx["total"]), cell(row, idx["work"]), cell(row, idx["txn"]))
+                payOf(cell(row, idx["payment"])), cell(row, idx["tailor"]), cell(row, idx["total"]), cell(row, idx["work"]), cell(row, idx["txn"]),
+                dueOf(cell(row, idx["payment"]), cell(row, idx["total"])))
         }
     }
 
@@ -416,7 +423,7 @@ object Lookup {
         }
         return hits
             .sortedWith(compareByDescending<Order> { dateKey(it.date) }.thenByDescending { digits(it.receipt).toLongOrNull() ?: 0L })
-            .map { Card(it.receipt, it.customer, prettyPhone(it.phone), it.ready, it.pay, it.tailor, it.total, it.date, it.work, it.txn) }
+            .map { Card(it.receipt, it.customer, prettyPhone(it.phone), it.ready, it.pay, it.tailor, it.total, it.date, it.work, it.txn, it.due) }
     }
 
     fun findAll(said: String, orders: List<Order>): List<Card> =
