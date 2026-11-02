@@ -324,4 +324,19 @@ html,body{height:100%;margin:0;overflow:hidden}
 
 #sofia-touch-review .sf-phone footer{display:flex!important}
 #sofia-touch-review .sf-phone.is-home footer{justify-content:flex-end}
+/* 0.64 keypad (owner 11-02, Fold): taller, nearly square keys with more space between them so a fingertip lands on
+   one key; landscape puts the keypad in its own column at full height. Low landscape (cover screen) keeps its rules. */
+#sofia-touch-review .sf-phone.is-keypad .sf-keypad{gap:12px}
+#sofia-touch-review .sf-keypad button,#sofia-touch-review .sf-phone.is-keypad .sf-keypad button{min-height:clamp(60px,8.5vh,96px);font-size:clamp(26px,4vh,38px)}
+#sofia-touch-review .sf-phone.is-keypad .sf-keypad button.is-pressed{transform:translateY(2px);box-shadow:inset 0 2px 4px #5176313a}
+@media(orientation:landscape) and (min-height:461px){
+#sofia-touch-review .sf-phone.is-keypad .sf-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);column-gap:40px;align-content:center}
+#sofia-touch-review .sf-phone.is-keypad .sf-body>*{grid-column:1}
+#sofia-touch-review .sf-phone.is-keypad .sf-keypad{grid-column:2;grid-row:1 / span 6;margin:0;align-self:center;gap:14px}
+#sofia-touch-review .sf-phone.is-keypad .sf-keypad button{min-height:clamp(64px,13vh,110px)}
+}
+@media(orientation:landscape) and (max-height:460px){
+#sofia-touch-review .sf-phone.is-keypad .sf-keypad{gap:8px}
+#sofia-touch-review .sf-phone.is-keypad .sf-keypad button{min-height:clamp(36px,14.4vh,56px);font-size:clamp(20px,6vh,27px)}
+}
 </style><script src="receipt-icons.js"></script><script src="counter.js"></script></body></html>

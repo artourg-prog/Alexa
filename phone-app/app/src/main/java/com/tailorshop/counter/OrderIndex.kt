@@ -43,12 +43,47 @@ object OrderIndex {
         return "$date, $h12:$mm $ampm"
     }
 
-    /** One plain line for the screen. A missing promised time is never turned into "late". */
+    /** One plain line for the screen. A missing promised time is never turned into "late", and a missing pickup time
+     *  is said as unknown (never the lookup time). NOT_READY means no committed worker sign-off yet, not "work not done". */
     fun stateText(e: Entry): String = when (e.state) {
         State.READY -> "Ready for pickup"
-        State.NOT_READY -> if (e.promised.isNotBlank()) "Not ready yet · promised ${pretty(e.promised)}" else "Not ready yet · no promised time on the receipt"
-        State.COLLECTED -> if (e.collectedAt.isNotBlank()) "Already picked up · ${pretty(e.collectedAt)}" else "Already picked up"
-        State.UNKNOWN -> "Status unknown — check the tablet"
+        State.NOT_READY -> (if (e.promised.isNotBlank()) "Not marked finished yet · promised ${pretty(e.promised)}" else "Not marked finished yet · no promised time on the receipt") + asOf(e)
+        State.COLLECTED -> if (e.collectedAt.isNotBlank()) "Order was picked up · ${pretty(e.collectedAt)}" else "Order was picked up · pickup time unknown"
+        State.UNKNOWN -> "Status unknown — check the tablet" + asOf(e)
+    }
+
+    /** " · as of Nov 2, 1:21 PM" from the row's Updated At (when the tablet last wrote it); nothing when it has no time. */
+    private fun asOf(e: Entry): String = pretty(e.updatedAt).let { if (it.contains(", ")) " · as of $it" else "" }
+
+    /**
+     * The visible "Picked Up Orders" tab (confirmed collections from the tablet's history): Collected At, Receipt #,
+     * Customer, Phone. Each row becomes a COLLECTED entry. Rows without a receipt are skipped.
+     */
+    fun parsePickedUp(rows: List<List<String>>): List<Entry> {
+        if (rows.isEmpty()) return emptyList()
+        val h = rows[0].map { it.trim().lowercase() }
+        fun col(name: String) = h.indexOf(name).takeIf { it >= 0 }
+        val r = col("receipt #") ?: return emptyList()
+        val p = col("phone"); val c = col("customer"); val ca = col("collected at")
+        fun cell(row: List<String>, i: Int?) = if (i == null) "" else row.getOrNull(i)?.trim().orEmpty()
+        return rows.drop(1).mapNotNull { row ->
+            val receipt = cell(row, r).takeIf { it.isNotEmpty() } ?: return@mapNotNull null
+            Entry(receipt, cell(row, p), cell(row, c), State.COLLECTED, "", cell(row, ca), "")
+        }
+    }
+
+    /**
+     * Index rows plus collected history. A history row for a receipt the index already shows COLLECTED only fills a
+     * missing pickup time; any other history row is listed on its own (receipt numbers can repeat, so states are
+     * never merged across rows, and an index row is never overwritten by a history row).
+     */
+    fun withHistory(index: List<Entry>, history: List<Entry>): List<Entry> {
+        val out = index.toMutableList()
+        history.forEach { h ->
+            val i = out.indexOfFirst { it.state == State.COLLECTED && Lookup.digits(it.receipt) == Lookup.digits(h.receipt) && (it.collectedAt.isBlank() || it.collectedAt == h.collectedAt) }
+            if (i >= 0) { if (out[i].collectedAt.isBlank()) out[i] = out[i].copy(collectedAt = h.collectedAt) } else out += h
+        }
+        return out
     }
 
     /** True when the index row is older than 24 h ("Updated At" in shop time, YYYY-MM-DD HH:MM). */

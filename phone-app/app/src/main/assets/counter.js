@@ -113,7 +113,7 @@
     fragment.querySelector('.sf-receipt').classList.toggle('sf-unpaid', item.pay === 'DUE');
     const ready = fragment.querySelector('.sf-ready');
     const paid = { PAID: 'Paid', DUE: 'Not paid', ACCOUNT: 'Store account', UNKNOWN: 'Payment unavailable' }[item.pay] || 'Payment unavailable';
-    // From the Order Index: its own state line (not ready + promised time / already picked up / unknown), no payment guess.
+    // From the Order Index / Picked Up Orders: its own state line (not marked finished + promised time / picked up + time / unknown), no payment guess.
     ready.textContent = item.pickupNote ? item.pickupNote : item.state ? item.stateText + (item.stale ? ' · index may be out of date' : '')
       : item.unverified ? 'Receipt entered · checked when saved' : paid + ' · ' + (item.ready ? 'Ready for pickup' : 'In progress');
     ready.classList.toggle('not-paid', item.pay === 'DUE'); ready.classList.toggle('in-progress', !item.ready);
@@ -134,7 +134,7 @@
   function select(item) {
     state.selected = item; change(state.flow === 'report' ? 'workers' : 'order');
     const payment = item.pay === 'PAID' ? 'Оплачено.' : item.pay === 'ACCOUNT' ? 'Счёт магазина.' : item.pay === 'DUE' ? '' : 'Оплата не известна.';
-    const spokenState = { NOT_READY: 'Ещё не готова.', COLLECTED: 'Уже выдана.', UNKNOWN: 'Статус неизвестен, проверьте на планшете.', READY: 'Готова к выдаче.' }[item.state];
+    const spokenState = { NOT_READY: 'Ещё не отмечена как готовая.', COLLECTED: 'Заказ уже выдан.', UNKNOWN: 'Статус неизвестен, проверьте на планшете.', READY: 'Готова к выдаче.' }[item.state];
     const digits = item.number.split('').join(' ');
     if (item.state) say('Квитанция ' + digits + '. ' + spokenState);
     else if (item.unverified) return;
@@ -151,8 +151,36 @@
     input.placeholder = phoneMode ? '····' : '········'; input.setAttribute('aria-label', phoneMode ? 'Last four phone digits' : 'Receipt number');
     const sync = () => { state.digits = input.value.replace(/[^0-9]/g, '').slice(0, phoneMode ? 4 : 9); input.value = state.digits; enter.disabled = phoneMode ? state.digits.length !== 4 : state.digits.length < 3; };
     input.oninput = sync; input.onkeydown = event => { if (event.key === 'Enter' && !enter.disabled) find(); };
-    body.querySelectorAll('[data-key]').forEach(button => button.onclick = () => { const key = button.dataset.key; input.value = key === 'clear' ? '' : key === 'delete' ? input.value.slice(0, -1) : input.value + key; sync(); });
-    enter.onclick = find; sync();
+    const press = key => { input.value = key === 'clear' ? '' : key === 'delete' ? input.value.slice(0, -1) : input.value + key; sync(); };
+    // A light tap counts once, on release inside the same key (owner 11-02: keys needed a deliberate press). Android
+    // drops the click when a finger moves a few pixels; here a small wobble still counts, a drag off the key or a
+    // cancelled touch never types, and the click that follows a counted tap is ignored (no double digit).
+    body.querySelectorAll('[data-key]').forEach(button => {
+      let down = null;
+      button.onpointerdown = event => { down = { id: event.pointerId, x: event.clientX, y: event.clientY }; button.classList.add('is-pressed'); try { button.setPointerCapture(event.pointerId); } catch (_) {} };
+      button.onpointerup = event => {
+        const start = down; down = null; button.classList.remove('is-pressed');
+        if (!start || start.id !== event.pointerId) return;
+        const r = button.getBoundingClientRect(), inside = event.clientX >= r.left && event.clientX <= r.right && event.clientY >= r.top && event.clientY <= r.bottom;
+        if (inside && Math.hypot(event.clientX - start.x, event.clientY - start.y) <= 30) { button.dataset.tapped = '1'; setTimeout(() => delete button.dataset.tapped, 500); press(button.dataset.key); }
+      };
+      button.onpointercancel = button.onlostpointercapture = () => { down = null; button.classList.remove('is-pressed'); };
+      button.onclick = event => { if (button.dataset.tapped) { delete button.dataset.tapped; event.preventDefault(); return; } press(button.dataset.key); };
+    });
+    enter.onclick = find; sync(); setTimeout(avoidFold, 0);
+  }
+  // When the WebView reports the Fold's two screen halves (Viewport Segments API), keep the keypad off the crease:
+  // push it fully into one half if it fits there. Without that report nothing is guessed and the layout stays as is.
+  function avoidFold() {
+    const pad = body.querySelector('.sf-keypad'), segs = window.viewport && window.viewport.segments;
+    if (!pad || !segs || segs.length !== 2) return;
+    pad.style.marginTop = ''; pad.style.marginLeft = '';
+    const [a, b] = segs, r = pad.getBoundingClientRect(), gap = 16;
+    if (b.top >= a.bottom - 1) {            // halves above and below each other
+      if (r.top < b.top + gap && r.bottom > a.bottom - gap && innerHeight - (b.top + gap) >= r.height) pad.style.marginTop = (b.top + gap - r.top) + 'px';
+    } else if (b.left >= a.right - 1) {     // halves side by side
+      if (r.left < b.left + gap && r.right > a.right - gap && innerWidth - (b.left + gap) >= r.width) pad.style.marginLeft = (b.left + gap - r.left) + 'px';
+    }
   }
   async function save(sms) {
     const rev = ++revision; state.event = null; state.checkStartedAt = Date.now(); change('busy');
