@@ -47,25 +47,46 @@ object Updater {
     fun installedVersion(ctx: Context): Long = ctx.packageManager.getPackageInfo(ctx.packageName, 0).longVersionCode
     fun versionName(ctx: Context): String = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
 
-    /** Network: call off the main thread. Returns a short plain-words result. */
+    /** A failed step, named so the screen can say where the check stopped (no ids, keys or tokens). */
+    class Failed(val step: String, cause: Throwable) : Exception(step, cause)
+
+    /** Pure: the plain-words line shown for a failed check, e.g. "Update check failed at sign-in: HTTP 400". */
+    fun failureText(e: Throwable): String {
+        val step = (e as? Failed)?.step ?: "unknown step"
+        val cause = (e as? Failed)?.cause ?: e
+        val why = when {
+            cause is GoogleAuth.KeyMissing -> "phone key file missing"
+            cause is java.net.UnknownHostException -> "no internet"
+            cause is java.net.SocketTimeoutException -> "timed out"
+            cause is OutOfMemoryError -> "not enough memory"
+            cause.message?.matches(Regex("HTTP \\d{3}")) == true -> cause.message!!
+            else -> cause.javaClass.simpleName
+        }
+        return "Update check failed at $step: $why"
+    }
+
+    private inline fun <T> step(name: String, block: () -> T): T =
+        try { block() } catch (e: Failed) { throw e } catch (e: Throwable) { throw Failed(name, e) }
+
+    /** Network: call off the main thread. Returns a short plain-words result; throws [Failed] naming the step. */
     @Synchronized
     fun checkAndInstall(ctx: Context, onProgress:(String)->Unit = {}): String {
         fun progress(message:String) { done(message);onProgress(message) }
         progress("Checking for update…")
-        val auth = GoogleAuth(File(ctx.filesDir, "sheet-key.json"), SCOPE)
-        val bearer = "Bearer ${auth.accessToken()}"
-        val latestId = findFile(bearer, folderId(ctx), "latest.json") ?: return done("No build published yet")
-        val m = JSONObject(String(download(bearer, latestId)))
+        val folder = step("update channel setting") { folderId(ctx) }
+        val bearer = step("sign-in") { "Bearer ${GoogleAuth(File(ctx.filesDir, "sheet-key.json"), SCOPE).accessToken()}" }
+        val latestId = step("finding the update list") { findFile(bearer, folder, "latest.json") } ?: return done("No build published yet")
+        val m = step("reading the update list") { JSONObject(String(download(bearer, latestId))) }
         val code = m.getLong("versionCode")
         if (!isNewer(m.optString("package"), code, ctx.packageName, installedVersion(ctx)))
             return done("Up to date (v${versionName(ctx)})")
 
         progress("Downloading v${m.optString("versionName")} · 0%")
-        val partsFolder = findFile(bearer, folderId(ctx), "parts") ?: return done("Update failed: no parts folder")
+        val partsFolder = step("finding the download") { findFile(bearer, folder, "parts") } ?: return done("Update failed: no parts folder")
         val names = m.getJSONArray("parts"); val sums = m.getJSONArray("partSha256")
         val apk = File(ctx.cacheDir, "update.apk")
         var received=0L
-        apk.outputStream().use { out ->
+        step("downloading") { apk.outputStream().use { out ->
             for (i in 0 until names.length()) {
                 val id = findFile(bearer, partsFolder, names.getString(i)) ?: return done("Update failed: piece missing")
                 val bytes = download(bearer, id)
@@ -74,9 +95,9 @@ object Updater {
                 val percent=(received*100/m.getLong("size").coerceAtLeast(1)).coerceIn(0,100)
                 progress("Downloading v${m.optString("versionName")} · $percent%")
             }
-        }
+        } }
         progress("Verifying downloaded update…")
-        if (apk.length() != m.getLong("size") || sha256(apk.readBytes()) != m.getString("sha256"))
+        if (apk.length() != m.getLong("size") || step("verifying") { sha256(apk) } != m.getString("sha256"))
             return done("Update failed: file damaged")
         val pm = ctx.packageManager
         val info = pm.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNING_CERTIFICATES)
@@ -88,7 +109,7 @@ object Updater {
         if (mine.isNullOrEmpty() || mine != theirs) return done("Update failed: different signature")
 
         progress("Installing v${m.optString("versionName")}…")
-        install(ctx, apk)
+        step("installing") { install(ctx, apk) }
         return done("Installing v${m.optString("versionName")}…")
     }
 
@@ -127,6 +148,13 @@ object Updater {
 
     private fun download(bearer: String, id: String) = GoogleAuth.http("$DRIVE/$id?alt=media", null, bearer, 30_000)
 
+    /** Streams the file: the whole APK is ~160 MB, too big to hold in memory at once. */
+    private fun sha256(f: File): String {
+        val md = MessageDigest.getInstance("SHA-256"); val buf = ByteArray(1 shl 16)
+        f.inputStream().use { while (true) { val n = it.read(buf); if (n < 0) break; md.update(buf, 0, n) } }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
     private fun sha256(b: ByteArray) = MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
 
     // ---- once a day, on Wi-Fi ----
@@ -155,7 +183,7 @@ object Updater {
     class UpdateJob : JobService() {
         override fun onStartJob(params: JobParameters): Boolean {
             Thread {
-                try { checkAndInstall(applicationContext) } catch (e: Exception) { done("Update check failed: ${e.message}") }
+                try { checkAndInstall(applicationContext) } catch (e: Throwable) { done(failureText(e)) }
                 jobFinished(params, false)
             }.start()
             return true

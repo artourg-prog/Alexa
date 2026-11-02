@@ -351,7 +351,7 @@ class TouchActivity : Activity() {
                         val box = AlertDialog.Builder(this).setTitle("Sofia update").setMessage("Checking…").setPositiveButton("Close", null).show()
                         updating.execute {
                             val result = runCatching { Updater.checkAndInstall(this) { message -> main.post { if (!destroyed) box.setMessage(message) } } }
-                                .getOrElse { "Update check failed. Please try again." }
+                                .getOrElse { Updater.failureText(it) }
                             main.post { if (!destroyed) box.setMessage(result) }
                         }
                     }

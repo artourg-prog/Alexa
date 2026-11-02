@@ -740,7 +740,7 @@ class MainActivity:Activity() {
         updateStatus()
         updates.execute {
             val result=try { updateCheck(applicationContext) { message -> main.post { if(!isDestroyed) { status.setMessage(message);answer.text=message } } } }
-                catch(_:Exception) { "Update unavailable. Check Wi-Fi and retry." }
+                catch(e:Throwable) { Updater.failureText(e) }
             main.post {
                 updateChecking=false
                 if(!isDestroyed) {
