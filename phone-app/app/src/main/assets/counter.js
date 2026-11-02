@@ -12,8 +12,8 @@
   // Every request ends: an answer, an error, or a timeout (owner 11-02 freeze: a request that never answered left the
   // page waiting with no way out). A late answer after the timeout is ignored; nothing is re-sent from here.
   const WAIT_MS = { save: 45000, pickup: 45000, find: 40000, report: 40000 };
-  const LATE = { save: 'Still saving on this phone. It is kept and will be sent — check Pending work in Settings before entering it again.',
-    pickup: 'Still saving the pickup on this phone. It is kept — check Pending work in Settings before tapping again.' };
+  const LATE = { save: 'Save confirmation has not arrived. The request may still complete — check Pending work in Settings before entering it again.',
+    pickup: 'Pickup confirmation has not arrived. The request may still complete — check Pending work in Settings before tapping again.' };
   function call(action, data = {}) {
     return new Promise((resolve, reject) => {
       const id = String(++serial);
