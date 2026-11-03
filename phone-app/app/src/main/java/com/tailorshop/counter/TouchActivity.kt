@@ -102,7 +102,12 @@ class TouchActivity : Activity() {
 
     override fun onResume() {
         super.onResume(); resumed = true; Wake.clear(this)
+        TabletBars.hide(window)
         main.removeCallbacks(ticker); main.post(ticker)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus); if (hasFocus) TabletBars.hide(window)
     }
 
     override fun onPause() {
@@ -364,9 +369,9 @@ class TouchActivity : Activity() {
 
     /** Owner picks the male English voice for DUE announcements after hearing it (no gender metadata exists). */
     private fun chooseDueVoice() {
-        val t = tts?.takeIf { voiceReady } ?: run { AlertDialog.Builder(this).setMessage("Voice engine unavailable.").setPositiveButton("Close", null).show(); return }
+        val t = tts?.takeIf { voiceReady } ?: run { AlertDialog.Builder(this).setMessage("Voice engine unavailable.").setPositiveButton("Close", null).showDialog(); return }
         val english = options(t).filter { it.first.language == "en" && it.first.installed }.sortedBy { it.first.name }
-        if (english.isEmpty()) { AlertDialog.Builder(this).setMessage("No English voices are installed on this phone.").setPositiveButton("Close", null).show(); return }
+        if (english.isEmpty()) { AlertDialog.Builder(this).setMessage("No English voices are installed on this phone.").setPositiveButton("Close", null).showDialog(); return }
         val names = english.map { it.first.name + if (it.first.network) " (online)" else "" }.toTypedArray()
         var picked = -1
         AlertDialog.Builder(this).setTitle("Due voice · tap to hear, then Save").setSingleChoiceItems(names, english.indexOfFirst {
@@ -375,7 +380,7 @@ class TouchActivity : Activity() {
             t.speak("Receipt 1 2 3 4 5. Outstanding balance due: 40 dollars.", TextToSpeech.QUEUE_FLUSH, null, "touch-preview")
         }.setPositiveButton("Save as male voice") { _, _ ->
             if (picked >= 0) getSharedPreferences("voice", MODE_PRIVATE).edit().putString("maleVoice-en", english[picked].first.name).apply()
-        }.setNegativeButton("Cancel", null).show()
+        }.setNegativeButton("Cancel", null).showDialog()
     }
 
     private fun settings() {
@@ -383,7 +388,7 @@ class TouchActivity : Activity() {
             .setItems(arrayOf("Check for update", "Refresh orders", "Pending work", "Repeat announcement", "Due voice (male English)")) { _, which ->
                 when (which) {
                     0 -> {
-                        val box = AlertDialog.Builder(this).setTitle("Sofia update").setMessage("Checking…").setPositiveButton("Close", null).show()
+                        val box = AlertDialog.Builder(this).setTitle("Sofia update").setMessage("Checking…").setPositiveButton("Close", null).showDialog()
                         updating.execute {
                             val result = runCatching { Updater.checkAndInstall(this) { message -> main.post { if (!destroyed) box.setMessage(message) } } }
                                 .getOrElse { Updater.failureText(it) }
@@ -395,12 +400,12 @@ class TouchActivity : Activity() {
                         val q = queueJson()
                         AlertDialog.Builder(this).setTitle("Pending work")
                             .setMessage("Work processing: ${q.optInt("work")}\nPickup confirmations: ${q.optInt("pickups")}\n\n${q.optString("warning")}")
-                            .setPositiveButton("Close", null).show()
+                            .setPositiveButton("Close", null).showDialog()
                     }
                     3 -> speak(lastSpoken, lastMale)?.let(::voiceProblem)
                     4 -> chooseDueVoice()
                 }
-            }.setNegativeButton("Close", null).show()
+            }.setNegativeButton("Close", null).showDialog()
     }
 
     private fun error(message: String) = JSONObject().put("ok", false).put("error", message)

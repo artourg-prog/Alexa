@@ -26,3 +26,13 @@ class UpdaterTest {
         assertEquals("Update check failed at unknown step: IllegalStateException", Updater.failureText(IllegalStateException("x")))
     }
 }
+
+class TabletBarsTest {
+    @Test fun onlyTheHomeTestTabletHidesTheBar() {
+        assertTrue(TabletBars.applies("SM-T820"))
+        assertFalse(TabletBars.applies("SM-F956U"))  // a Fold
+        assertFalse(TabletBars.applies("Go103"))     // the shop tablet
+        assertFalse(TabletBars.applies("SM-T825"))   // only the exact model
+        assertFalse(TabletBars.applies(""))
+    }
+}

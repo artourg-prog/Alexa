@@ -494,7 +494,7 @@ class MainActivity:Activity() {
         if(workWarning!=null) {
             AlertDialog.Builder(this).setTitle("Work queue needs checking").setMessage(workWarning)
                 .setPositiveButton("I checked the tablet") { _,_->storage.execute { finishes.acknowledgeRecovery();main.post { renderQueue() } } }
-                .setNegativeButton("Keep warning",null).show()
+                .setNegativeButton("Keep warning",null).showDialog()
             return
         }
         val requests=pickups.toCheck()
@@ -504,7 +504,7 @@ class MainActivity:Activity() {
             .setPositiveButton("I checked on the tablet") { _,_-> storage.execute {
                 if(r!=null) pickups.dismiss(r.id) else pickups.acknowledgeRecovery()
                 main.post { renderQueue() }
-            } }.setNegativeButton("Keep warning",null).show()
+            } }.setNegativeButton("Keep warning",null).showDialog()
     }
     private fun pauseCapture() {
         if(tapToTalk()) { speech.stop();running=false;readyCue=false;main.removeCallbacks(flushSegments);segments.clear();segmentRevision++ }
@@ -704,8 +704,8 @@ class MainActivity:Activity() {
                     .setSingleChoiceItems(arrayOf("Tap to talk · microphone off between commands","Hands-free · continuously listens during shop hours"),if(tapToTalk())0 else 1) { d,choice->
                         getSharedPreferences("power",MODE_PRIVATE).edit().putBoolean("tapToTalk",choice==0).apply()
                         scheduleWake();dialog.cancel();speech.stop();running=false;retryAt=0;d.dismiss();updateStatus()
-                    }.setNegativeButton("Close",null).show()
-            } }.setPositiveButton("Check for update") { _,_->checkUpdate() }.setNegativeButton("Close",null).show()
+                    }.setNegativeButton("Close",null).showDialog()
+            } }.setPositiveButton("Check for update") { _,_->checkUpdate() }.setNegativeButton("Close",null).showDialog()
     }
     private fun refreshWeather() {
         val now=SystemClock.elapsedRealtime()
@@ -731,12 +731,12 @@ class MainActivity:Activity() {
         }
     }
     private fun checkUpdate() {
-        if(updateChecking) { updateDialog?.show();return }
+        if(updateChecking) { updateDialog?.let(TabletBars::show);return }
         updateChecking=true
         dialog.cancel();cancelPrompt();stopVoice();speech.stop();running=false
         val status=AlertDialog.Builder(this).setTitle("Sofia update · installed ${Updater.versionName(this)}")
             .setMessage("Checking for update…").setCancelable(false).setPositiveButton("Close",null).create()
-        updateDialog=status;status.show();status.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled=false
+        updateDialog=status;TabletBars.show(status);status.getButton(AlertDialog.BUTTON_POSITIVE).isEnabled=false
         updateStatus()
         updates.execute {
             val result=try { updateCheck(applicationContext) { message -> main.post { if(!isDestroyed) { status.setMessage(message);answer.text=message } } } }
@@ -754,7 +754,7 @@ class MainActivity:Activity() {
         val names=Sounds.available(this).keys.toList()+Sounds.OFF
         AlertDialog.Builder(this).setTitle(event.label).setSingleChoiceItems(names.toTypedArray(),names.indexOf(Sounds.choice(this,event))) { _,i->
             Sounds.choose(this,event,names[i]);speech.mute(true);Sounds.playTitle(this,names[i]);main.postDelayed({if(!speaking)speech.mute(false)},2500)
-        }.setNegativeButton("Back") { _,_->settings() }.show()
+        }.setNegativeButton("Back") { _,_->settings() }.showDialog()
     }
     private fun voiceSettings() {
         val choices=listOf("Female · English","Male · English · not ready only","Female · Russian","Male · Russian · not ready only")
@@ -764,7 +764,7 @@ class MainActivity:Activity() {
             AlertDialog.Builder(this).setTitle(choices[which]).setItems(voices.map { it.name }.toTypedArray()) { _,i ->
                 getSharedPreferences("voice",MODE_PRIVATE).edit().putString("${if(male)"male" else "female"}Voice-$lang",voices[i].name).apply()
                 russian=lang=="ru";voiceWarning=false;sayParts(listOf(Spoken(if(russian)if(male)"Ещё не готово." else "Готово к выдаче." else if(male)"Not ready yet." else "Ready for pickup.",male)))
-            }.setNegativeButton("Back") { _,_->voiceSettings() }.show()
-        }.setNegativeButton("Close",null).show()
+            }.setNegativeButton("Back") { _,_->voiceSettings() }.showDialog()
+        }.setNegativeButton("Close",null).showDialog()
     }
 }
