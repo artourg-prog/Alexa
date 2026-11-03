@@ -78,4 +78,25 @@ class FirstEntryOverviewTest {
         assertEquals("Not picked up", OrderIndex.pickupLine(false, true, true, listOf(e(OrderIndex.State.NOT_READY))))
         assertEquals("Pickup status unavailable", OrderIndex.pickupLine(false, true, true, listOf(e(OrderIndex.State.UNKNOWN))))
     }
+
+    @Test fun aWaitingScreenChecksOnlyItsOwnEntryRightAway() {
+        val r = Reader(); val f = finishes(r)
+        val old = f.addOrReuse("Emma", "26401")!!; f.sync()                       // an older entry still pending
+        val now = f.addOrReuse("Emma", "26457")!!
+        r.calls.clear(); f.sync(onlyId = now.scanId)
+        assertTrue(r.calls.isNotEmpty())
+        assertTrue(r.calls.all { c -> c.optJSONObject("scan")?.optString("scanId").let { it == null || it == now.scanId } && c.optString("scanId", now.scanId) == now.scanId })
+        assertNotEquals(old.scanId, now.scanId)
+    }
+
+    @Test fun saveOnlyReEntryKeepsTheOriginalEventAndItsSmsChoice() {
+        val r = Reader(); val f = finishes(r)
+        val first = f.addOrReuse("Emma", "26457")!!; assertTrue(f.requestSms(first.scanId))   // Save + SMS
+        val smsId = f.get(first.scanId)!!.smsId
+        val again = f.addOrReuse("Emma", "26457")!!                                          // owner re-enters, Save only
+        assertEquals(first.scanId, again.scanId)
+        assertTrue(f.get(first.scanId)!!.sendSms)                                            // the authorized SMS intent stays
+        assertEquals(smsId, f.get(first.scanId)!!.smsId)                                     // same request id: never a second message
+        assertEquals(1, f.all().size)
+    }
 }

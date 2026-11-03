@@ -270,10 +270,14 @@
       body.replaceChildren(clone('sf-keypad-screen')); body.querySelector('.sf-keypad-heading').textContent = state.flow === 'report' ? 'Please enter receipt number' : 'Please enter last four';
       body.querySelector('.sf-find').classList.toggle('violet', state.flow === 'report'); body.querySelector('.sf-find').classList.toggle('green', state.flow === 'lookup'); bindKeys();
     } else if (step === 'matches') {
-      body.replaceChildren(clone('sf-matches-screen')); body.querySelector('.sf-flow-name').textContent = 'CHOOSE RECEIPT'; body.querySelector('.sf-match-count').textContent = state.matches.length + ' receipts';
+      body.replaceChildren(clone('sf-matches-screen')); body.querySelector('.sf-flow-name').textContent = 'CHOOSE RECEIPT'; body.querySelector('.sf-match-count').textContent = state.matches.length + ' receipts' + (state.flow === 'lookup' && state.matches.every(m => m.state === 'COLLECTED' || /^Picked up ·/.test(m.pickupLine || '')) ? ' · all already picked up' : '');
       state.matches.forEach(item => { const entry = clone('sf-match-item'); entry.querySelector('.sf-match-number').textContent = item.number; entry.querySelector('.sf-match-customer').textContent = item.name || ''; entry.querySelector('.sf-match-work').remove(); const pick = entry.querySelector('.sf-match-pickup'); if (item.pickupLine) { pick.textContent = item.pickupLine; pick.classList.toggle('is-picked', /^Picked up/.test(item.pickupLine)); pick.classList.toggle('is-unsure', /unavailable|conflicting/.test(item.pickupLine)); } else pick.remove(); entry.querySelector('.sf-match-total').textContent = item.total || ''; entry.querySelector('.sf-match').classList.toggle('sf-unpaid', item.pay === 'DUE'); entry.querySelector('button').onclick = () => select(item); body.querySelector('.sf-matches').append(entry); });
     } else if (step === 'order') {
-      body.replaceChildren(clone('sf-order-screen')); body.querySelector('.sf-detail-slot').append(receipt()); body.querySelector('.sf-pickup').disabled = !state.selected.ready || !!state.selected.pickupNote;
+      body.replaceChildren(clone('sf-order-screen')); body.querySelector('.sf-detail-slot').append(receipt());
+      // An order already picked up, or with conflicting records, is shown but never offered for another pickup (owner 11-02).
+      const line = state.selected.pickupLine || '', collected = state.selected.state === 'COLLECTED' || /^Picked up ·/.test(line), conflict = /conflicting/.test(line);
+      body.querySelector('.sf-pickup').disabled = !state.selected.ready || !!state.selected.pickupNote || collected || conflict;
+      if (collected || conflict) body.querySelector('.sf-readonly').textContent = collected ? 'Already picked up — pickup is not offered again.' : 'Pickup records disagree — check the tablet. Pickup is not offered here.';
       body.querySelector('.sf-pickup').onclick = pickup; body.querySelector('.sf-not-picked-up').onclick = () => { home(); say('Not picked up. Заказ остаётся в списке готовых к выдаче.'); };
     } else if (step === 'workers') {
       body.replaceChildren(clone('sf-workers-screen')); body.querySelector('.sf-detail-slot').append(receipt()); body.querySelector('.sf-work-date').textContent = today();

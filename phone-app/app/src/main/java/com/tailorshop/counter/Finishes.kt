@@ -210,15 +210,16 @@ class Finishes(
 
     @Synchronized fun reviewed(): JSONArray = try { JSONArray(reviewedFile.readText()) } catch (_: Exception) { JSONArray() }
 
-    /** Sends / asks about everything not final. Network: off the main thread. Returns the items that changed. */
-    fun sync(): List<Item> {
+    /** Sends / asks about everything not final (or only [onlyId]: the entry a screen is waiting on, checked back-to-back
+     *  without waiting behind older entries). Network: off the main thread. Returns the items that changed. */
+    fun sync(onlyId: String? = null): List<Item> {
         if (!configured()) return emptyList()
         val cfg = JSONObject(configFile.readText())
         val url = cfg.getString("url"); val secret = cfg.getString("secret")
         val changed = mutableListOf<Item>()
         val todo = synchronized(this) {
             if (items.any { !it.durable }) save()
-            items.filter { it.durable && (it.scan !in SCAN_FINAL || reportPending(it) || (it.sendSms && it.sms !in SMS_FINAL)) }
+            items.filter { it.durable && (onlyId == null || it.scanId == onlyId) && (it.scan !in SCAN_FINAL || reportPending(it) || (it.sendSms && it.sms !in SMS_FINAL)) }
                 .sortedByDescending { it.createdMs }
         }
         for (i in todo) {

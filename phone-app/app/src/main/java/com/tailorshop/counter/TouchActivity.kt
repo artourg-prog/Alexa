@@ -153,6 +153,8 @@ class TouchActivity : Activity() {
                 }
                 "status" -> {
                     val event = finishes.get(body.optString("id"))
+                    // The screen is waiting on this entry (asked every 2 s): check it again right away, not on the 5 s tick.
+                    if (event != null && (event.scan !in Finishes.SCAN_FINAL || Finishes.reportPending(event))) synchronizeQueues(event.scanId)
                     reply(id, event?.let(::finishJson) ?: error("Saved request unavailable. Check pending work."))
                 }
                 "queue" -> reply(id, queueJson())
@@ -258,6 +260,13 @@ class TouchActivity : Activity() {
             .distinctBy { listOf(Lookup.digits(it.receipt), Lookup.digits(it.phone), it.customer, it.txn) }
         if (matches.size != 1 || !matches.single().ready) { reply(id, error("Pickup is unavailable or ambiguous. Check the order.")); return }
         if (matches.single().txn != txn) { reply(id, error("This order changed. Look it up again.")); return }
+        // Re-read right before the tap is kept (owner 11-02): a pickup already recorded for this number and phone, or a
+        // conflicting record, is never offered again; a failed re-read is said, not treated as "not picked up".
+        runCatching { refreshOrders() }; refreshIndex()
+        val phone4 = Lookup.digits(matches.single().phone).takeLast(4)
+        val line = OrderIndex.pickupLine(true, !offline, indexFresh, index.filter { Lookup.digits(it.receipt) == number && Lookup.digits(it.phone).takeLast(4) == phone4 })
+        if (line != "Not picked up") { reply(id, error("Pickup not recorded: $line.")); return }
+        if (orders.none { Lookup.digits(it.receipt) == number && it.txn == txn && it.ready }) { reply(id, error("This order changed. Look it up again.")); return }
         if (!pickups.addOrReuse(number, txn)) { reply(id, error("Pickup not saved on this phone. Please retry.")); return }
         val request = pickups.latest(number, txn)!!
         reply(id, JSONObject().put("ok", true).put("number", number).put("status", request.status)
@@ -292,10 +301,10 @@ class TouchActivity : Activity() {
                 .put("line", Finishes.overviewLine(i)) }))
     }
 
-    private fun synchronizeQueues() {
+    private fun synchronizeQueues(onlyId: String? = null) {
         if (!syncing.compareAndSet(false, true)) return
         writes.execute {
-            try { runCatching { finishes.sync().forEach(::logPhases) }; runCatching { pickups.sync() } }
+            try { runCatching { finishes.sync(onlyId).forEach(::logPhases) }; if (onlyId == null) runCatching { pickups.sync() } }
             finally { syncing.set(false) }
         }
     }
