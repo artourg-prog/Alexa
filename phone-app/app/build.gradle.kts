@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 65 // Pickup status on cards, no second pickup, first Daily Report entry followed to Recorded, home list
-        versionName = "0.65"
+        versionCode = 66 // Save returns home; saved work finishes in the background
+        versionName = "0.66"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
