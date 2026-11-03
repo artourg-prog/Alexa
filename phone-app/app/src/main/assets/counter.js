@@ -187,7 +187,11 @@
     try {
       const result = await call('save', { number: state.selected.number, worker: state.worker, sms });
       if (rev !== revision) return;
-      state.event = result; polling = setInterval(updateFinish, 2000); updateFinish();
+      // Saved durably on this phone: back home at once (owner 11-03); it finishes in the background and the home list
+      // shows its state. "Recorded" and "SMS sent" are still said only when the tablet / Reader confirm them.
+      const worker = state.worker; home(); watched.add(result.id);
+      say('Сохранено на телефоне. Квитанция ' + result.number.split('').join(' ') + ', работник ' + worker + '. Завершится автоматически.'
+        + (result.smsRequested ? ' SMS будет отправлено после подтверждения.' : ''));
     } catch (error) { if (rev === revision) { change('sms', false); fail(error); } }
   }
   let checking = -1; // the revision whose status request is in flight: a stale one never blocks a newer entry
@@ -245,13 +249,18 @@
     });
   }
   // Home: today's Daily Report entries from this phone, with the saved time only as the Reader reports it (owner 11-02).
+  const watched = new Set(), announced = new Set(); // entries saved from this screen; each "Recorded" is said once
   async function loadOverview() {
     const rev = revision;
     try {
       const result = await call('overview'); if (rev !== revision || state.step !== 'home') return;
       const list = body.querySelector('.sf-overview-report'); if (!list) return;
       list.replaceChildren(...result.report.map(entry => {
-        const li = document.createElement('li'); li.className = entry.recorded ? 'is-recorded' : '';
+        const li = document.createElement('li'); li.className = entry.problem ? 'is-problem' : entry.recorded ? 'is-recorded' : '';
+        if (entry.recorded && watched.has(entry.id) && !announced.has(entry.id)) {
+          announced.add(entry.id); watched.delete(entry.id);
+          say('Записано. Квитанция ' + entry.number.split('').join(' ') + '. Работник ' + entry.worker + '.');
+        }
         const n = document.createElement('strong'); n.textContent = entry.number;
         const w = document.createElement('span'); w.textContent = entry.worker;
         const t = document.createElement('small'); t.textContent = entry.line;

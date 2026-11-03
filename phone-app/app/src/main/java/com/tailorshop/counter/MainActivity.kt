@@ -183,7 +183,7 @@ class MainActivity:Activity() {
         super.onCreate(state)
         val power=getSharedPreferences("power",MODE_PRIVATE)
         if(!power.getBoolean("bounded-dialogue-v43",false))power.edit().putBoolean("tapToTalk",true).putBoolean("bounded-dialogue-v43",true).apply()
-        finishes=Finishes(filesDir);pickups=Pickups(filesDir);sheets=Sheets(File(filesDir,"sheet-key.json"));cache=OrderCache(filesDir)
+        finishes=Queues.finishes(this);pickups=Queues.pickups(this);sheets=Sheets(File(filesDir,"sheet-key.json"));cache=OrderCache(filesDir)
         intentService=SemanticClient(applicationContext)
         dialog=Conversation { finishes.workers() }
         weatherObservation=DayClock.cached(getSharedPreferences("clock",MODE_PRIVATE).getString("weather","").orEmpty())

@@ -208,6 +208,7 @@ object Updater {
     class Restart : BroadcastReceiver() {
         override fun onReceive(ctx: Context, intent: Intent) {
             scheduleNight(ctx)
+            QueueJob.schedule(ctx, 5_000) // finish any saved work / pickup taps left from before the restart or update
             if(!ctx.getSharedPreferences("power",Context.MODE_PRIVATE).getBoolean("tapToTalk",true))
                 Wake.schedule(ctx, System.currentTimeMillis() + 3_000, 3)
         }

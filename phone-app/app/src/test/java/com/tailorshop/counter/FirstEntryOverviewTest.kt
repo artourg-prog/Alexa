@@ -51,7 +51,14 @@ class FirstEntryOverviewTest {
         val r = Reader().apply { scan = "ADDED"; saved = true }; val f = finishes(r)
         val i = f.addOrReuse("Emma", "26448")!!; f.sync(); f.sync()
         assertEquals("Saved · save time not reported", Finishes.overviewLine(f.get(i.scanId)!!))
-        assertEquals("Waiting for Daily Report confirmation", Finishes.overviewLine(Finishes.Item("x", "Emma", "26449", "", 0L, scan = "ACCEPTED")))
+        assertEquals("Saved on this phone · waiting for Daily Report confirmation", Finishes.overviewLine(Finishes.Item("x", "Emma", "26449", "", 0L, scan = "ACCEPTED")))
+        // SMS state rides along; an SMS that ended unsent, a refusal or a hold needs a person
+        val sms = Finishes.Item("y", "Emma", "26457", "", 0L, sendSms = true, scan = "ACCEPTED", sms = "QUEUED")
+        assertEquals("Saved on this phone · waiting for Daily Report confirmation · SMS: waiting to send", Finishes.overviewLine(sms))
+        assertFalse(Finishes.overviewProblem(sms))
+        assertTrue(Finishes.overviewProblem(sms.copy(sms = "FAILED")))
+        assertFalse(Finishes.overviewProblem(sms.copy(sms = "SENT")))
+        assertTrue(Finishes.overviewProblem(sms.copy(scan = "HELD")))
     }
 
     @Test fun savedAtFormats() {

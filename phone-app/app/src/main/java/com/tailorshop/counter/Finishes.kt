@@ -110,8 +110,12 @@ class Finishes(
         fun overviewLine(i: Item): String = when {
             recorded(i) -> "Saved" + if (i.savedAt.isNotBlank()) " · ${i.savedAt}" else " · save time not reported"
             i.scan == "REJECTED" || i.scan == "HELD" || receiptNotFound(i) -> scanText(i, false)
-            else -> "Waiting for Daily Report confirmation"
-        }
+            else -> "Saved on this phone · waiting for Daily Report confirmation"
+        } + if (i.sendSms) " · ${smsText(i, false)}" else ""
+
+        /** Needs a person: refused, held, not in the master list, or an SMS that ended without being sent. */
+        fun overviewProblem(i: Item): Boolean = i.scan == "REJECTED" || i.scan == "HELD" || receiptNotFound(i) ||
+            i.sendSms && i.sms in SMS_FINAL && i.sms != "SENT"
 
         fun dollars(cents: Long) = "$" + (cents / 100) + "." + (cents % 100).toString().padStart(2, '0')
     }

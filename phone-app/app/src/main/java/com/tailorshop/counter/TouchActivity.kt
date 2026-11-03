@@ -28,7 +28,7 @@ class TouchActivity : Activity() {
     private val writes = Executors.newSingleThreadExecutor()   // queue sync (network)
     private val saves = Executors.newSingleThreadExecutor()    // a person's Save / Picked up: never waits behind a sync pass
     private val updating = Executors.newSingleThreadExecutor()
-    private val syncing = AtomicBoolean(false)
+    private val syncing = Queues.syncing
     private lateinit var web: WebView
     private lateinit var finishes: Finishes
     private lateinit var pickups: Pickups
@@ -57,7 +57,7 @@ class TouchActivity : Activity() {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
-        finishes = Finishes(filesDir); pickups = Pickups(filesDir)
+        finishes = Queues.finishes(this); pickups = Queues.pickups(this)
         sheets = Sheets(File(filesDir, "sheet-key.json")); cache = OrderCache(filesDir)
         cache.load()?.let { snapshot -> runCatching { orders = snapshot.orders(); loadedAt = snapshot.at } }
         web = WebView(this)
@@ -106,7 +106,10 @@ class TouchActivity : Activity() {
     }
 
     override fun onPause() {
-        resumed = false; main.removeCallbacks(ticker); tts?.stop(); super.onPause()
+        resumed = false; main.removeCallbacks(ticker); tts?.stop()
+        // Unfinished saved work / pickup taps keep going in the background (screen off, app closed, restart).
+        if (QueueJob.unfinished(finishes, pickups)) QueueJob.schedule(this)
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -298,7 +301,8 @@ class TouchActivity : Activity() {
             .sortedByDescending { it.createdMs }.take(30)
         return JSONObject().put("ok", true).put("report", JSONArray(list.map { i ->
             JSONObject().put("number", i.receipt).put("worker", i.worker).put("recorded", Finishes.recorded(i))
-                .put("line", Finishes.overviewLine(i)) }))
+                .put("id", i.scanId).put("line", Finishes.overviewLine(i)).put("problem", Finishes.overviewProblem(i)) }))
+            .also { if (QueueJob.unfinished(finishes, pickups)) synchronizeQueues() }
     }
 
     private fun synchronizeQueues(onlyId: String? = null) {
