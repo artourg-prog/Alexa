@@ -189,6 +189,7 @@ class TouchActivity : Activity() {
     }
 
     @Volatile private var indexFresh = false
+    @Volatile private var listAge = ListAge.Status(ListAge.Level.UNKNOWN)
 
     // The compact Order Index (not-ready / collected states) plus the Picked Up Orders history, re-read on every Find
     // (owner 11-02, #26438: a state from an older copy looked like a verified "not ready"). A failed read keeps the last
@@ -199,6 +200,7 @@ class TouchActivity : Activity() {
             val picked = sheets.readPickedUp()?.let(OrderIndex::parsePickedUp) ?: emptyList()
             index = OrderIndex.withHistory(idx, picked)
         }.isSuccess
+        listAge = ListAge.of(runCatching { sheets.readSync() }.getOrNull(), java.time.ZonedDateTime.now())
     }
 
     private fun lookup(id: String, action: String, value: String) {
@@ -246,20 +248,20 @@ class TouchActivity : Activity() {
     /** The cards for the screen. [checked] = a reopened row: a card that may not be picked up says why and offers no button. */
     private fun answer(action: String, number: String, cards: List<Card>, unverified: Boolean, extra: List<OrderIndex.Entry>, checked: Boolean = false): JSONObject {
         val readyFresh = !offline
-        val nowShop = java.time.LocalDateTime.now(java.time.ZoneId.of("America/Los_Angeles"))
         fun sameNumber(r: String) = index.filter { Lookup.digits(it.receipt) == Lookup.digits(r) && Lookup.digits(it.phone).takeLast(4) == number }
         return JSONObject().put("ok", true).put("receipts", JSONArray().apply {
             cards.forEach { card -> put(cardJson(card, action == "report" && unverified).also { json ->
                 val tap = if (action == "find" && pickups.pendingFor(card.receipt, card.txn)) pickups.latest(card.receipt, card.txn) else null
                 if (tap != null) json.put("pickupNote", Pickups.stateText(tap))
-                if (action == "find") json.put("pickupLine", tap?.let(Pickups::stateText) ?: OrderIndex.pickupLine(true, readyFresh, indexFresh, sameNumber(card.receipt)))
-                if (checked && tap == null && json.getString("pickupLine") != "Not picked up") json.put("pickupNote", json.getString("pickupLine"))
+                if (action == "find") json.put("pickupLine", tap?.let(Pickups::stateText) ?: OrderIndex.pickupLine(true, readyFresh, indexFresh, sameNumber(card.receipt), listAge))
+                if (checked && tap == null && !OrderIndex.pickupAllowed(json.getString("pickupLine"))) json.put("pickupNote", json.getString("pickupLine"))
                 if (checked && json.has("pickupNote")) json.put("blocked", true) }) }
             extra.forEach { e -> put(cardJson(Card(e.receipt, e.customer, ""), false).put("ready", false)
                 .put("state", e.state.name).put("stateText", OrderIndex.stateText(e) + if (indexFresh) "" else " · couldn't refresh, may be out of date")
-                .put("stale", indexFresh && e.state != OrderIndex.State.COLLECTED && OrderIndex.stale(e, nowShop))
-                .put("pickupLine", OrderIndex.pickupLine(false, readyFresh, indexFresh, listOf(e)))) }
-        }).put("offline", offline).put("loadedAt", loadedAt)
+                .put("stale", listAge.level != ListAge.Level.CURRENT && e.state != OrderIndex.State.COLLECTED)
+                .put("pickupLine", OrderIndex.pickupLine(false, readyFresh, indexFresh, listOf(e), listAge))) }
+        }).put("offline", offline).put("loadedAt", loadedAt).also { json -> if (action == "find") json.put("listState", listAge.level.name)
+            .put("asOf", listAge.asOf).put("missText", ListAge.missText(listAge)) }
     }
 
     private fun picked(receipt: String, last4: String) = index.filter { it.state == OrderIndex.State.COLLECTED &&
@@ -271,7 +273,7 @@ class TouchActivity : Activity() {
         val hits = results.map { c -> val prior = picked(c.receipt, last4).size
             FindLog.Hit(Lookup.digits(c.receipt), c.txn, if (prior > 0) FindLog.CONFLICT else if (c.ready) FindLog.READY else FindLog.NOT_READY, prior, Lookup.recorded(c.receipt), c.total) } +
             extra.map { e -> FindLog.Hit(Lookup.digits(e.receipt), "", e.state.name, picked(e.receipt, last4).size, Lookup.recorded(e.receipt)) }
-        findLog.add(last4, hits.ifEmpty { listOf(FindLog.Hit("", "", FindLog.NOT_FOUND)) }, "", "", offline || !indexFresh)
+        findLog.add(last4, hits.ifEmpty { listOf(FindLog.Hit("", "", FindLog.NOT_FOUND)) }, listAge.level.name, listAge.asOf, offline || !indexFresh)
     }
 
     private fun logMiss(last4: String, state: String) {
@@ -291,7 +293,7 @@ class TouchActivity : Activity() {
                 else -> same.firstOrNull { it.state != OrderIndex.State.COLLECTED }?.state?.name
             }
             FindLog.Seen(state, done.size, done.firstOrNull { it.collectedAt.isNotBlank() }?.collectedAt.orEmpty())
-        }, "", "")
+        }, listAge.level.name, listAge.asOf)
     }
 
     private fun cardJson(c: Card, unverified: Boolean = false) = JSONObject()
@@ -332,8 +334,8 @@ class TouchActivity : Activity() {
         // conflicting record, is never offered again; a failed re-read is said, not treated as "not picked up".
         runCatching { refreshOrders() }; refreshIndex()
         val phone4 = Lookup.digits(matches.single().phone).takeLast(4)
-        val line = OrderIndex.pickupLine(true, !offline, indexFresh, index.filter { Lookup.digits(it.receipt) == number && Lookup.digits(it.phone).takeLast(4) == phone4 })
-        if (line != "Not picked up") { reply(id, error("Pickup not recorded: $line.")); return }
+        val line = OrderIndex.pickupLine(true, !offline, indexFresh, index.filter { Lookup.digits(it.receipt) == number && Lookup.digits(it.phone).takeLast(4) == phone4 }, listAge)
+        if (!OrderIndex.pickupAllowed(line)) { reply(id, error("Pickup not recorded: $line.")); return }
         if (orders.none { Lookup.digits(it.receipt) == number && it.txn == txn && it.ready }) { reply(id, error("This order changed. Look it up again.")); return }
         if (!pickups.addOrReuse(recorded, txn)) { reply(id, error("Pickup not saved on this phone. Please retry.")); return }
         val request = pickups.latest(number, txn)!!

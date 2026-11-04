@@ -31,6 +31,9 @@ class Sheets(keyFile: File, private val reader:(()->List<List<String>>)?=null) {
     /** The "Picked Up Orders" history tab, read-only; null when it doesn't exist. Other failures throw. */
     fun readPickedUp(): List<List<String>>? = readTab("'Picked Up Orders'!A1:F")
 
+    /** The "Sync Status" tab (Key | Value): when the tablet last published. See ListAge. Null when it doesn't exist. */
+    fun readSync(): List<List<String>>? = readTab("'Sync Status'!A1:B30")
+
     private fun readTab(range: String): List<List<String>>? {
         if (reader != null) return null
         val url = "https://sheets.googleapis.com/v4/spreadsheets/$SPREADSHEET_ID/values/" +
