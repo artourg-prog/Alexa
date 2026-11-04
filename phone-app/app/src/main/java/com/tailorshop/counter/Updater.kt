@@ -30,6 +30,14 @@ object Updater {
     private fun folderId(ctx:Context):String = ctx.assets.open("private-channel.json").bufferedReader().use {
         JSONObject(it.readText()).getString("folder").also { id->require(id.matches(Regex("[A-Za-z0-9_-]{10,100}"))) }
     }
+    /** The home test tablet (SM-T820) has its own channel and key, placed in app storage over USB (update-channel.json
+     *  {"folder": id}, update-key.json): a service account that sees only that folder, never the phone's key or channel. */
+    private fun tabletFolderId(ctx:Context):String {
+        val file = File(ctx.filesDir, "update-channel.json")
+        if (!file.isFile) throw ChannelMissing()
+        return JSONObject(file.readText()).getString("folder").also { id->require(id.matches(Regex("[A-Za-z0-9_-]{10,100}"))) }
+    }
+    class ChannelMissing : Exception("CHANNEL_MISSING")
     private const val SCOPE = "https://www.googleapis.com/auth/drive.readonly"
     private const val DRIVE = "https://www.googleapis.com/drive/v3/files"
     private const val TAG = "TailorCounter"
@@ -44,6 +52,11 @@ object Updater {
     /** Pure rule: install only our own package, and only a newer version. */
     fun isNewer(pkg: String, code: Long, ourPkg: String, installed: Long) = pkg == ourPkg && code > installed
 
+    /** Pure rule: a manifest naming a device is only for that model; the tablet takes only manifests that name it, so a
+     *  phone-channel build can never replace the tablet's. Phone manifests name no device, so phones behave as before. */
+    fun fits(manifestDevice: String, model: String) =
+        if (manifestDevice.isBlank()) !TabletBars.applies(model) else manifestDevice.equals(model, ignoreCase = true)
+
     fun installedVersion(ctx: Context): Long = ctx.packageManager.getPackageInfo(ctx.packageName, 0).longVersionCode
     fun versionName(ctx: Context): String = ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName ?: "?"
 
@@ -55,6 +68,7 @@ object Updater {
         val step = (e as? Failed)?.step ?: "unknown step"
         val cause = (e as? Failed)?.cause ?: e
         val why = when {
+            cause is ChannelMissing -> "tablet update channel not set up"
             cause is GoogleAuth.KeyMissing -> "phone key file missing"
             cause is java.net.UnknownHostException -> "no internet"
             cause is java.net.SocketTimeoutException -> "timed out"
@@ -73,11 +87,14 @@ object Updater {
     fun checkAndInstall(ctx: Context, onProgress:(String)->Unit = {}): String {
         fun progress(message:String) { done(message);onProgress(message) }
         progress("Checking for update…")
-        val folder = step("update channel setting") { folderId(ctx) }
-        val bearer = step("sign-in") { "Bearer ${GoogleAuth(File(ctx.filesDir, "sheet-key.json"), SCOPE).accessToken()}" }
+        val tablet = TabletBars.applies(android.os.Build.MODEL)
+        val folder = step("update channel setting") { if (tablet) tabletFolderId(ctx) else folderId(ctx) }
+        val keyFile = File(ctx.filesDir, if (tablet) "update-key.json" else "sheet-key.json")
+        val bearer = step("sign-in") { "Bearer ${GoogleAuth(keyFile, SCOPE).accessToken()}" }
         val latestId = step("finding the update list") { findFile(bearer, folder, "latest.json") } ?: return done("No build published yet")
         val m = step("reading the update list") { JSONObject(String(download(bearer, latestId))) }
         val code = m.getLong("versionCode")
+        if (!fits(m.optString("device"), android.os.Build.MODEL)) return done("Update skipped: this build is for another device")
         if (!isNewer(m.optString("package"), code, ctx.packageName, installedVersion(ctx)))
             return done("Up to date (v${versionName(ctx)})")
 

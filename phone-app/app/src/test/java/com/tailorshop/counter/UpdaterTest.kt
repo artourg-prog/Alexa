@@ -15,6 +15,19 @@ class UpdaterTest {
         assertFalse(Updater.isNewer("com.tailoring24.pickups", 99, pkg, 2)) // another app's build
     }
 
+    @Test fun theTabletTakesOnlyItsOwnBuildsAndPhonesNeverTakeThem() {
+        assertFalse(Updater.fits("", "SM-T820"))           // a phone-channel manifest on the tablet: refused
+        assertTrue(Updater.fits("SM-T820", "SM-T820"))
+        assertTrue(Updater.fits("", "SM-F956U"))           // a Fold on its own channel: exactly as before
+        assertFalse(Updater.fits("SM-T820", "SM-F956U"))   // a tablet manifest on a Fold: refused
+        assertFalse(Updater.fits("SM-T820", "Go103"))
+    }
+
+    @Test fun aTabletWithoutItsChannelSaysSo() {
+        assertEquals("Update check failed at update channel setting: tablet update channel not set up",
+            Updater.failureText(Updater.Failed("update channel setting", Updater.ChannelMissing())))
+    }
+
     @Test fun failureNamesTheStepAndAShortReasonOnly() {
         assertEquals("Update check failed at sign-in: HTTP 400", Updater.failureText(Updater.Failed("sign-in", Exception("HTTP 400"))))
         assertEquals("Update check failed at sign-in: phone key file missing", Updater.failureText(Updater.Failed("sign-in", GoogleAuth.KeyMissing())))
