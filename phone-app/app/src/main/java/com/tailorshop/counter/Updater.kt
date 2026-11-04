@@ -145,7 +145,8 @@ object Updater {
         val pi = ctx.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL).apply {
             setAppPackageName(ctx.packageName)
-            setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+            // Android 12+ only: on Android 11 (the SM-T820) calling it stopped every install with NoSuchMethodError.
+            if (android.os.Build.VERSION.SDK_INT >= 31) setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
         }
         val id = pi.createSession(params)
         pi.openSession(id).use { s ->
@@ -212,7 +213,8 @@ object Updater {
         override fun onReceive(ctx: Context, intent: Intent) {
             when (val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)) {
                 PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                    confirmIntent = intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                    confirmIntent = if (android.os.Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                        else @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_INTENT)
                     done("Tap Update to install (first time only)")
                 }
                 PackageInstaller.STATUS_SUCCESS -> done("Updated")
