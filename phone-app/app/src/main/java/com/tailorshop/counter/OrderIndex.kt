@@ -88,25 +88,27 @@ object OrderIndex {
 
     /**
      * The pickup line on a Choose-the-receipt card (owner 11-02, read-only). [inReady] = the card is a row of the ready
-     * list; [rows] = Order Index / Picked Up rows with the same receipt number. "Not picked up" only when both reads are
-     * fresh; a picked-up row beside a ready row is a conflict, never resolved by guessing; a missing time stays unknown.
+     * list; [rows] = Order Index / Picked Up rows with the same receipt number. A plain "Not picked up" needs both reads to
+     * have worked AND a current list ([age]); an older list says its date. A picked-up row beside a ready row is a conflict,
+     * never resolved by guessing; a missing time stays unknown. A recorded pickup stays true however old the list is.
      */
-    fun pickupLine(inReady: Boolean, readyFresh: Boolean, indexFresh: Boolean, rows: List<Entry>): String {
+    fun pickupLine(inReady: Boolean, readyFresh: Boolean, indexFresh: Boolean, rows: List<Entry>, age: ListAge.Status = ListAge.Status(ListAge.Level.CURRENT)): String {
         val collected = rows.filter { it.state == State.COLLECTED }
         if (inReady && collected.isNotEmpty()) return "Pickup status conflicting — check the tablet"
         collected.firstOrNull { it.collectedAt.isNotBlank() }?.let { return "Picked up · ${pretty(it.collectedAt)}" }
         if (collected.isNotEmpty()) return "Picked up · pickup time unknown"
         val fresh = readyFresh && indexFresh
         if (!fresh) return "Pickup status unavailable — couldn't refresh"
-        if (inReady || rows.any { it.state == State.READY || it.state == State.NOT_READY }) return "Not picked up"
-        return "Pickup status unavailable"
+        if (!inReady && rows.none { it.state == State.READY || it.state == State.NOT_READY }) return "Pickup status unavailable"
+        return when (age.level) {
+            ListAge.Level.CURRENT -> "Not picked up"
+            ListAge.Level.OLD -> "Not picked up as of ${age.asOf} · may be out of date"
+            ListAge.Level.UNKNOWN -> AGE_UNKNOWN
+        }
     }
 
-    /** True when the index row is older than 24 h ("Updated At" in shop time, YYYY-MM-DD HH:MM). */
-    fun stale(e: Entry, nowShop: java.time.LocalDateTime): Boolean {
-        val m = Regex("^(\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{1,2}):(\\d{2})").find(e.updatedAt.trim()) ?: return true
-        val (y, mo, d, hh, mm) = m.destructured
-        val at = java.time.LocalDateTime.of(y.toInt(), mo.toInt(), d.toInt(), hh.toInt(), mm.toInt())
-        return java.time.Duration.between(at, nowShop).toHours() >= 24
-    }
+    const val AGE_UNKNOWN = "Pickup status unavailable — list age unknown"
+
+    /** A tap may be kept on a current or older list (the tablet decides, owner 11-03); never on a pickup, conflict or failed read. */
+    fun pickupAllowed(line: String) = line.startsWith("Not picked up") || line == AGE_UNKNOWN
 }

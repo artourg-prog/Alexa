@@ -4,7 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.time.LocalDateTime
 
 // Synthetic rows only (made-up names and numbers).
 class OrderIndexTest {
@@ -58,12 +57,6 @@ class OrderIndexTest {
         val bare = OrderIndex.parse(listOf(listOf("Receipt #", "Phone", "Status"), listOf("50007", "702 555 0042", "COLLECTED")))
         val all = OrderIndex.withHistory(bare, OrderIndex.parsePickedUp(listOf(listOf("Collected At", "Receipt #", "Phone"), listOf("2026-11-02 12:00", "50007", "702 555 0042"))))
         assertEquals(listOf("Order was picked up · Nov 2, 12:00 PM"), all.map(OrderIndex::stateText))
-    }
-
-    @Test fun freshness() {
-        val now = LocalDateTime.of(2026, 11, 1, 12, 0)
-        assertFalse(OrderIndex.stale(idx.first { it.receipt == "50001" }, now))
-        assertTrue(OrderIndex.stale(idx.first { it.receipt == "50004" }, now))
     }
 
     @Test fun noTabMeansNothing() = assertTrue(OrderIndex.parse(emptyList()).isEmpty())
