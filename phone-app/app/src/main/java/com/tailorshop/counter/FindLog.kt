@@ -120,7 +120,8 @@ class FindLog(private val dir: File, private val replace: (File, File) -> Boolea
     @Synchronized fun add(last4: String, hits: List<Hit>, listState: String, asOf: String, offline: Boolean,
                           now: Long = System.currentTimeMillis()): Boolean {
         kept(hits).forEach { h ->
-            val at = entries.indexOfLast { it.last4 == last4 && it.receipt == h.receipt && it.txn == h.txn && day(it.atMs) == day(now) }
+            // A picked-up order found again only on the index comes without its Txn: it is the same row, not a second one.
+            val at = entries.indexOfLast { it.last4 == last4 && it.receipt == h.receipt && (it.txn == h.txn || h.txn.isEmpty() && it.pickedMs != 0L) && day(it.atMs) == day(now) }
             val was = entries.getOrNull(at)
             if (was != null && was.pickedMs != 0L) entries[at] = was.copy(atMs = now) // a confirmed pickup stays one, on top
             else if (was != null) entries[at] = was.copy(atMs = now, state = h.state, listState = listState, asOf = asOf, offline = offline, priorPicked = h.priorPicked,

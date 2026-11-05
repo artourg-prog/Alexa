@@ -160,5 +160,9 @@ class FindLogTest {
         add(log, "1111", ready("20001"), at = noon + 3 * minute)
         val row = log.rows(none, noon + 4 * minute).single()
         assertEquals("Picked up", row.line); assertEquals(noon + 3 * minute, row.entry.atMs)
+        val bound = FindLog(tmp.newFolder()); add(bound, "1111", ready("20001", "TX-A").copy(amount = "$45.00"))
+        bound.settleTaps({ tap("20001", "APPLIED", noon + minute, "TX-A") }, noon + 2 * minute)
+        add(bound, "1111", FindLog.Hit("20001", "", FindLog.COLLECTED), at = noon + 3 * minute) // now on the index only, without its Txn
+        assertEquals("$45.00", bound.rows(none, noon + 4 * minute).single().entry.amount)
     }
 }

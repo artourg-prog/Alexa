@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 66 // Save returns home; saved work finishes in the background
-        versionName = "0.66"
+        versionCode = 73 // home TODAY lists; SM-T820 line (72 was the tablet channel)
+        versionName = "0.73"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
