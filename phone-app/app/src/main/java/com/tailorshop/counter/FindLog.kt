@@ -120,11 +120,13 @@ class FindLog(private val dir: File, private val replace: (File, File) -> Boolea
     @Synchronized fun add(last4: String, hits: List<Hit>, listState: String, asOf: String, offline: Boolean,
                           now: Long = System.currentTimeMillis()): Boolean {
         kept(hits).forEach { h ->
-            // A picked-up order found again only on the index comes without its Txn: it is the same row, not a second one.
-            val at = entries.indexOfLast { it.last4 == last4 && it.receipt == h.receipt && (it.txn == h.txn || h.txn.isEmpty() && it.pickedMs != 0L) && day(it.atMs) == day(now) }
+            // The index carries no Txn: a picked-up order found there, or a row first found there and now on the ready list
+            // with its Txn, is the same row, not a second one.
+            val at = entries.indexOfLast { it.last4 == last4 && it.receipt == h.receipt && day(it.atMs) == day(now) &&
+                (it.txn == h.txn || h.txn.isEmpty() && it.pickedMs != 0L || it.txn.isEmpty() && it.pickedMs == 0L) }
             val was = entries.getOrNull(at)
             if (was != null && was.pickedMs != 0L) entries[at] = was.copy(atMs = now) // a confirmed pickup stays one, on top
-            else if (was != null) entries[at] = was.copy(atMs = now, state = h.state, listState = listState, asOf = asOf, offline = offline, priorPicked = h.priorPicked,
+            else if (was != null) entries[at] = was.copy(atMs = now, txn = h.txn, state = h.state, listState = listState, asOf = asOf, offline = offline, priorPicked = h.priorPicked,
                 shown = h.shown.ifEmpty { was.shown }, amount = h.amount.ifEmpty { was.amount })
             else entries += Entry(UUID.randomUUID().toString(), now, now, last4, h.receipt, h.txn, h.state, listState, asOf, offline, h.priorPicked, shown = h.shown, amount = h.amount)
         }
