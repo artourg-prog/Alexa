@@ -302,7 +302,7 @@ class TouchActivity : Activity() {
         .put("reportState",i.reportState).put("reportReason",i.reportReason)
 
     private fun savePickup(id: String, recorded: String, txn: String) {
-        val number = Lookup.digits(recorded) // the card hands back the recorded spelling (26-490); everything here compares the plain number
+        val number = Lookup.plainReceipt(recorded) // the card hands back the recorded spelling (26-490); only that exact form is turned plain
         if (!pickups.configured()) { reply(id, error("Pickup connection is not configured.")); return }
         // The tapped card's Txn must still be the row in the list: a reused number's new receipt is never marked for the old one.
         val matches = orders.filter { Lookup.digits(it.receipt) == number }

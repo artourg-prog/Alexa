@@ -234,10 +234,10 @@
     } catch (error) { if (rev === revision) fail(error); } finally { if (checking === rev) checking = -1; }
   }
   async function pickup() {
-    const number = state.selected.number, rev = ++revision; change('busy');
+    const number = state.selected.number, plain = number.replace(/[^0-9]/g, ''), rev = ++revision; change('busy');
     try {
       const result = await call('pickup', { number, txn: state.selected.txn || '' }); if (rev !== revision) return;
-      home(); say(result.status === 'APPLIED' || result.status === 'ALREADY_PICKED_UP' ? 'Recorded. Квитанция ' + number + ' забрана.' : 'Запись выдачи квитанции ' + number + ' сохранена.');
+      home(); say(result.status === 'APPLIED' || result.status === 'ALREADY_PICKED_UP' ? 'Recorded. Квитанция ' + plain + ' забрана.' : 'Запись выдачи квитанции ' + plain + ' сохранена.');
     } catch (error) { if (rev === revision) { change('order', false); fail(error); } }
   }
   function decorate() {
