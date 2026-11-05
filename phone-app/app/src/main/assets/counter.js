@@ -3,6 +3,8 @@
   const root = document.getElementById('sofia-touch-review');
   const body = root.querySelector('.sf-body'), phone = root.querySelector('.sf-phone');
   const pending = new Map(); let serial = 0, polling = null, returnTimer = null, revision = 0;
+  // Spoken digit by digit, so a recorded 26-490 never has its dash read out.
+  const spell = number => String(number || '').replace(/[^0-9]/g, '').split('').join(' ');
   const state = { step: 'home', flow: 'lookup', digits: '', selected: null, worker: '', workers: [], sound: true, spoken: '', matches: [], event: null, history: [], checkStartedAt: 0 };
   window.counterReply = function (id, json) {
     const request = pending.get(id); if (!request) return; pending.delete(id);
@@ -41,11 +43,11 @@
       + (state.digits ? ' Введено: ' + state.digits.split('').join(' ') + '.' : '') };
     if (state.step === 'matches') return { voice: 'sofia', text: 'Найдено квитанций: ' + state.matches.length + '. Выберите нужную квитанцию.' };
     if (state.step === 'report-result' && state.event) return { voice: 'sofia', text: (state.event.recorded === true ? 'Записано.' : 'Сохранение не подтверждено.')
-      + ' Квитанция ' + String(state.event.number || '').split('').join(' ') + '. Работник ' + (state.event.worker || state.worker) + '.' };
+      + ' Квитанция ' + spell(state.event.number) + '. Работник ' + (state.event.worker || state.worker) + '.' };
     if (state.step === 'busy' && !state.selected) return { voice: 'sofia', text: (state.flow === 'report' ? 'Ищу квитанцию.' : 'Ищу заказ по последним четырём цифрам телефона.')
       + (state.digits ? ' Номер: ' + state.digits.split('').join(' ') + '.' : '') + ' Пожалуйста, подождите.' };
     if (state.flow === 'report' && state.selected && !['home', 'keypad', 'matches', 'report-result'].includes(state.step)) {
-      const item = state.selected, digits = item.number.split('').join(' '), worker = state.worker || (state.event && state.event.worker) || '';
+      const item = state.selected, digits = spell(item.number), worker = state.worker || (state.event && state.event.worker) || '';
       if (item.pay === 'DUE') return { voice: 'male-en', text: 'Receipt ' + digits + '. '
         + (worker ? 'Worker: ' + worker + '. ' : 'Choose a worker. ')
         + (item.due ? 'Outstanding balance due: ' + item.due + '.' : 'Outstanding balance is due. The amount due is not shown; check the receipt.') };
@@ -137,7 +139,7 @@
     state.selected = item; change(state.flow === 'report' ? 'workers' : 'order');
     const payment = item.pay === 'PAID' ? 'Оплачено.' : item.pay === 'ACCOUNT' ? 'Счёт магазина.' : item.pay === 'DUE' ? '' : 'Оплата не известна.';
     const spokenState = { NOT_READY: 'Ещё не отмечена как готовая.', COLLECTED: 'Заказ уже выдан.', UNKNOWN: 'Статус неизвестен, проверьте на планшете.', READY: 'Готова к выдаче.' }[item.state];
-    const digits = item.number.split('').join(' ');
+    const digits = spell(item.number);
     if (item.state) say('Квитанция ' + digits + '. ' + spokenState);
     else if (item.unverified) return;
     // A DUE order: the whole announcement in English, male voice, and it says the outstanding amount (only when the
@@ -192,7 +194,7 @@
       // Saved durably on this phone: back home at once (owner 11-03); it finishes in the background and the home list
       // shows its state. "Recorded" and "SMS sent" are still said only when the tablet / Reader confirm them.
       const worker = state.worker; home(); watched.add(result.id);
-      say('Сохранено на телефоне. Квитанция ' + result.number.split('').join(' ') + ', работник ' + worker + '. Завершится автоматически.'
+      say('Сохранено на телефоне. Квитанция ' + spell(result.number) + ', работник ' + worker + '. Завершится автоматически.'
         + (result.smsRequested ? ' SMS будет отправлено после подтверждения.' : ''));
     } catch (error) { if (rev === revision) { change('sms', false); fail(error); } }
   }
@@ -208,7 +210,7 @@
         if (smsDone) { clearInterval(polling); polling = null; }
         state.step = 'report-result'; render();
         if (firstConfirmation) {
-          say('Записано. Квитанция ' + item.number.split('').join(' ') + '. Работник ' + item.worker + '.' + (item.smsRequested && item.sms === 'SENT' ? ' Сообщение клиенту отправлено.' : !item.smsRequested ? ' Без сообщения клиенту.' : ''));
+          say('Записано. Квитанция ' + spell(item.number) + '. Работник ' + item.worker + '.' + (item.smsRequested && item.sms === 'SENT' ? ' Сообщение клиенту отправлено.' : !item.smsRequested ? ' Без сообщения клиенту.' : ''));
           returnTimer = setTimeout(home, 25000);
         }
       } else {
@@ -286,7 +288,7 @@
       result.report.forEach(entry => {
         if (entry.recorded && watched.has(entry.id) && !announced.has(entry.id)) {
           announced.add(entry.id); watched.delete(entry.id);
-          say('Записано. Квитанция ' + entry.number.split('').join(' ') + '. Работник ' + entry.worker + '.');
+          say('Записано. Квитанция ' + spell(entry.number) + '. Работник ' + entry.worker + '.');
         }
       });
       const next = JSON.stringify(result); if (next === shown) return;

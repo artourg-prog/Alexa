@@ -205,7 +205,7 @@ class TouchActivity : Activity() {
     }
 
     private fun lookup(id: String, action: String, value: String) {
-        val number = value.trim()
+        val number = Lookup.plainReceipt(value)
         if (action == "find" && !number.matches(Regex("[0-9]{4}"))) { reply(id, error("Enter the last four phone digits.")); return }
         if (action == "report" && !number.matches(Regex("[0-9]{3,9}"))) { reply(id, error("Enter a receipt number.")); return }
         if (loadedAt == 0L || System.currentTimeMillis() - loadedAt > 60_000L) runCatching { refreshOrders() }
@@ -250,8 +250,8 @@ class TouchActivity : Activity() {
     private fun logFind(last4: String, results: List<Card>, extra: List<OrderIndex.Entry>) = runCatching {
         settleFinds()
         val hits = results.map { c -> val prior = picked(c.receipt, last4).size
-            FindLog.Hit(Lookup.digits(c.receipt), c.txn, if (prior > 0) FindLog.CONFLICT else if (c.ready) FindLog.READY else FindLog.NOT_READY, prior) } +
-            extra.map { e -> FindLog.Hit(Lookup.digits(e.receipt), "", e.state.name, picked(e.receipt, last4).size) }
+            FindLog.Hit(Lookup.digits(c.receipt), c.txn, if (prior > 0) FindLog.CONFLICT else if (c.ready) FindLog.READY else FindLog.NOT_READY, prior, Lookup.recorded(c.receipt)) } +
+            extra.map { e -> FindLog.Hit(Lookup.digits(e.receipt), "", e.state.name, picked(e.receipt, last4).size, Lookup.recorded(e.receipt)) }
         findLog.add(last4, hits.ifEmpty { listOf(FindLog.Hit("", "", FindLog.NOT_FOUND)) }, listAge.level.name, listAge.asOf, offline || !indexFresh)
     }
 
@@ -280,11 +280,11 @@ class TouchActivity : Activity() {
         .put("ready", c.ready).put("pay", c.pay.name).put("unverified", unverified).put("txn", c.txn).put("due", c.due)
 
     private fun saveWork(id: String, body: JSONObject) {
-        val worker = body.optString("worker"); val number = body.optString("number")
+        val worker = body.optString("worker"); val recorded = body.optString("number"); val number = Lookup.plainReceipt(recorded)
         if (!finishes.configured()) { reply(id, error("Daily Report connection is not configured.")); return }
         if (worker !in finishes.workers() || !number.matches(Regex("[0-9]{3,9}"))) { reply(id, error("Choose an approved worker and receipt number.")); return }
         // Reusable numbers: a new online submission names its exact receipt (read-only findReceipt) before the first send.
-        val item = finishes.addOrReuse(worker, number, resolved = finishes.resolve(number))
+        val item = finishes.addOrReuse(worker, recorded, resolved = finishes.resolve(number))
         if (item == null) { reply(id, error("Not saved on this phone. Please retry.")); return }
         if (body.optBoolean("sms") && !finishes.requestSms(item.scanId)) {
             reply(id, error("Work saved locally, but the SMS choice could not be saved. Check pending work.")); return
@@ -294,14 +294,15 @@ class TouchActivity : Activity() {
     }
 
     private fun finishJson(i: Finishes.Item) = JSONObject().put("ok", true).put("id", i.scanId)
-        .put("number", i.receipt).put("worker", i.worker).put("at", i.scannedAt).put("scan", i.scan)
+        .put("number", i.number()).put("worker", i.worker).put("at", i.scannedAt).put("scan", i.scan)
         .put("smsRequested", i.sendSms).put("sms", i.sms).put("scanText", Finishes.scanText(i, false))
         .put("smsText", Finishes.smsText(i, false)).put("reason", i.reason)
         .put("recorded",Finishes.recorded(i)).put("workday",i.workday)
         .put("receiptNotFound", Finishes.receiptNotFound(i))
         .put("reportState",i.reportState).put("reportReason",i.reportReason)
 
-    private fun savePickup(id: String, number: String, txn: String) {
+    private fun savePickup(id: String, recorded: String, txn: String) {
+        val number = Lookup.digits(recorded) // the card hands back the recorded spelling (26-490); everything here compares the plain number
         if (!pickups.configured()) { reply(id, error("Pickup connection is not configured.")); return }
         // The tapped card's Txn must still be the row in the list: a reused number's new receipt is never marked for the old one.
         val matches = orders.filter { Lookup.digits(it.receipt) == number }
@@ -315,9 +316,9 @@ class TouchActivity : Activity() {
         val line = OrderIndex.pickupLine(true, !offline, indexFresh, index.filter { Lookup.digits(it.receipt) == number && Lookup.digits(it.phone).takeLast(4) == phone4 }, listAge)
         if (!OrderIndex.pickupAllowed(line)) { reply(id, error("Pickup not recorded: $line.")); return }
         if (orders.none { Lookup.digits(it.receipt) == number && it.txn == txn && it.ready }) { reply(id, error("This order changed. Look it up again.")); return }
-        if (!pickups.addOrReuse(number, txn)) { reply(id, error("Pickup not saved on this phone. Please retry.")); return }
+        if (!pickups.addOrReuse(recorded, txn)) { reply(id, error("Pickup not saved on this phone. Please retry.")); return }
         val request = pickups.latest(number, txn)!!
-        reply(id, JSONObject().put("ok", true).put("number", number).put("status", request.status)
+        reply(id, JSONObject().put("ok", true).put("number", request.number()).put("status", request.status)
             .put("message", Pickups.stateText(request)))
         synchronizeQueues()
     }
@@ -331,10 +332,10 @@ class TouchActivity : Activity() {
         val pendingPickups = pickups.pending().count { pickups.latest(it)?.status !in Pickups.DONE }
         val workProblems = finishes.all().filter {
             it.scan in setOf("HELD", "REJECTED") || stuck(it) || it.sendSms && it.sms in Finishes.SMS_FINAL && it.sms != "SENT"
-        }.map { "#${it.receipt}: ${Finishes.scanText(it, false)} · ${Finishes.smsText(it, false)}" }
-        val problems = listOfNotNull(finishes.warning(), pickups.warning()) + workProblems + pickups.toCheck().map { Pickups.problemText(it.receipt, it.status) }
+        }.map { "#${it.number()}: ${Finishes.scanText(it, false)} · ${Finishes.smsText(it, false)}" }
+        val problems = listOfNotNull(finishes.warning(), pickups.warning()) + workProblems + pickups.toCheck().map { Pickups.problemText(it.number(), it.status) }
         // Not-in-the-sheet entries over a day old with no SMS can be marked reviewed by a person (Finishes.dismiss).
-        val dismiss = JSONArray(finishes.dismissable().map { JSONObject().put("id", it.scanId).put("receipt", it.receipt) })
+        val dismiss = JSONArray(finishes.dismissable().map { JSONObject().put("id", it.scanId).put("receipt", it.number()) })
         return JSONObject().put("ok", true).put("work", pendingWork).put("pickups", pendingPickups)
             .put("warning", problems.joinToString("\n")).put("dismiss", dismiss)
     }
@@ -345,7 +346,7 @@ class TouchActivity : Activity() {
         val list = finishes.all().filter { java.time.Instant.ofEpochMilli(it.createdMs).atZone(zone).toLocalDate() == today }
             .sortedByDescending { it.createdMs }.take(30)
         return JSONObject().put("ok", true).put("report", JSONArray(list.map { i ->
-            JSONObject().put("number", i.receipt).put("worker", i.worker).put("recorded", Finishes.recorded(i)).put("time", FindLog.time(i.createdMs))
+            JSONObject().put("number", i.number()).put("worker", i.worker).put("recorded", Finishes.recorded(i)).put("time", FindLog.time(i.createdMs))
                 .put("id", i.scanId).put("line", Finishes.overviewLine(i)).put("problem", Finishes.overviewProblem(i)) }))
             .also { json -> findsInto(json); if (QueueJob.unfinished(finishes, pickups)) synchronizeQueues() }
     }
@@ -361,7 +362,7 @@ class TouchActivity : Activity() {
             findsReadAt = System.currentTimeMillis()
             reads.execute { runCatching { refreshOrders(); refreshIndex(); settleFinds() }; findsRead = true }
         }
-        json.put("finds", JSONArray(findLog.rows(tap).map { r -> JSONObject().put("id", r.entry.id).put("time", r.time).put("number", r.entry.receipt)
+        json.put("finds", JSONArray(findLog.rows(tap).map { r -> JSONObject().put("id", r.entry.id).put("time", r.time).put("number", r.entry.number())
             .put("last4", r.entry.last4).put("line", r.line).put("unsure", r.unsure).put("state", r.entry.state) }))
         json.put("findNote", listOfNotNull(findLog.warning(), findSource().takeIf { it.isNotEmpty() }).joinToString(" · "))
         json.put("pickedToday", findLog.pickedToday())

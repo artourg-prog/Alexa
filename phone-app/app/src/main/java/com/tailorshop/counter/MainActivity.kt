@@ -393,7 +393,7 @@ class MainActivity:Activity() {
         }
         val pending=pickups.pending()
         val results=request.numbers.flatMap { n -> Lookup.find(when(n.length) { 4->Query.Last4(n);5,6->Query.Receipt(n);else->Query.FullPhone(n) },orders) }
-            .filter { Lookup.digits(it.receipt) !in pending }.distinctBy { it.receipt }
+            .filter { Lookup.digits(it.receipt) !in pending }.distinctBy { Lookup.digits(it.receipt) }
         if(results.isEmpty()) {
             deck.clear();lookupNumbers=request.numbers;lookupUntil=SystemClock.elapsedRealtime()+10_000
             if(!rechecked && sheets.hasKey()) {
@@ -424,7 +424,7 @@ class MainActivity:Activity() {
         deck.add(results,now);renderCards()
         val speech=results.take(4).flatMap { c ->
             if(request.topic!=null) listOf(Spoken(Lookup.followUpAnswer(request.topic,c,russian),request.topic==Topic.TAILOR && !c.ready))
-            else listOf(Spoken((if(russian)"Квитанция " else "Receipt ")+c.receipt.toCharArray().joinToString(" ")+"."),
+            else listOf(Spoken((if(russian)"Квитанция " else "Receipt ")+Lookup.digits(c.receipt).toCharArray().joinToString(" ")+"."),
                 Spoken(if(c.ready) if(russian)"Готово к выдаче." else "Ready for pickup." else if(russian)"Ещё не готово." else "Not ready yet.",!c.ready),
                 Spoken(when(c.pay) { Pay.PAID->if(russian)"Оплачено." else "Paid.";Pay.DUE->if(russian)"Не оплачено." else "Not paid.";Pay.ACCOUNT->if(russian)"На счёте магазина." else "On the store account.";else->"" }))
         }
@@ -468,10 +468,10 @@ class MainActivity:Activity() {
     private fun renderQueue() {
         val f=finishId?.let { finishes.get(it) }
         val waiting=finishes.all().count { it.scan !in Finishes.SCAN_FINAL || it.sendSms && it.sms !in Finishes.SMS_FINAL }
-        queue.text=(if(waiting>0)"Work delivery pending: $waiting\n" else "")+(f?.let { "#${it.receipt} · ${Finishes.scanText(it,russian)}\n${Finishes.smsText(it,russian)}" }.orEmpty())
+        queue.text=(if(waiting>0)"Work delivery pending: $waiting\n" else "")+(f?.let { "#${it.number()} · ${Finishes.scanText(it,russian)}\n${Finishes.smsText(it,russian)}" }.orEmpty())
         val warning=finishes.warning()?:pickups.warning();val check=pickups.toCheck()
         problem.visibility=if(shopHours() && (warning!=null || check.isNotEmpty()))View.VISIBLE else View.GONE
-        problem.text=warning?:check.firstOrNull()?.let { Pickups.problemText(it.receipt,it.status)+"\nTap to review" }.orEmpty()
+        problem.text=warning?:check.firstOrNull()?.let { Pickups.problemText(it.number(),it.status)+"\nTap to review" }.orEmpty()
     }
     private fun commitPickup() {
         val number=undo?:return;undo=null;pickupCommitting=true;renderCards()
@@ -500,7 +500,7 @@ class MainActivity:Activity() {
         val requests=pickups.toCheck()
         val r=requests.firstOrNull()
         AlertDialog.Builder(this).setTitle("Pickup needs checking")
-            .setMessage(r?.let { Pickups.problemText(it.receipt,it.status)+"\nOnly dismiss after checking the receipt on the tablet." }?:pickups.warning())
+            .setMessage(r?.let { Pickups.problemText(it.number(),it.status)+"\nOnly dismiss after checking the receipt on the tablet." }?:pickups.warning())
             .setPositiveButton("I checked on the tablet") { _,_-> storage.execute {
                 if(r!=null) pickups.dismiss(r.id) else pickups.acknowledgeRecovery()
                 main.post { renderQueue() }

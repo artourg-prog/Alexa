@@ -40,7 +40,11 @@ class Finishes(
         // Phase times (owner 11-02, 26448: measure before optimizing): Reader first accepted the scan / tablet applied it.
         // savedAt = the Reader's own "Saved at" of the confirming record, shop time; "" when not reported (never our clock).
         var sentMs: Long = 0, var appliedMs: Long = 0, var savedAt: String = "",
-    )
+        // The recorded spelling when it isn't the plain number (26-490). For the screen only: [receipt] is what is compared and sent.
+        var shown: String = "",
+    ) {
+        fun number() = shown.ifEmpty { receipt }
+    }
 
     /** findReceipt's answer: ok = the Reader was reached; txId = the one live receipt's txId ("" when none, several or none carried). */
     data class Resolution(val ok: Boolean, val txId: String = "")
@@ -166,6 +170,7 @@ class Finishes(
             java.time.Instant.ofEpochMilli(it.createdMs).atZone(zone).toLocalDate()==day && it.scan!="REJECTED" &&
             (resolved==null || !resolved.ok || it.expectedTx==resolved.txId) }
         if(existing!=null) {
+            Lookup.recorded(receipt).takeIf { it.isNotEmpty() && it!=existing.shown }?.let { existing.shown=it;existing.durable=false }
             if(recorded(existing)) { existing.reportState="WAITING";existing.reportReason="";existing.durable=false }
             return if(existing.durable || save()) existing.copy() else null
         }
@@ -176,7 +181,7 @@ class Finishes(
     @Synchronized fun add(worker: String, receipt: String, sendSms: Boolean, nowMs: Long = System.currentTimeMillis(), resolved: Resolution? = null): Item? {
         val i = Item(UUID.randomUUID().toString(), worker, Lookup.digits(receipt), java.time.Instant.ofEpochMilli(nowMs).toString(), nowMs,
             sendSms = sendSms, smsId = if (sendSms) UUID.randomUUID().toString() else "",
-            expectedTx = resolved?.txId.orEmpty(), bound = resolved != null)
+            expectedTx = resolved?.txId.orEmpty(), bound = resolved != null, shown = Lookup.recorded(receipt))
         items += i
         return if (save()) i.copy() else null
     }
@@ -346,7 +351,7 @@ class Finishes(
                     optString("smsId"), optString("sms"), durable = true,
                     workday=optString("workday"),reportState=optString("reportState"),reportReason=optString("reportReason"),confirmedMs=optLong("confirmedMs",0),
                     expectedTx=optString("expectedTx"),bound=optBoolean("bound"),replyTx=optString("replyTx"),
-                    sentMs=optLong("sentMs"),appliedMs=optLong("appliedMs"),savedAt=optString("savedAt"))
+                    sentMs=optLong("sentMs"),appliedMs=optLong("appliedMs"),savedAt=optString("savedAt"),shown=optString("shown"))
             }
         } catch (e: Exception) {
             items.clear() // a partially parsed file must not masquerade as a complete recovered queue
@@ -361,7 +366,7 @@ class Finishes(
         .put("smsId", it.smsId).put("sms", it.sms).put("workday",it.workday).put("reportState",it.reportState)
         .put("reportReason",it.reportReason).put("confirmedMs",it.confirmedMs)
         .put("expectedTx",it.expectedTx).put("bound",it.bound).put("replyTx",it.replyTx)
-        .put("sentMs",it.sentMs).put("appliedMs",it.appliedMs).put("savedAt",it.savedAt)
+        .put("sentMs",it.sentMs).put("appliedMs",it.appliedMs).put("savedAt",it.savedAt).put("shown",it.shown)
 
     private fun save(): Boolean {
         if(recoveryBlocked) { saveFailed=true;return false }

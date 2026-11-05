@@ -19,12 +19,15 @@ import java.util.UUID
 // Its record stays in the file (Settings → Find history). An order merely leaving the ready list proves nothing.
 class FindLog(private val dir: File, private val replace: (File, File) -> Boolean = { from, to -> from.renameTo(to) }) {
     /** One receipt a search answered with. [priorPicked] = picked-up rows already on the list for this number and last four. */
-    data class Hit(val receipt: String, val txn: String, val state: String, val priorPicked: Int = 0)
+    data class Hit(val receipt: String, val txn: String, val state: String, val priorPicked: Int = 0, val shown: String = "")
 
-    /** [firstMs] = first search of this request today; [atMs] = its latest search. [pickedMs] != 0 = confirmed pickup. */
+    /** [firstMs] = first search of this request today; [atMs] = its latest search. [pickedMs] != 0 = confirmed pickup.
+     *  [receipt] is the plain key every comparison uses; [shown] = the recorded spelling when it differs (26-490). */
     data class Entry(val id: String, val firstMs: Long, val atMs: Long, val last4: String, val receipt: String, val txn: String,
                      val state: String, val listState: String, val asOf: String, val offline: Boolean, val priorPicked: Int,
-                     val pickedMs: Long = 0L, val pickedBy: String = "", val pickedAt: String = "")
+                     val pickedMs: Long = 0L, val pickedBy: String = "", val pickedAt: String = "", val shown: String = "") {
+        fun number() = shown.ifEmpty { receipt }
+    }
 
     /** What the shared list says now about one entry; [state] null = it no longer lists it, so the answer stays as it was. */
     data class Seen(val state: String?, val picked: Int, val pickedAt: String)
@@ -82,7 +85,7 @@ class FindLog(private val dir: File, private val replace: (File, File) -> Boolea
 
         /** One line of Settings → Find history, confirmed pickups included. */
         fun historyLine(e: Entry): String {
-            val who = listOf(e.receipt.takeIf { it.isNotEmpty() }?.let { "#$it" }, "last four ${e.last4}").filterNotNull().joinToString(" · ")
+            val who = listOf(e.number().takeIf { it.isNotEmpty() }?.let { "#$it" }, "last four ${e.last4}").filterNotNull().joinToString(" · ")
             val end = when (e.pickedBy) {
                 BY_TABLET -> "Picked up — confirmed by the tablet"
                 BY_LIST -> "Picked up — on the shared list" + if (e.pickedAt.isNotBlank()) " · ${OrderIndex.pretty(e.pickedAt)}" else ""
@@ -112,8 +115,8 @@ class FindLog(private val dir: File, private val replace: (File, File) -> Boolea
                           now: Long = System.currentTimeMillis()): Boolean {
         kept(hits).forEach { h ->
             val at = entries.indexOfLast { it.last4 == last4 && it.receipt == h.receipt && it.txn == h.txn && it.pickedMs == 0L && day(it.atMs) == day(now) }
-            if (at >= 0) entries[at] = entries[at].copy(atMs = now, state = h.state, listState = listState, asOf = asOf, offline = offline, priorPicked = h.priorPicked)
-            else entries += Entry(UUID.randomUUID().toString(), now, now, last4, h.receipt, h.txn, h.state, listState, asOf, offline, h.priorPicked)
+            if (at >= 0) entries[at] = entries[at].copy(atMs = now, state = h.state, listState = listState, asOf = asOf, offline = offline, priorPicked = h.priorPicked, shown = h.shown.ifEmpty { entries[at].shown })
+            else entries += Entry(UUID.randomUUID().toString(), now, now, last4, h.receipt, h.txn, h.state, listState, asOf, offline, h.priorPicked, shown = h.shown)
         }
         return save()
     }
@@ -163,7 +166,7 @@ class FindLog(private val dir: File, private val replace: (File, File) -> Boolea
             for (i in 0 until a.length()) a.getJSONObject(i).run {
                 entries += Entry(getString("id"), getLong("firstMs"), getLong("atMs"), getString("last4"), optString("receipt"), optString("txn"),
                     getString("state"), optString("listState"), optString("asOf"), optBoolean("offline"), optInt("priorPicked"),
-                    optLong("pickedMs"), optString("pickedBy"), optString("pickedAt"))
+                    optLong("pickedMs"), optString("pickedBy"), optString("pickedAt"), optString("shown"))
             }
         } catch (e: Exception) {
             entries.clear(); unreadable = true
@@ -177,7 +180,7 @@ class FindLog(private val dir: File, private val replace: (File, File) -> Boolea
         val a = JSONArray()
         entries.forEach { a.put(JSONObject().put("id", it.id).put("firstMs", it.firstMs).put("atMs", it.atMs).put("last4", it.last4)
             .put("receipt", it.receipt).put("txn", it.txn).put("state", it.state).put("listState", it.listState).put("asOf", it.asOf)
-            .put("offline", it.offline).put("priorPicked", it.priorPicked).put("pickedMs", it.pickedMs).put("pickedBy", it.pickedBy).put("pickedAt", it.pickedAt)) }
+            .put("offline", it.offline).put("priorPicked", it.priorPicked).put("pickedMs", it.pickedMs).put("pickedBy", it.pickedBy).put("pickedAt", it.pickedAt).put("shown", it.shown)) }
         val ok = try {
             FileOutputStream(tmp).use { it.write(a.toString().toByteArray()); it.fd.sync() }
             replace(tmp, file)

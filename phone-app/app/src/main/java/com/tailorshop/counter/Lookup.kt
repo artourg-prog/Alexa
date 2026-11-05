@@ -427,7 +427,7 @@ object Lookup {
     }
 
     fun findAll(said: String, orders: List<Order>): List<Card> =
-        parseQueries(said).flatMap { find(it, orders) }.distinctBy { it.receipt }
+        parseQueries(said).flatMap { find(it, orders) }.distinctBy { digits(it.receipt) }
 
     /** Every spoken word must match (prefix, or one typo for longer words) some word of the customer name. */
     fun nameMatches(words: List<String>, customer: String): Boolean {
@@ -477,6 +477,16 @@ object Lookup {
     // ---- helpers ----
 
     fun digits(s: String) = s.filter { it.isDigit() }
+
+    /**
+     * Receipt spelling (owner 11-04, #4 6649748751 / 6650081068): NN-NNN and NNNNN are one receipt. Compare and send
+     * [digits]; show the number exactly as it was recorded. This turns only an exact NN-NNN into plain digits, for
+     * checking what the screen hands back; any other spelling stays as written. A dash is never added here or anywhere.
+     */
+    fun plainReceipt(s: String): String = s.trim().let { if (Regex("[0-9]{2}-[0-9]{3}").matches(it)) it.replace("-", "") else it }
+
+    /** The spelling to keep beside the plain key: "" when the recorded form is already the plain digits. */
+    fun recorded(s: String): String = s.trim().takeIf { it != digits(it) }.orEmpty()
 
     fun prettyPhone(raw: String): String {
         val d = digits(raw)

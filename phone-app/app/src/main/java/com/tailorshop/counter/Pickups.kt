@@ -36,7 +36,9 @@ class Pickups(
     // txn = the Txn of the row the person tapped (Pickups 25a539c), fixed when the tap is made and sent on every retry;
     // "" for a tap made without one (column absent, or saved by 0.56): never given one later.
     data class Req(val id: String, val receipt: String, val at: Long, var sent: Boolean = false, var status: String = "",
-                   var resolved: Boolean = false, var sentAt: Long = 0L, var durable: Boolean = false, val txn: String = "") {
+                   var resolved: Boolean = false, var sentAt: Long = 0L, var durable: Boolean = false, val txn: String = "",
+                   val shown: String = "") { // shown = the recorded spelling when it differs; only the plain number is sent
+        fun number() = shown.ifEmpty { receipt }
         /** This tap is about that row: same number, and the same Txn whenever both are known (number only otherwise). */
         fun about(receipt: String, txn: String) = this.receipt == Lookup.digits(receipt) && (this.txn.isEmpty() || txn.isEmpty() || this.txn == txn)
     }
@@ -147,14 +149,14 @@ class Pickups(
         val number=Lookup.digits(receipt)
         val prior=reqs.lastOrNull { it.receipt==number && it.txn==txn && !it.resolved && it.status !in UNRESOLVED }
         if(prior!=null) return prior.durable || save()
-        reqs += Req(UUID.randomUUID().toString(), number, System.currentTimeMillis(), txn = txn)
+        reqs += Req(UUID.randomUUID().toString(), number, System.currentTimeMillis(), txn = txn, shown = Lookup.recorded(receipt))
         return save()
     }
 
     /** Saves the taps; false = couldn't save (the warning is shown). */
     @Synchronized fun add(receipts: List<String>): Boolean {
         val now = System.currentTimeMillis()
-        receipts.forEach { reqs += Req(UUID.randomUUID().toString(), Lookup.digits(it), now) }
+        receipts.forEach { reqs += Req(UUID.randomUUID().toString(), Lookup.digits(it), now, shown = Lookup.recorded(it)) }
         return save()
     }
 
@@ -229,7 +231,7 @@ class Pickups(
             for (i in 0 until a.length()) a.getJSONObject(i).run {
                 // Older files lack "resolved"/"sentAt": read as not checked / unknown, nothing pending is lost.
                 reqs += Req(getString("id"), getString("receipt"), getLong("at"), optBoolean("sent"), optString("status"),
-                    optBoolean("resolved"), optLong("sentAt", if (optBoolean("sent")) getLong("at") else 0L), durable = true, txn = optString("txn"))
+                    optBoolean("resolved"), optLong("sentAt", if (optBoolean("sent")) getLong("at") else 0L), durable = true, txn = optString("txn"), shown = optString("shown"))
             }
         } catch (e: Exception) {
             reqs.clear()
@@ -244,7 +246,7 @@ class Pickups(
         if (queueBlocked) { saveFailed = true; return false }
         val a = JSONArray()
         reqs.forEach { a.put(JSONObject().put("id", it.id).put("receipt", it.receipt).put("at", it.at).put("sent", it.sent)
-            .put("status", it.status).put("resolved", it.resolved).put("sentAt", it.sentAt).put("txn", it.txn)) }
+            .put("status", it.status).put("resolved", it.resolved).put("sentAt", it.sentAt).put("txn", it.txn).put("shown", it.shown)) }
         val ok = try {
             FileOutputStream(tmpFile).use { it.write(a.toString().toByteArray()); it.fd.sync() }
             replace(tmpFile, queueFile)
