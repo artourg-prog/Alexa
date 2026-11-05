@@ -168,4 +168,10 @@ class FindLogTest {
         add(bound, "1111", FindLog.Hit("20001", "", FindLog.COLLECTED), at = noon + 3 * minute) // now on the index only, without its Txn
         assertEquals("$45.00", bound.rows(none, noon + 4 * minute).single().entry.amount)
     }
+
+    @Test fun `no access is its own answer, kept apart from no connection and from a miss`() {
+        val log = FindLog(tmp.newFolder()); add(log, "1111", FindLog.Hit("", "", FindLog.NO_ACCESS), offline = true); add(log, "2222", FindLog.Hit("", "", FindLog.NOT_FOUND))
+        val by = log.rows(none, noon).associateBy { it.entry.last4 }
+        assertEquals("Not checked — no access to the orders list", by["1111"]!!.line); assertEquals("Not found", by["2222"]!!.line)
+    }
 }

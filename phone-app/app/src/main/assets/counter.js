@@ -107,10 +107,12 @@
   }
   // The last search found the shop tablet's list older than the limit, or of unknown age (Find only; a report entry is checked when saved).
   function listOld() { return state.flow === 'lookup' && !!state.list && state.list.old; }
+  // A store order says which store, so an order of one location is never taken for another's or for a walk-in's.
+  function customerLine(item) { return [item.name, item.store].filter(Boolean).join(' · '); }
   function receipt() {
     const fragment = clone('sf-receipt-details'), item = state.selected;
     fragment.querySelector('.sf-receipt-number').textContent = item.number;
-    fragment.querySelector('.sf-customer').textContent = item.name || '';
+    fragment.querySelector('.sf-customer').textContent = customerLine(item);
     fragment.querySelector('.sf-total').textContent = item.total || '—';
     // The alterations description is not shown on the Find card (owner 11-02); the data is unchanged.
     fragment.querySelector('.sf-work').textContent = state.step === 'order' ? '' : item.work || '';
@@ -255,7 +257,7 @@
     });
   }
   // Home, two columns that scroll on their own (owner 11-04, 11-05). Left: today's Daily Report entries from this phone, each
-  // real state; only the Reader's confirmation says In Daily Report. Right: today's searches, numbers, amounts and answers.
+  // real state; only the Reader's confirmation says In Daily Report. Right: today's receipt numbers found, nothing else.
   const watched = new Set(), announced = new Set(); // entries saved from this screen; each "Recorded" is said once
   let shown = ''; // what the columns already show: an unchanged 5 s check leaves them, and a finger on them, alone
   function row(number, side, line) {
@@ -268,7 +270,6 @@
   // picked up stay the card's own two buttons. A search that found no receipt just searches again.
   async function reopen(entry) {
     clearTimers(); state.flow = 'lookup'; state.digits = entry.last4; state.selected = null;
-    if (!entry.receipt) { find(); return; }
     const rev = ++revision; state.spoken = ''; root.querySelector('.sf-listen').disabled = true; voiceNote(''); change('busy');
     try {
       const result = await call('reopen', { last4: entry.last4, receipt: entry.receipt, txn: entry.txn || '', total: entry.amount || '', shown: entry.number || '' });
@@ -285,8 +286,8 @@
     }));
     finds.replaceChildren(...result.finds.map(entry => {
       const li = document.createElement('li'), button = document.createElement('button'); button.type = 'button';
-      li.className = entry.picked ? 'is-picked' : entry.unsure ? 'is-unsure' : ''; button.onclick = () => reopen(entry);
-      button.append(...row(entry.number || '…' + entry.last4, entry.amount || '', entry.time + ' · ' + entry.line)); li.append(button); return li;
+      button.onclick = () => reopen(entry); // the list keeps only the number (owner 11-05); status comes from the fresh read on the card
+      const number = document.createElement('strong'); number.textContent = entry.number; button.append(number); li.append(button); return li;
     }));
     body.querySelector('.sf-overview:not(.sf-finds) .sf-overview-empty').hidden = result.report.length > 0;
     body.querySelector('.sf-finds .sf-overview-empty').hidden = result.finds.length > 0;
@@ -317,7 +318,7 @@
       body.querySelector('.sf-find').classList.toggle('violet', state.flow === 'report'); body.querySelector('.sf-find').classList.toggle('green', state.flow === 'lookup'); bindKeys();
     } else if (step === 'matches') {
       body.replaceChildren(clone('sf-matches-screen')); body.querySelector('.sf-flow-name').textContent = 'CHOOSE RECEIPT'; body.querySelector('.sf-match-count').textContent = state.matches.length + ' receipts' + (state.flow === 'lookup' && state.matches.every(m => m.state === 'COLLECTED' || /^Picked up ·/.test(m.pickupLine || '')) ? ' · all already picked up' : '') + (state.flow === 'lookup' && state.list && state.list.asOf ? ' · list as of ' + state.list.asOf : '');
-      state.matches.forEach(item => { const entry = clone('sf-match-item'); entry.querySelector('.sf-match-number').textContent = item.number; entry.querySelector('.sf-match-customer').textContent = item.name || ''; entry.querySelector('.sf-match-work').remove(); const pick = entry.querySelector('.sf-match-pickup'); if (item.pickupLine) { pick.textContent = item.pickupLine; pick.classList.toggle('is-picked', /^Picked up/.test(item.pickupLine)); pick.classList.toggle('is-unsure', /unavailable|conflicting|out of date/.test(item.pickupLine)); } else pick.remove(); entry.querySelector('.sf-match-total').textContent = item.total || ''; entry.querySelector('.sf-match').classList.toggle('sf-unpaid', item.pay === 'DUE'); entry.querySelector('button').onclick = () => select(item); body.querySelector('.sf-matches').append(entry); });
+      state.matches.forEach(item => { const entry = clone('sf-match-item'); entry.querySelector('.sf-match-number').textContent = item.number; entry.querySelector('.sf-match-customer').textContent = customerLine(item); entry.querySelector('.sf-match-work').remove(); const pick = entry.querySelector('.sf-match-pickup'); if (item.pickupLine) { pick.textContent = item.pickupLine; pick.classList.toggle('is-picked', /^Picked up/.test(item.pickupLine)); pick.classList.toggle('is-unsure', /unavailable|conflicting|out of date/.test(item.pickupLine)); } else pick.remove(); entry.querySelector('.sf-match-total').textContent = item.total || ''; entry.querySelector('.sf-match').classList.toggle('sf-unpaid', item.pay === 'DUE'); entry.querySelector('button').onclick = () => select(item); body.querySelector('.sf-matches').append(entry); });
     } else if (step === 'order') {
       body.replaceChildren(clone('sf-order-screen')); body.querySelector('.sf-detail-slot').append(receipt());
       // An order already picked up, or with conflicting records, is shown but never offered for another pickup (owner 11-02).

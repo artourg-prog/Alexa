@@ -39,7 +39,7 @@ class FindLog(private val dir: File, private val replace: (File, File) -> Boolea
 
     companion object {
         const val READY = "READY"; const val NOT_READY = "NOT_READY"; const val COLLECTED = "COLLECTED"; const val UNKNOWN = "UNKNOWN"
-        const val CONFLICT = "CONFLICT"; const val NOT_FOUND = "NOT_FOUND"; const val NO_ANSWER = "NO_ANSWER"
+        const val CONFLICT = "CONFLICT"; const val NOT_FOUND = "NOT_FOUND"; const val NO_ANSWER = "NO_ANSWER"; const val NO_ACCESS = "NO_ACCESS"
         const val BY_TABLET = "TABLET"; const val BY_LIST = "LIST"
         private const val KEEP_DAYS = 30L
         private const val KEEP_MAX = 2000
@@ -68,12 +68,13 @@ class FindLog(private val dir: File, private val replace: (File, File) -> Boolea
             CONFLICT -> "Pickup records disagree — check the tablet"
             NOT_FOUND -> "Not found"
             NO_ANSWER -> "Not checked — no connection"
+            NO_ACCESS -> "Not checked — no access to the orders list"
             else -> "Status unknown — check the tablet"
         }
 
         /** How far to trust the answer; a past pickup stays true however old the list is, and "not checked" has no list. */
         private fun age(e: Entry) = when {
-            e.state == NO_ANSWER || e.state == COLLECTED -> ""
+            e.state == NO_ANSWER || e.state == NO_ACCESS || e.state == COLLECTED -> ""
             e.offline -> " · offline copy, may be out of date"
             e.listState == ListAge.Level.OLD.name -> " · list as of ${e.asOf}, may be out of date"
             e.listState == ListAge.Level.UNKNOWN.name -> " · list age unknown"

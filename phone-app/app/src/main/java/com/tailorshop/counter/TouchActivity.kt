@@ -186,11 +186,16 @@ class TouchActivity : Activity() {
 
     @Volatile private var index: List<OrderIndex.Entry> = emptyList()
 
+    @Volatile private var denied = false
+
+    /** The device can't reach the list at all: no key here, or the list refuses this key. Neither is a search with no match. */
+    private fun noAccess() = denied || !sheets.hasKey()
+
     private fun refreshOrders() {
         try {
             val rows = sheets.readRows(); val parsed = Lookup.parseOrders(rows); val at = System.currentTimeMillis()
-            cache.save(rows, at); orders = parsed; loadedAt = at; offline = false
-        } catch (e: Exception) { offline = true; if (loadedAt == 0L) throw e }
+            cache.save(rows, at); orders = parsed; loadedAt = at; offline = false; denied = false
+        } catch (e: Exception) { offline = true; denied = e is Sheets.KeyMissing || e.message == "HTTP 403"; if (loadedAt == 0L) throw e }
     }
 
     @Volatile private var indexFresh = false
@@ -213,6 +218,7 @@ class TouchActivity : Activity() {
         if (action == "find" && !number.matches(Regex("[0-9]{4}"))) { reply(id, error("Enter the last four phone digits.")); return }
         if (action == "report" && !number.matches(Regex("[0-9]{3,9}"))) { reply(id, error("Enter a receipt number.")); return }
         if (loadedAt == 0L || System.currentTimeMillis() - loadedAt > 60_000L) runCatching { refreshOrders() }
+        if (action == "find" && noAccess()) { logMiss(number, FindLog.NO_ACCESS); reply(id, error("This device has no access to the orders list, so nothing was searched.")); return }
         if (action == "find" && loadedAt == 0L) { logMiss(number, FindLog.NO_ANSWER); reply(id, error("Orders not loaded. Connect to the internet and try again.")); return }
         // An order already tapped Picked up stays visible with its pickup state (0.53 hid it, so a listed order could
         // answer "No matching receipt" while its tap was waiting or settled; owner report 11-01, last four 5502).
@@ -304,6 +310,7 @@ class TouchActivity : Activity() {
     private fun cardJson(c: Card, unverified: Boolean = false) = JSONObject()
         .put("number", c.receipt).put("name", c.customer).put("total", c.total).put("work", c.work)
         .put("ready", c.ready).put("pay", c.pay.name).put("unverified", unverified).put("txn", c.txn).put("due", c.due)
+        .put("store", if (c.pay == Pay.ACCOUNT) c.account else "")
 
     private fun saveWork(id: String, body: JSONObject) {
         val worker = body.optString("worker"); val recorded = body.optString("number"); val number = Lookup.plainReceipt(recorded)
@@ -378,7 +385,6 @@ class TouchActivity : Activity() {
     }
 
     @Volatile private var findsReadAt = 0L
-    @Volatile private var findsRead = false
 
     /** Right column: today's searches with their answers; open ones re-read from the shared list every two minutes while any is waiting. */
     private fun findsInto(json: JSONObject) {
@@ -386,22 +392,12 @@ class TouchActivity : Activity() {
         findLog.settleTaps(tap)
         if (findLog.anyOpen() && System.currentTimeMillis() - findsReadAt > 120_000L) {
             findsReadAt = System.currentTimeMillis()
-            reads.execute { runCatching { refreshOrders(); refreshIndex(); settleFinds() }; findsRead = true }
+            reads.execute { runCatching { refreshOrders(); refreshIndex(); settleFinds() } }
         }
-        json.put("finds", JSONArray(findLog.rows(tap).map { r -> JSONObject().put("id", r.entry.id).put("time", r.time).put("number", r.entry.number())
+        json.put("finds", JSONArray(findLog.rows(tap).filter { it.entry.receipt.isNotEmpty() }.map { r -> JSONObject().put("id", r.entry.id).put("time", r.time).put("number", r.entry.number())
             .put("last4", r.entry.last4).put("line", r.line).put("unsure", r.unsure).put("state", r.entry.state)
             .put("receipt", r.entry.receipt).put("txn", r.entry.txn).put("amount", r.entry.amount).put("picked", r.entry.pickedMs != 0L) }))
-        json.put("findNote", listOfNotNull(findLog.warning(), findSource().takeIf { it.isNotEmpty() }).joinToString(" · "))
-    }
-
-    /** How current the right column is as a whole: a row keeps the state of its last good read. */
-    private fun findSource() = when {
-        !findLog.anyOpen() -> ""
-        !findsRead -> "Checking the list…"
-        offline || !indexFresh -> "Offline · statuses are from the last good check"
-        listAge.level == ListAge.Level.OLD -> "List as of ${listAge.asOf} · may be out of date"
-        listAge.level == ListAge.Level.UNKNOWN -> "List age unknown"
-        else -> ""
+        json.put("findNote", findLog.warning().orEmpty())
     }
 
     private fun synchronizeQueues(onlyId: String? = null) {
