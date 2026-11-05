@@ -253,7 +253,8 @@ class TouchActivity : Activity() {
                 val tap = if (action == "find" && pickups.pendingFor(card.receipt, card.txn)) pickups.latest(card.receipt, card.txn) else null
                 if (tap != null) json.put("pickupNote", Pickups.stateText(tap))
                 if (action == "find") json.put("pickupLine", tap?.let(Pickups::stateText) ?: OrderIndex.pickupLine(true, readyFresh, indexFresh, sameNumber(card.receipt)))
-                if (checked && tap == null && json.getString("pickupLine") != "Not picked up") json.put("pickupNote", json.getString("pickupLine")) }) }
+                if (checked && tap == null && json.getString("pickupLine") != "Not picked up") json.put("pickupNote", json.getString("pickupLine"))
+                if (checked && json.has("pickupNote")) json.put("blocked", true) }) }
             extra.forEach { e -> put(cardJson(Card(e.receipt, e.customer, ""), false).put("ready", false)
                 .put("state", e.state.name).put("stateText", OrderIndex.stateText(e) + if (indexFresh) "" else " · couldn't refresh, may be out of date")
                 .put("stale", indexFresh && e.state != OrderIndex.State.COLLECTED && OrderIndex.stale(e, nowShop))

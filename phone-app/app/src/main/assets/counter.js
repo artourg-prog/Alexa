@@ -138,9 +138,10 @@
     const payment = item.pay === 'PAID' ? 'Оплачено.' : item.pay === 'ACCOUNT' ? 'Счёт магазина.' : item.pay === 'DUE' ? '' : 'Оплата не известна.';
     const spokenState = { NOT_READY: 'Ещё не отмечена как готовая.', COLLECTED: 'Заказ уже выдан.', UNKNOWN: 'Статус неизвестен, проверьте на планшете.', READY: 'Готова к выдаче.' }[item.state];
     const digits = spell(item.number);
-    if (item.pickupNote) say('Квитанция ' + digits + '. Выдача здесь недоступна, проверьте на планшете.'); // never "ready" over a card that says otherwise
-    else if (item.state) say('Квитанция ' + digits + '. ' + spokenState);
+    if (item.state) say('Квитанция ' + digits + '. ' + spokenState);
     else if (item.unverified) return;
+    // A reopened row that may not be picked up here is never announced as ready; a balance due is still said.
+    else if (item.blocked) say((item.pay === 'DUE' ? 'Receipt ' + digits + '. ' + (item.due ? 'Outstanding balance due: ' + item.due + '. ' : 'Outstanding balance is due. ') + 'Check the tablet before pickup.' : 'Квитанция ' + digits + '. Выдача здесь недоступна, проверьте на планшете.'), item.pay === 'DUE' ? 'male-en' : undefined);
     // A DUE order: the whole announcement in English, male voice, and it says the outstanding amount (only when the
     // mirror shows it exactly; a part-paid "Zelle + Due" balance has no amount there, and nothing is guessed).
     else if (item.pay === 'DUE') say('Receipt ' + digits + '. ' + (item.due ? 'Outstanding balance due: ' + item.due + '.' : 'Outstanding balance is due. The amount due is not shown; check the receipt.')
@@ -321,7 +322,7 @@
       const line = state.selected.pickupLine || '', collected = state.selected.state === 'COLLECTED' || /^Picked up ·/.test(line), conflict = /conflicting/.test(line);
       body.querySelector('.sf-pickup').disabled = !state.selected.ready || !!state.selected.pickupNote || collected || conflict;
       if (collected || conflict) body.querySelector('.sf-readonly').textContent = collected ? 'Already picked up — pickup is not offered again.' : 'Pickup records disagree — check the tablet. Pickup is not offered here.';
-      body.querySelector('.sf-pickup').onclick = pickup; body.querySelector('.sf-not-picked-up').onclick = () => { const ready = state.selected.ready; home(); say(ready ? 'Not picked up. Заказ остаётся в списке готовых к выдаче.' : 'Not picked up.'); };
+      body.querySelector('.sf-pickup').onclick = pickup; body.querySelector('.sf-not-picked-up').onclick = () => { const ready = state.selected.ready && !state.selected.pickupNote; home(); say(ready ? 'Not picked up. Заказ остаётся в списке готовых к выдаче.' : 'Not picked up.'); };
     } else if (step === 'workers') {
       body.replaceChildren(clone('sf-workers-screen')); body.querySelector('.sf-detail-slot').append(receipt()); body.querySelector('.sf-work-date').textContent = today();
       state.workers.forEach(name => { const button = document.createElement('button'); button.type = 'button'; button.textContent = name; button.onclick = () => { state.worker = name; change('sms'); }; body.querySelector('.sf-workers').append(button); });
