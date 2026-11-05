@@ -16,9 +16,11 @@ import android.util.Log
 object Queues {
     @Volatile private var f: Finishes? = null
     @Volatile private var p: Pickups? = null
+    @Volatile private var l: FindLog? = null
     val syncing = java.util.concurrent.atomic.AtomicBoolean(false)
     @Synchronized fun finishes(ctx: Context): Finishes = f ?: Finishes(ctx.applicationContext.filesDir).also { f = it }
     @Synchronized fun pickups(ctx: Context): Pickups = p ?: Pickups(ctx.applicationContext.filesDir).also { p = it }
+    @Synchronized fun findLog(ctx: Context): FindLog = l ?: FindLog(ctx.applicationContext.filesDir).also { l = it }
 }
 
 class QueueJob : JobService() {
@@ -51,6 +53,7 @@ class QueueJob : JobService() {
                 if (Queues.syncing.compareAndSet(false, true)) {
                     try { runCatching { finishes.sync() }; runCatching { pickups.sync() } } finally { Queues.syncing.set(false) }
                 }
+                Queues.findLog(this).settleTaps({ e -> pickups.latest(e.receipt, e.txn) }) // before a settled tap ages out of its queue
                 again = unfinished(finishes, pickups)
             } catch (e: Throwable) { again = true; Log.d("TailorCounter", "queue job: ${e.javaClass.simpleName}") }
             jobFinished(params, false)
