@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 66 // Save returns home; saved work finishes in the background
-        versionName = "0.66"
+        versionCode = 67 // 26490 and 26-490 are one receipt; numbers shown as recorded
+        versionName = "0.67"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
