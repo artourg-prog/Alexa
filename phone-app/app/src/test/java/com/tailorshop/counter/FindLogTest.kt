@@ -73,7 +73,7 @@ class FindLogTest {
         add(log, "1111", ready("20001")); add(log, "1111", ready("20001"), at = noon + minute)
         log.settleTaps(none, noon + 2 * minute)
         log.settleList({ FindLog.Seen(FindLog.READY, 0, "") }, current, "", noon + 2 * minute)
-        assertEquals(1, log.rows(none, noon + 3 * minute).size); assertEquals(0, log.pickedToday(noon + 3 * minute))
+        assertEquals(listOf("Ready for pickup"), log.rows(none, noon + 3 * minute).map { it.line })
     }
 
     @Test fun `a tap still waiting stays in the column and says so`() {
@@ -84,13 +84,12 @@ class FindLogTest {
         assertEquals("Picked up — sent, waiting for the tablet", row.line); assertTrue(row.unsure)
     }
 
-    @Test fun `the tablet's answer removes the request and keeps the record`() {
+    @Test fun `the tablet's answer marks the row picked up and keeps it for today`() {
         val dir = tmp.newFolder(); val log = FindLog(dir); add(log, "1111", ready("20001")); add(log, "2222", ready("20002"))
         log.settleTaps({ e -> if (e.receipt == "20001") tap("20001", "APPLIED", noon + minute) else null }, noon + 2 * minute)
-        assertEquals(listOf("20002"), log.rows(none, noon + 3 * minute).map { it.entry.receipt })
-        assertEquals(1, log.pickedToday(noon + 3 * minute))
+        assertEquals(setOf("Picked up", "Ready for pickup"), log.rows(none, noon + 3 * minute).map { it.line }.toSet())
         val kept = FindLog(dir)
-        assertEquals(listOf("20002"), kept.rows(none, noon + 3 * minute).map { it.entry.receipt })
+        assertEquals("Picked up", kept.rows(none, noon + 3 * minute).first { it.entry.receipt == "20001" }.line)
         assertTrue(kept.history().map(FindLog::historyLine).any { "#20001" in it && "Picked up — confirmed by the tablet" in it })
     }
 
@@ -102,14 +101,15 @@ class FindLogTest {
         bound.settleTaps({ tap("20001", "APPLIED", noon + minute, "TX-B") }, noon + minute)
         assertEquals(1, bound.rows(none, noon + minute).size)
         bound.settleTaps({ tap("20001", "APPLIED", noon - minute, "TX-A") }, noon + minute)
-        assertTrue(bound.rows(none, noon + minute).isEmpty())
+        assertEquals("Picked up", bound.rows(none, noon + minute).single().line)
     }
 
     @Test fun `a new picked-up row on the shared list confirms, one that was already there does not`() {
         val log = FindLog(tmp.newFolder())
         add(log, "1111", ready("20001")); add(log, "2222", ready("20002", prior = 1))
         log.settleList({ e -> FindLog.Seen(FindLog.READY, 1, "2026-11-04 12:30") }, current, "", noon + minute)
-        assertEquals(listOf("2222"), log.rows(none, noon + 2 * minute).map { it.entry.last4 })
+        val by = log.rows(none, noon + 2 * minute).associateBy { it.entry.last4 }
+        assertEquals("Picked up · Nov 4, 12:30 PM", by["1111"]!!.line); assertTrue(by["2222"]!!.entry.pickedMs == 0L)
         assertTrue(FindLog.historyLine(log.history().first { it.last4 == "1111" }).contains("Picked up — on the shared list · Nov 4, 12:30 PM"))
     }
 
@@ -139,5 +139,26 @@ class FindLogTest {
         val stuck = FindLog(tmp.newFolder(), replace = { _, _ -> false })
         assertFalse(add(stuck, "1111", ready("20001"))); assertNotNull(stuck.warning())
         assertEquals(1, stuck.rows(none, noon).size)
+    }
+
+    @Test fun `today's list keeps numbers and amounts newest first, across a restart, and starts empty the next shop day`() {
+        val dir = tmp.newFolder(); val log = FindLog(dir)
+        add(log, "1111", ready("20001").copy(amount = "$45.00")); add(log, "2222", ready("20002").copy(amount = "$120.50"), at = noon + minute)
+        val rows = FindLog(dir).rows(none, noon + 2 * minute)
+        assertEquals(listOf("20002" to "$120.50", "20001" to "$45.00"), rows.map { it.entry.receipt to it.entry.amount })
+        // Shop midnight, not UTC: 11:59 PM in Los Angeles is still today, a minute later is tomorrow; nothing is deleted.
+        val shopDay = java.time.LocalDate.ofInstant(java.time.Instant.ofEpochMilli(noon), java.time.ZoneId.of("America/Los_Angeles"))
+        val midnight = shopDay.plusDays(1).atStartOfDay(java.time.ZoneId.of("America/Los_Angeles")).toInstant().toEpochMilli()
+        assertEquals(2, FindLog(dir).rows(none, midnight - minute).size)
+        assertTrue(FindLog(dir).rows(none, midnight).isEmpty()); assertEquals(2, FindLog(dir).history().size)
+    }
+
+    @Test fun `searching again keeps one row, its amount survives a list without one, and a confirmed pickup stays one`() {
+        val log = FindLog(tmp.newFolder()); add(log, "1111", ready("20001").copy(amount = "$45.00")); add(log, "1111", ready("20001"), at = noon + minute)
+        assertEquals("$45.00", log.rows(none, noon + 2 * minute).single().entry.amount)
+        log.settleTaps({ tap("20001", "APPLIED", noon + minute) }, noon + 2 * minute)
+        add(log, "1111", ready("20001"), at = noon + 3 * minute)
+        val row = log.rows(none, noon + 4 * minute).single()
+        assertEquals("Picked up", row.line); assertEquals(noon + 3 * minute, row.entry.atMs)
     }
 }

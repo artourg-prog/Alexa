@@ -40,7 +40,7 @@ class FirstEntryOverviewTest {
         r.saved = true; r.savedAt = "2026-11-03T00:31:00Z"; f.sync()
         val done = f.get(i.scanId)!!
         assertTrue(Finishes.recorded(done))
-        assertEquals("Saved · Nov 2, 4:31 PM", Finishes.overviewLine(done))         // the Reader's saved time, shop time
+        assertEquals("In Daily Report · Nov 2, 4:31 PM", Finishes.overviewLine(done))         // the Reader's saved time, shop time
         assertEquals(1, r.of("addScan"))                                             // one scan, same id: no second allocation
         assertEquals(1, f.all().size)
         assertEquals(0, r.of("pickup"))                                              // no SMS asked for
@@ -50,11 +50,18 @@ class FirstEntryOverviewTest {
     @Test fun savedTimeIsNeverOurOwnClock() {
         val r = Reader().apply { scan = "ADDED"; saved = true }; val f = finishes(r)
         val i = f.addOrReuse("Emma", "26448")!!; f.sync(); f.sync()
-        assertEquals("Saved · save time not reported", Finishes.overviewLine(f.get(i.scanId)!!))
-        assertEquals("Saved on this phone · waiting for Daily Report confirmation", Finishes.overviewLine(Finishes.Item("x", "Emma", "26449", "", 0L, scan = "ACCEPTED")))
+        assertEquals("In Daily Report · save time not reported", Finishes.overviewLine(f.get(i.scanId)!!))
+        assertEquals("Pending · waiting for the tablet", Finishes.overviewLine(Finishes.Item("x", "Emma", "26449", "", 0L, scan = "ACCEPTED")))
+        fun item(scan: String, report: String = "", reason: String = "") = Finishes.Item("x", "Emma", "26449", "", 0L, scan = scan, reportState = report, reason = reason)
+        assertEquals("Scanned · not sent yet", Finishes.overviewLine(item("")))
+        assertEquals("Applied on tablet · waiting for Daily Report", Finishes.overviewLine(item("ADDED", "WAITING")))
+        assertEquals("Applied on tablet · Daily Report not confirmed", Finishes.overviewLine(item("ALREADY", "UNCONFIRMED")))
+        assertEquals("Failed · Not saved: too late", Finishes.overviewLine(item("REJECTED", reason = "too late")))
+        assertEquals("Not in Daily Report · held for owner review", Finishes.overviewLine(item("HELD")))
+        assertEquals("Failed · receipt not in the master list", Finishes.overviewLine(item("UNVERIFIED", reason = "UNVERIFIED: receipt 26449 is not in 2026 RECEIPTS")))
         // SMS state rides along; an SMS that ended unsent, a refusal or a hold needs a person
         val sms = Finishes.Item("y", "Emma", "26457", "", 0L, sendSms = true, scan = "ACCEPTED", sms = "QUEUED")
-        assertEquals("Saved on this phone · waiting for Daily Report confirmation · SMS: waiting to send", Finishes.overviewLine(sms))
+        assertEquals("Pending · waiting for the tablet · SMS: waiting to send", Finishes.overviewLine(sms))
         assertFalse(Finishes.overviewProblem(sms))
         assertTrue(Finishes.overviewProblem(sms.copy(sms = "FAILED")))
         assertFalse(Finishes.overviewProblem(sms.copy(sms = "SENT")))
