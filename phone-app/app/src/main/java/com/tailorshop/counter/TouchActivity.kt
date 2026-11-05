@@ -154,7 +154,7 @@ class TouchActivity : Activity() {
                     }
                 }
                 "reopen" -> reads.execute {
-                    try { reopen(id, body.optString("last4"), body.optString("receipt"), body.optString("txn"), body.optString("total")) }
+                    try { reopen(id, body.optString("last4"), body.optString("receipt"), body.optString("txn"), body.optString("total"), body.optString("shown")) }
                     catch (_: Exception) { reply(id, error("Orders unavailable. Check the connection and try again.")) }
                 }
                 "save", "pickup" -> saves.execute {
@@ -230,14 +230,16 @@ class TouchActivity : Activity() {
 
     /** A tap on a Find row. It only reads, and it reads everything again first, so the row is never the authority: nothing
      *  is logged, marked or sent here. Picked up stays the card's own button, with its own re-read before anything is kept. */
-    private fun reopen(id: String, last4: String, receipt: String, txn: String, total: String) {
+    private fun reopen(id: String, last4: String, receipt: String, txn: String, total: String, shown: String) {
         if (!last4.matches(Regex("[0-9]{4}")) || !receipt.matches(Regex("[0-9]+"))) { reply(id, error("This row can't be opened. Search again.")); return }
         runCatching { refreshOrders() }; refreshIndex(); runCatching { settleFinds() }
-        val cards = Lookup.find(Query.Last4(last4), orders).filter { Lookup.digits(it.receipt) == receipt && (txn.isEmpty() || it.txn == txn) }
-        val extra = OrderIndex.find(last4, index).filter { Lookup.digits(it.receipt) == receipt && cards.isEmpty() }
+        val same = Lookup.find(Query.Last4(last4), orders).filter { Lookup.digits(it.receipt) == receipt }
+        val cards = same.filter { txn.isEmpty() || it.txn == txn }
+        val changed = cards.isEmpty() && same.isNotEmpty() // the number now belongs to another order: its index row says nothing about this one
+        val extra = if (cards.isEmpty() && !changed) OrderIndex.find(last4, index).filter { Lookup.digits(it.receipt) == receipt } else emptyList()
         val json = answer("find", last4, cards, false, extra, checked = true)
-        if (cards.isEmpty() && extra.isEmpty()) json.put("receipts", JSONArray().put(cardJson(Card(receipt, "", "", total = total)).put("ready", false).put("state", "UNKNOWN")
-            .put("stateText", if (offline || !indexFresh) "Couldn't refresh, so the current status is unknown" else "Not on the lists any more — check the tablet")))
+        if (cards.isEmpty() && extra.isEmpty()) json.put("receipts", JSONArray().put(cardJson(Card(shown.takeIf { Lookup.digits(it) == receipt } ?: receipt, "", "", total = total)).put("ready", false).put("state", "UNKNOWN")
+            .put("stateText", if (offline || !indexFresh) "Couldn't refresh, so the current status is unknown" else if (changed) "This order changed — search again" else "Not on the lists any more — check the tablet")))
         reply(id, json)
     }
 
@@ -251,7 +253,7 @@ class TouchActivity : Activity() {
                 val tap = if (action == "find" && pickups.pendingFor(card.receipt, card.txn)) pickups.latest(card.receipt, card.txn) else null
                 if (tap != null) json.put("pickupNote", Pickups.stateText(tap))
                 if (action == "find") json.put("pickupLine", tap?.let(Pickups::stateText) ?: OrderIndex.pickupLine(true, readyFresh, indexFresh, sameNumber(card.receipt)))
-                if (checked && tap == null && !OrderIndex.pickupAllowed(json.getString("pickupLine"))) json.put("pickupNote", json.getString("pickupLine")) }) }
+                if (checked && tap == null && json.getString("pickupLine") != "Not picked up") json.put("pickupNote", json.getString("pickupLine")) }) }
             extra.forEach { e -> put(cardJson(Card(e.receipt, e.customer, ""), false).put("ready", false)
                 .put("state", e.state.name).put("stateText", OrderIndex.stateText(e) + if (indexFresh) "" else " · couldn't refresh, may be out of date")
                 .put("stale", indexFresh && e.state != OrderIndex.State.COLLECTED && OrderIndex.stale(e, nowShop))

@@ -14,7 +14,7 @@ class FindLogTest {
     private val zone = ZoneId.of("America/Los_Angeles")
     private val noon = ZonedDateTime.of(2026, 11, 4, 12, 0, 0, 0, zone).toInstant().toEpochMilli()
     private val minute = 60_000L
-    private val current = ListAge.Level.CURRENT.name
+    private val current = "CURRENT"
     private val none = { _: FindLog.Entry -> null as Pickups.Req? }
 
     private fun ready(n: String, txn: String = "", prior: Int = 0) = FindLog.Hit(n, txn, FindLog.READY, prior)
@@ -57,8 +57,8 @@ class FindLogTest {
     @Test fun `offline, old and unknown lists are said, and a failed search is a check, not a miss`() {
         val log = FindLog(tmp.newFolder())
         add(log, "1111", ready("20001"), offline = true)
-        add(log, "2222", ready("20002"), list = ListAge.Level.OLD.name, asOf = "Nov 2, 3:56 PM")
-        add(log, "3333", ready("20003"), list = ListAge.Level.UNKNOWN.name)
+        add(log, "2222", ready("20002"), list = "OLD", asOf = "Nov 2, 3:56 PM")
+        add(log, "3333", ready("20003"), list = "UNKNOWN")
         add(log, "4444", FindLog.Hit("", "", FindLog.NO_ANSWER), offline = true)
         val by = log.rows(none, noon).associateBy { it.entry.last4 }
         assertEquals("Ready for pickup · offline copy, may be out of date", by["1111"]!!.line)
@@ -160,5 +160,9 @@ class FindLogTest {
         add(log, "1111", ready("20001"), at = noon + 3 * minute)
         val row = log.rows(none, noon + 4 * minute).single()
         assertEquals("Picked up", row.line); assertEquals(noon + 3 * minute, row.entry.atMs)
+        val bound = FindLog(tmp.newFolder()); add(bound, "1111", ready("20001", "TX-A").copy(amount = "$45.00"))
+        bound.settleTaps({ tap("20001", "APPLIED", noon + minute, "TX-A") }, noon + 2 * minute)
+        add(bound, "1111", FindLog.Hit("20001", "", FindLog.COLLECTED), at = noon + 3 * minute) // now on the index only, without its Txn
+        assertEquals("$45.00", bound.rows(none, noon + 4 * minute).single().entry.amount)
     }
 }

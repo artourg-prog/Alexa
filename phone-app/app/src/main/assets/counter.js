@@ -13,7 +13,7 @@
   };
   // Every request ends: an answer, an error, or a timeout (owner 11-02 freeze: a request that never answered left the
   // page waiting with no way out). A late answer after the timeout is ignored; nothing is re-sent from here.
-  const WAIT_MS = { save: 45000, pickup: 45000, find: 40000, report: 40000 };
+  const WAIT_MS = { save: 45000, pickup: 45000, find: 40000, report: 40000, reopen: 40000 };
   const LATE = { save: 'Save confirmation has not arrived. The request may still complete — check Pending work in Settings before entering it again.',
     pickup: 'Pickup confirmation has not arrived. The request may still complete — check Pending work in Settings before tapping again.' };
   function call(action, data = {}) {
@@ -138,7 +138,8 @@
     const payment = item.pay === 'PAID' ? 'Оплачено.' : item.pay === 'ACCOUNT' ? 'Счёт магазина.' : item.pay === 'DUE' ? '' : 'Оплата не известна.';
     const spokenState = { NOT_READY: 'Ещё не отмечена как готовая.', COLLECTED: 'Заказ уже выдан.', UNKNOWN: 'Статус неизвестен, проверьте на планшете.', READY: 'Готова к выдаче.' }[item.state];
     const digits = spell(item.number);
-    if (item.state) say('Квитанция ' + digits + '. ' + spokenState);
+    if (item.pickupNote) say('Квитанция ' + digits + '. Выдача здесь недоступна, проверьте на планшете.'); // never "ready" over a card that says otherwise
+    else if (item.state) say('Квитанция ' + digits + '. ' + spokenState);
     else if (item.unverified) return;
     // A DUE order: the whole announcement in English, male voice, and it says the outstanding amount (only when the
     // mirror shows it exactly; a part-paid "Zelle + Due" balance has no amount there, and nothing is guessed).
@@ -263,13 +264,13 @@
   // Tapping a row opens that receipt's card after a fresh read of the lists: it marks nothing and sends nothing. Picked up / Not
   // picked up stay the card's own two buttons. A search that found no receipt just searches again.
   async function reopen(entry) {
-    clearTimers(); state.flow = 'lookup'; state.digits = entry.last4;
+    clearTimers(); state.flow = 'lookup'; state.digits = entry.last4; state.selected = null;
     if (!entry.receipt) { find(); return; }
     const rev = ++revision; state.spoken = ''; root.querySelector('.sf-listen').disabled = true; voiceNote(''); change('busy');
     try {
-      const result = await call('reopen', { last4: entry.last4, receipt: entry.receipt, txn: entry.txn || '', total: entry.amount || '' });
+      const result = await call('reopen', { last4: entry.last4, receipt: entry.receipt, txn: entry.txn || '', total: entry.amount || '', shown: entry.number || '' });
       if (rev !== revision) return;
-      state.matches = result.receipts; state.list = { old: !!result.listState && result.listState !== 'CURRENT', asOf: result.asOf || '' };
+      state.matches = result.receipts;
       if (state.matches.length === 1) select(state.matches[0]); else change('matches');
     } catch (error) { if (rev === revision) { home(); fail(error); } }
   }
@@ -320,7 +321,7 @@
       const line = state.selected.pickupLine || '', collected = state.selected.state === 'COLLECTED' || /^Picked up ·/.test(line), conflict = /conflicting/.test(line);
       body.querySelector('.sf-pickup').disabled = !state.selected.ready || !!state.selected.pickupNote || collected || conflict;
       if (collected || conflict) body.querySelector('.sf-readonly').textContent = collected ? 'Already picked up — pickup is not offered again.' : 'Pickup records disagree — check the tablet. Pickup is not offered here.';
-      body.querySelector('.sf-pickup').onclick = pickup; body.querySelector('.sf-not-picked-up').onclick = () => { home(); say('Not picked up. Заказ остаётся в списке готовых к выдаче.'); };
+      body.querySelector('.sf-pickup').onclick = pickup; body.querySelector('.sf-not-picked-up').onclick = () => { const ready = state.selected.ready; home(); say(ready ? 'Not picked up. Заказ остаётся в списке готовых к выдаче.' : 'Not picked up.'); };
     } else if (step === 'workers') {
       body.replaceChildren(clone('sf-workers-screen')); body.querySelector('.sf-detail-slot').append(receipt()); body.querySelector('.sf-work-date').textContent = today();
       state.workers.forEach(name => { const button = document.createElement('button'); button.type = 'button'; button.textContent = name; button.onclick = () => { state.worker = name; change('sms'); }; body.querySelector('.sf-workers').append(button); });

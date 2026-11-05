@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 67 // 26490 and 26-490 are one receipt; numbers shown as recorded
-        versionName = "0.67"
+        versionCode = 74 // home TODAY lists on the 0.67 base (73 is the SM-T820 build)
+        versionName = "0.74"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
