@@ -250,33 +250,55 @@
       logo.oncontextmenu = event => event.preventDefault();
     });
   }
-  // Home: today's Daily Report entries from this phone, with the saved time only as the Reader reports it (owner 11-02).
+  // Home, two columns that scroll on their own (owner 11-04). Left: today's Daily Report entries from this phone, with the
+  // saved time only as the Reader reports it. Right: today's Find requests and their answers, until a pickup is confirmed.
   const watched = new Set(), announced = new Set(); // entries saved from this screen; each "Recorded" is said once
+  let shown = ''; // what the columns already show: an unchanged 5 s check leaves them, and a finger on them, alone
+  function row(number, time, line) {
+    const n = document.createElement('strong'); n.textContent = number;
+    const t = document.createElement('span'); t.textContent = time;
+    const l = document.createElement('small'); l.textContent = line;
+    return [n, t, l];
+  }
+  // Tapping a request looks it up again, so a worker can pick it up where they left off (Picked up stays on the order's card).
+  function reopen(last4) { ++revision; clearTimers(); state.flow = 'lookup'; state.digits = last4; find(); }
+  function drawColumns(result) {
+    const report = body.querySelector('.sf-overview-report'), finds = body.querySelector('.sf-finds-list');
+    report.replaceChildren(...result.report.map(entry => {
+      const li = document.createElement('li'); li.className = entry.problem ? 'is-problem' : entry.recorded ? 'is-recorded' : '';
+      li.append(...row(entry.number, entry.time, entry.worker + ' · ' + entry.line)); return li;
+    }));
+    finds.replaceChildren(...result.finds.map(entry => {
+      const li = document.createElement('li'), button = document.createElement('button'); button.type = 'button';
+      li.className = entry.unsure ? 'is-unsure' : ''; button.onclick = () => reopen(entry.last4);
+      button.append(...row(entry.number || '…' + entry.last4, entry.time, entry.line)); li.append(button); return li;
+    }));
+    body.querySelector('.sf-overview:not(.sf-finds) .sf-overview-empty').hidden = result.report.length > 0;
+    body.querySelector('.sf-finds .sf-overview-empty').hidden = result.finds.length > 0;
+    const note = body.querySelector('.sf-finds-note'); note.textContent = result.findNote; note.hidden = !result.findNote;
+    const done = body.querySelector('.sf-finds-picked'); done.hidden = !result.pickedToday;
+    done.textContent = 'Picked up today: ' + result.pickedToday + ' · Settings → Find history';
+  }
   async function loadOverview() {
     const rev = revision;
     try {
-      const result = await call('overview'); if (rev !== revision || state.step !== 'home') return;
-      const list = body.querySelector('.sf-overview-report'); if (!list) return;
-      list.replaceChildren(...result.report.map(entry => {
-        const li = document.createElement('li'); li.className = entry.problem ? 'is-problem' : entry.recorded ? 'is-recorded' : '';
+      const result = await call('overview'); if (rev !== revision || state.step !== 'home' || !body.querySelector('.sf-columns')) return;
+      result.report.forEach(entry => {
         if (entry.recorded && watched.has(entry.id) && !announced.has(entry.id)) {
           announced.add(entry.id); watched.delete(entry.id);
           say('Записано. Квитанция ' + spell(entry.number) + '. Работник ' + entry.worker + '.');
         }
-        const n = document.createElement('strong'); n.textContent = entry.number;
-        const w = document.createElement('span'); w.textContent = entry.worker;
-        const t = document.createElement('small'); t.textContent = entry.line;
-        li.append(n, w, t); return li;
-      }));
-      body.querySelector('.sf-overview-empty').hidden = result.report.length > 0;
-    } catch (_) { const empty = body.querySelector('.sf-overview-empty'); if (empty) { empty.hidden = false; empty.textContent = 'List unavailable right now.'; } }
+      });
+      const next = JSON.stringify(result); if (next === shown) return;
+      shown = next; drawColumns(result);
+    } catch (_) { shown = ''; body.querySelectorAll('.sf-overview-empty').forEach(empty => { empty.hidden = false; empty.textContent = 'List unavailable right now.'; }); }
   }
   function render() {
     const step = state.step;
     if (step === 'home') {
       body.replaceChildren(clone('sf-home-screen'));
       body.querySelectorAll('[data-go]').forEach(button => button.onclick = () => { ++revision; clearTimers(); state.flow = button.dataset.go; state.digits = ''; change('keypad'); });
-      clearInterval(polling); polling = setInterval(loadOverview, 5000); loadOverview();
+      shown = ''; clearInterval(polling); polling = setInterval(loadOverview, 5000); loadOverview();
     } else if (step === 'keypad') {
       body.replaceChildren(clone('sf-keypad-screen')); body.querySelector('.sf-keypad-heading').textContent = state.flow === 'report' ? 'Please enter receipt number' : 'Please enter last four';
       body.querySelector('.sf-find').classList.toggle('violet', state.flow === 'report'); body.querySelector('.sf-find').classList.toggle('green', state.flow === 'lookup'); bindKeys();

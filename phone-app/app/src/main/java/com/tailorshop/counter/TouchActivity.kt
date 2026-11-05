@@ -32,6 +32,7 @@ class TouchActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var finishes: Finishes
     private lateinit var pickups: Pickups
+    private lateinit var findLog: FindLog
     private lateinit var sheets: Sheets
     private lateinit var cache: OrderCache
     @Volatile private var orders: List<Order> = emptyList()
@@ -57,7 +58,7 @@ class TouchActivity : Activity() {
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
-        finishes = Queues.finishes(this); pickups = Queues.pickups(this)
+        finishes = Queues.finishes(this); pickups = Queues.pickups(this); findLog = Queues.findLog(this)
         sheets = Sheets(File(filesDir, "sheet-key.json")); cache = OrderCache(filesDir)
         cache.load()?.let { snapshot -> runCatching { orders = snapshot.orders(); loadedAt = snapshot.at } }
         web = WebView(this)
@@ -147,7 +148,10 @@ class TouchActivity : Activity() {
                     .put("finishConfigured", finishes.configured()).put("pickupConfigured", pickups.configured()))
                 "find", "report" -> reads.execute {
                     try { lookup(id, action, body.optString("number")) }
-                    catch (_: Exception) { reply(id, error("Orders unavailable. Check the connection and try again.")) }
+                    catch (_: Exception) {
+                        if (action == "find") logMiss(body.optString("number").trim(), FindLog.NO_ANSWER)
+                        reply(id, error("Orders unavailable. Check the connection and try again."))
+                    }
                 }
                 "save", "pickup" -> saves.execute {
                     try {
@@ -198,7 +202,7 @@ class TouchActivity : Activity() {
         if (action == "find" && !number.matches(Regex("[0-9]{4}"))) { reply(id, error("Enter the last four phone digits.")); return }
         if (action == "report" && !number.matches(Regex("[0-9]{3,9}"))) { reply(id, error("Enter a receipt number.")); return }
         if (loadedAt == 0L || System.currentTimeMillis() - loadedAt > 60_000L) runCatching { refreshOrders() }
-        if (action == "find" && loadedAt == 0L) { reply(id, error("Orders not loaded. Connect to the internet and try again.")); return }
+        if (action == "find" && loadedAt == 0L) { logMiss(number, FindLog.NO_ANSWER); reply(id, error("Orders not loaded. Connect to the internet and try again.")); return }
         // An order already tapped Picked up stays visible with its pickup state (0.53 hid it, so a listed order could
         // answer "No matching receipt" while its tap was waiting or settled; owner report 11-01, last four 5502).
         fun search() = Lookup.find(if (action == "find") Query.Last4(number) else Query.Receipt(number), orders)
@@ -207,6 +211,7 @@ class TouchActivity : Activity() {
         // instead of a false "no matching receipt" from an old copy (the 0.41 reread-on-miss rule).
         if (results.isEmpty()) { runCatching { refreshOrders() }; results = search() }
         if (action == "find" && results.isEmpty() && offline) {
+            logMiss(number, FindLog.NO_ANSWER)
             reply(id, error("Couldn't refresh the orders list, so no answer yet. Check Wi-Fi and try again.")); return
         }
         // A work entry may not yet be in the ready-orders mirror. It is validated by the existing Reader when saved.
@@ -218,6 +223,7 @@ class TouchActivity : Activity() {
         fun sameNumber(r: String) = index.filter { Lookup.digits(it.receipt) == Lookup.digits(r) && Lookup.digits(it.phone).takeLast(4) == number }
         val extra = if (action == "find") OrderIndex.find(number, index).filter { e -> results.none { Lookup.digits(it.receipt) == Lookup.digits(e.receipt) } } else emptyList()
         val nowShop = java.time.LocalDateTime.now(java.time.ZoneId.of("America/Los_Angeles"))
+        if (action == "find") logFind(number, results, extra)
         reply(id, JSONObject().put("ok", true).put("receipts", JSONArray().apply {
             cards.forEach { card -> put(cardJson(card, action == "report" && results.isEmpty()).also { json ->
                 val tap = if (action == "find" && pickups.pendingFor(card.receipt, card.txn)) pickups.latest(card.receipt, card.txn) else null
@@ -228,6 +234,38 @@ class TouchActivity : Activity() {
                 .put("stale", indexFresh && e.state != OrderIndex.State.COLLECTED && OrderIndex.stale(e, nowShop))
                 .put("pickupLine", OrderIndex.pickupLine(false, readyFresh, indexFresh, listOf(e)))) }
         }).put("offline", offline).put("loadedAt", loadedAt))
+    }
+
+    private fun picked(receipt: String, last4: String) = index.filter { it.state == OrderIndex.State.COLLECTED &&
+        Lookup.digits(it.receipt) == Lookup.digits(receipt) && Lookup.digits(it.phone).takeLast(4) == last4 }
+
+    /** Keeps the search for the right column on home. The history must never get in the way of the answer itself. */
+    private fun logFind(last4: String, results: List<Card>, extra: List<OrderIndex.Entry>) = runCatching {
+        settleFinds()
+        val hits = results.map { c -> val prior = picked(c.receipt, last4).size
+            FindLog.Hit(Lookup.digits(c.receipt), c.txn, if (prior > 0) FindLog.CONFLICT else if (c.ready) FindLog.READY else FindLog.NOT_READY, prior) } +
+            extra.map { e -> FindLog.Hit(Lookup.digits(e.receipt), "", e.state.name, picked(e.receipt, last4).size) }
+        findLog.add(last4, hits.ifEmpty { listOf(FindLog.Hit("", "", FindLog.NOT_FOUND)) }, listAge.level.name, listAge.asOf, offline || !indexFresh)
+    }
+
+    private fun logMiss(last4: String, state: String) {
+        if (last4.matches(Regex("[0-9]{4}"))) runCatching { findLog.add(last4, listOf(FindLog.Hit("", "", state)), "", "", true) }
+    }
+
+    /** After a good read: what the shared list now says about each open request. A failed read changes nothing. */
+    private fun settleFinds() {
+        if (offline || !indexFresh) return
+        findLog.settleList({ e ->
+            val same = index.filter { Lookup.digits(it.receipt) == e.receipt && Lookup.digits(it.phone).takeLast(4) == e.last4 }
+            val done = same.filter { it.state == OrderIndex.State.COLLECTED }
+            val ready = orders.firstOrNull { Lookup.digits(it.receipt) == e.receipt && Lookup.digits(it.phone).takeLast(4) == e.last4 }
+            val state = when {
+                ready != null && done.isNotEmpty() -> FindLog.CONFLICT
+                ready != null -> if (ready.ready) FindLog.READY else FindLog.NOT_READY
+                else -> same.firstOrNull { it.state != OrderIndex.State.COLLECTED }?.state?.name
+            }
+            FindLog.Seen(state, done.size, done.firstOrNull { it.collectedAt.isNotBlank() }?.collectedAt.orEmpty())
+        }, listAge.level.name, listAge.asOf)
     }
 
     private fun cardJson(c: Card, unverified: Boolean = false) = JSONObject()
@@ -301,9 +339,36 @@ class TouchActivity : Activity() {
         val list = finishes.all().filter { java.time.Instant.ofEpochMilli(it.createdMs).atZone(zone).toLocalDate() == today }
             .sortedByDescending { it.createdMs }.take(30)
         return JSONObject().put("ok", true).put("report", JSONArray(list.map { i ->
-            JSONObject().put("number", i.number()).put("worker", i.worker).put("recorded", Finishes.recorded(i))
+            JSONObject().put("number", i.number()).put("worker", i.worker).put("recorded", Finishes.recorded(i)).put("time", FindLog.time(i.createdMs))
                 .put("id", i.scanId).put("line", Finishes.overviewLine(i)).put("problem", Finishes.overviewProblem(i)) }))
-            .also { if (QueueJob.unfinished(finishes, pickups)) synchronizeQueues() }
+            .also { json -> findsInto(json); if (QueueJob.unfinished(finishes, pickups)) synchronizeQueues() }
+    }
+
+    @Volatile private var findsReadAt = 0L
+    @Volatile private var findsRead = false
+
+    /** Right column: open requests with their answers, re-read from the shared list every two minutes while any is waiting. */
+    private fun findsInto(json: JSONObject) {
+        val tap = { e: FindLog.Entry -> pickups.latest(e.receipt, e.txn) }
+        findLog.settleTaps(tap)
+        if (findLog.anyOpen() && System.currentTimeMillis() - findsReadAt > 120_000L) {
+            findsReadAt = System.currentTimeMillis()
+            reads.execute { runCatching { refreshOrders(); refreshIndex(); settleFinds() }; findsRead = true }
+        }
+        json.put("finds", JSONArray(findLog.rows(tap).map { r -> JSONObject().put("id", r.entry.id).put("time", r.time).put("number", r.entry.receipt)
+            .put("last4", r.entry.last4).put("line", r.line).put("unsure", r.unsure).put("state", r.entry.state) }))
+        json.put("findNote", listOfNotNull(findLog.warning(), findSource().takeIf { it.isNotEmpty() }).joinToString(" · "))
+        json.put("pickedToday", findLog.pickedToday())
+    }
+
+    /** How current the right column is as a whole: a row keeps the state of its last good read. */
+    private fun findSource() = when {
+        !findLog.anyOpen() -> ""
+        !findsRead -> "Checking the list…"
+        offline || !indexFresh -> "Offline · statuses are from the last good check"
+        listAge.level == ListAge.Level.OLD -> "List as of ${listAge.asOf} · may be out of date"
+        listAge.level == ListAge.Level.UNKNOWN -> "List age unknown"
+        else -> ""
     }
 
     private fun synchronizeQueues(onlyId: String? = null) {
@@ -381,7 +446,7 @@ class TouchActivity : Activity() {
 
     private fun settings() {
         AlertDialog.Builder(this).setTitle("Sofia ${Updater.versionName(this)}")
-            .setItems(arrayOf("Check for update", "Refresh orders", "Pending work", "Repeat announcement", "Due voice (male English)")) { _, which ->
+            .setItems(arrayOf("Check for update", "Refresh orders", "Pending work", "Repeat announcement", "Due voice (male English)", "Find history")) { _, which ->
                 when (which) {
                     0 -> {
                         val box = AlertDialog.Builder(this).setTitle("Sofia update").setMessage("Checking…").setPositiveButton("Close", null).show()
@@ -400,6 +465,9 @@ class TouchActivity : Activity() {
                     }
                     3 -> speak(lastSpoken, lastMale)?.let(::voiceProblem)
                     4 -> chooseDueVoice()
+                    5 -> AlertDialog.Builder(this).setTitle("Find history")
+                        .setMessage(findLog.history().joinToString("\n\n", transform = FindLog::historyLine).ifEmpty { "No searches kept yet." })
+                        .setPositiveButton("Close", null).showDialog()
                 }
             }.setNegativeButton("Close", null).show()
     }

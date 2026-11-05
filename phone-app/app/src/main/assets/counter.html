@@ -9,7 +9,7 @@
       <footer><button class="sf-back cursor-interaction" type="button"><i data-lucide="arrow-left" aria-hidden="true"></i>Back</button><button class="sf-listen cursor-interaction" type="button" aria-label="Listen to announcement" disabled><i data-lucide="volume-2" aria-hidden="true"></i>Listen</button></footer><p class="sf-voice-note" role="status" hidden></p>
     </article>
   </div>
-  <template id="sf-home-screen"><div class="sf-welcome"><h1 class="sf-signature">Sofia</h1><p class="sf-hello">Hello</p></div><div class="sf-two sf-home-actions"><button type="button" class="sf-action violet cursor-interaction" data-go="report"><i data-lucide="notebook-pen" aria-hidden="true"></i><strong>Daily Report</strong></button><button type="button" class="sf-action green cursor-interaction" data-go="lookup"><i data-lucide="search" aria-hidden="true"></i><strong>Find</strong></button></div><section class="sf-overview" aria-label="Today's Daily Report entries from this phone"><h3>Daily Report · this phone, today</h3><p class="sf-overview-empty">No entries yet today.</p><ol class="sf-overview-report"></ol></section></template>
+  <template id="sf-home-screen"><div class="sf-welcome"><h1 class="sf-signature">Sofia</h1><p class="sf-hello">Hello</p></div><div class="sf-two sf-home-actions"><button type="button" class="sf-action violet cursor-interaction" data-go="report"><i data-lucide="notebook-pen" aria-hidden="true"></i><strong>Daily Report</strong></button><button type="button" class="sf-action green cursor-interaction" data-go="lookup"><i data-lucide="search" aria-hidden="true"></i><strong>Find</strong></button></div><div class="sf-columns"><section class="sf-overview" aria-label="Today's Daily Report entries from this phone"><h3>Daily Report · this phone, today</h3><p class="sf-overview-empty">No entries yet today.</p><ol class="sf-overview-report"></ol></section><section class="sf-overview sf-finds" aria-label="Today's Find requests and their answers"><h3>Find · waiting today</h3><p class="sf-finds-note" hidden></p><p class="sf-overview-empty">No searches yet today.</p><ol class="sf-finds-list"></ol><p class="sf-finds-picked" hidden></p></section></div></template>
   <template id="sf-keypad-screen"><h1 class="sf-signature">Sofia</h1><h2 class="sf-keypad-heading">Please enter last four</h2><input id="sf-digits" class="sf-digits" type="text" inputmode="none" autocomplete="off" maxlength="4" placeholder="— — — —" aria-label="Последние четыре цифры телефона"><p class="sf-error" role="alert"></p><div class="sf-keypad"><button type="button" data-key="1" class="cursor-interaction">1</button><button type="button" data-key="2" class="cursor-interaction">2</button><button type="button" data-key="3" class="cursor-interaction">3</button><button type="button" data-key="4" class="cursor-interaction">4</button><button type="button" data-key="5" class="cursor-interaction">5</button><button type="button" data-key="6" class="cursor-interaction">6</button><button type="button" data-key="7" class="cursor-interaction">7</button><button type="button" data-key="8" class="cursor-interaction">8</button><button type="button" data-key="9" class="cursor-interaction">9</button><button type="button" data-key="clear" class="sf-key-small cursor-interaction" aria-label="Clear all digits">C</button><button type="button" data-key="0" class="cursor-interaction">0</button><button type="button" data-key="delete" aria-label="Стереть последнюю цифру" class="cursor-interaction"><i data-lucide="delete" aria-hidden="true"></i></button></div><button type="button" class="sf-wide green cursor-interaction sf-find" disabled>Enter<i data-lucide="arrow-right" aria-hidden="true"></i></button></template>
   <template id="sf-matches-screen"><span class="sf-eyebrow sf-flow-name"></span><h2>Choose the receipt</h2><p class="sf-match-count"></p><div class="sf-matches"></div></template>
   <template id="sf-match-item"><button class="sf-match cursor-interaction" type="button"><div><strong class="sf-match-number"></strong><span class="sf-match-customer"></span><small class="sf-match-work"></small><small class="sf-match-pickup"></small></div><div class="sf-match-side"><span class="sf-match-total"></span><span class="sf-arrow" aria-hidden="true">›</span></div></button></template>
@@ -351,6 +351,27 @@ html,body{height:100%;margin:0;overflow:hidden}
 #sofia-touch-review .sf-overview-report li.is-recorded small{color:#1f6b3a}
 #sofia-touch-review .sf-overview-report li.is-problem{border-color:#e0a0a0}
 #sofia-touch-review .sf-overview-report li.is-problem small{color:#8a2b2b;font-weight:700}
+/* Two columns under the buttons (owner 11-04): each scrolls by itself, newest on top; the buttons stay where they are. */
+#sofia-touch-review .sf-phone.is-home .sf-body{overflow:hidden;justify-content:flex-start}
+#sofia-touch-review .sf-phone.is-home .sf-welcome{flex:none;padding-bottom:min(1.2vh,12px)}
+#sofia-touch-review .sf-phone.is-home .sf-home-actions{flex:none}
+#sofia-touch-review .sf-columns{flex:1 1 0;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px;margin-top:min(1.8vh,16px)}
+#sofia-touch-review .sf-columns .sf-overview{margin:0;min-height:0;min-width:0;display:flex;flex-direction:column}
+#sofia-touch-review .sf-columns h3{flex:none;font-size:clamp(14px,2vh,18px);line-height:1.2}
+#sofia-touch-review .sf-finds h3{color:#1f6b3a}
+#sofia-touch-review .sf-columns .sf-overview-report,#sofia-touch-review .sf-finds-list{flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;touch-action:pan-y;align-content:start}
+#sofia-touch-review .sf-finds-list{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+#sofia-touch-review .sf-columns li{min-width:0}
+#sofia-touch-review .sf-columns .sf-overview-report li,#sofia-touch-review .sf-finds-list button{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:baseline;width:100%;padding:8px 10px;border-radius:12px;background:#fff;text-align:left;box-sizing:border-box}
+#sofia-touch-review .sf-finds-list button{border:1px solid #c9e2d2;color:inherit;font:inherit;min-height:0;box-shadow:none}
+#sofia-touch-review .sf-columns strong{font-size:clamp(19px,2.8vh,24px);font-weight:800;letter-spacing:.5px;white-space:nowrap}
+#sofia-touch-review .sf-columns span{font-size:clamp(13px,1.8vh,16px);font-weight:600;color:#5b6b62;text-align:right;white-space:nowrap}
+#sofia-touch-review .sf-columns small{grid-column:1/-1;font-size:clamp(13px,1.8vh,16px);line-height:1.25;overflow-wrap:anywhere}
+#sofia-touch-review .sf-finds-list small{color:#1f6b3a}
+#sofia-touch-review .sf-finds-list .is-unsure small{color:#7a5a00;font-weight:700}
+#sofia-touch-review .sf-finds-list .is-unsure button{border-color:#ecd9a0}
+#sofia-touch-review .sf-finds-note{flex:none;margin:0 0 6px;font-size:14px;line-height:1.25;color:#7a5a00;font-weight:700}
+#sofia-touch-review .sf-finds-picked{flex:none;margin:6px 0 0;font-size:13px;color:#5b6b62}
 #sofia-touch-review .sf-match-pickup{display:inline-block;margin-top:8px;padding:3px 10px;border-radius:9px;background:#fff;border:1px solid #e3d7b0;font-size:18px;font-weight:700;line-height:1.25;color:#7a5a00}
 #sofia-touch-review .sf-match-pickup.is-picked{color:#1f6b3a}
 #sofia-touch-review .sf-match-pickup.is-unsure{color:#8a2b2b}
