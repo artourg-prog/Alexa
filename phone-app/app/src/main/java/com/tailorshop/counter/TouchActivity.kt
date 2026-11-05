@@ -158,6 +158,10 @@ class TouchActivity : Activity() {
                         reply(id, error("Orders unavailable. Check the connection and try again."))
                     }
                 }
+                "reopen" -> reads.execute {
+                    try { reopen(id, body.optString("last4"), body.optString("receipt"), body.optString("txn"), body.optString("total")) }
+                    catch (_: Exception) { reply(id, error("Orders unavailable. Check the connection and try again.")) }
+                }
                 "save", "pickup" -> saves.execute {
                     try {
                         if (action == "save") saveWork(id, body) else savePickup(id, body.optString("number"), body.optString("txn"))
@@ -226,21 +230,40 @@ class TouchActivity : Activity() {
         // Find also lists the same digits from the Order Index when they aren't in the ready list, each with its own
         // state (not ready + promised time / already picked up / unknown). Picked up stays ready-list only.
         if (action == "find") refreshIndex()
-        val readyFresh = !offline
-        fun sameNumber(r: String) = index.filter { Lookup.digits(it.receipt) == Lookup.digits(r) && Lookup.digits(it.phone).takeLast(4) == number }
         val extra = if (action == "find") OrderIndex.find(number, index).filter { e -> results.none { Lookup.digits(it.receipt) == Lookup.digits(e.receipt) } } else emptyList()
         if (action == "find") logFind(number, results, extra)
-        reply(id, JSONObject().put("ok", true).put("receipts", JSONArray().apply {
-            cards.forEach { card -> put(cardJson(card, action == "report" && results.isEmpty()).also { json ->
+        reply(id, answer(action, number, cards, results.isEmpty(), extra))
+    }
+
+    /** A tap on a Find row. It only reads, and it reads everything again first, so the row is never the authority: nothing
+     *  is logged, marked or sent here. Picked up stays the card's own button, with its own re-read before anything is kept. */
+    private fun reopen(id: String, last4: String, receipt: String, txn: String, total: String) {
+        if (!last4.matches(Regex("[0-9]{4}")) || !receipt.matches(Regex("[0-9]+"))) { reply(id, error("This row can't be opened. Search again.")); return }
+        runCatching { refreshOrders() }; refreshIndex(); runCatching { settleFinds() }
+        val cards = Lookup.find(Query.Last4(last4), orders).filter { Lookup.digits(it.receipt) == receipt && (txn.isEmpty() || it.txn == txn) }
+        val extra = OrderIndex.find(last4, index).filter { Lookup.digits(it.receipt) == receipt && cards.isEmpty() }
+        val json = answer("find", last4, cards, false, extra, checked = true)
+        if (cards.isEmpty() && extra.isEmpty()) json.put("receipts", JSONArray().put(cardJson(Card(receipt, "", "", total = total)).put("ready", false).put("state", "UNKNOWN")
+            .put("stateText", if (offline || !indexFresh) "Couldn't refresh, so the current status is unknown" else "Not on the lists any more — check the tablet")))
+        reply(id, json)
+    }
+
+    /** The cards for the screen. [checked] = a reopened row: a card that may not be picked up says why and offers no button. */
+    private fun answer(action: String, number: String, cards: List<Card>, unverified: Boolean, extra: List<OrderIndex.Entry>, checked: Boolean = false): JSONObject {
+        val readyFresh = !offline
+        fun sameNumber(r: String) = index.filter { Lookup.digits(it.receipt) == Lookup.digits(r) && Lookup.digits(it.phone).takeLast(4) == number }
+        return JSONObject().put("ok", true).put("receipts", JSONArray().apply {
+            cards.forEach { card -> put(cardJson(card, action == "report" && unverified).also { json ->
                 val tap = if (action == "find" && pickups.pendingFor(card.receipt, card.txn)) pickups.latest(card.receipt, card.txn) else null
                 if (tap != null) json.put("pickupNote", Pickups.stateText(tap))
-                if (action == "find") json.put("pickupLine", tap?.let(Pickups::stateText) ?: OrderIndex.pickupLine(true, readyFresh, indexFresh, sameNumber(card.receipt), listAge)) }) }
+                if (action == "find") json.put("pickupLine", tap?.let(Pickups::stateText) ?: OrderIndex.pickupLine(true, readyFresh, indexFresh, sameNumber(card.receipt), listAge))
+                if (checked && tap == null && !OrderIndex.pickupAllowed(json.getString("pickupLine"))) json.put("pickupNote", json.getString("pickupLine")) }) }
             extra.forEach { e -> put(cardJson(Card(e.receipt, e.customer, ""), false).put("ready", false)
                 .put("state", e.state.name).put("stateText", OrderIndex.stateText(e) + if (indexFresh) "" else " · couldn't refresh, may be out of date")
                 .put("stale", listAge.level != ListAge.Level.CURRENT && e.state != OrderIndex.State.COLLECTED)
                 .put("pickupLine", OrderIndex.pickupLine(false, readyFresh, indexFresh, listOf(e), listAge))) }
         }).put("offline", offline).put("loadedAt", loadedAt).also { json -> if (action == "find") json.put("listState", listAge.level.name)
-            .put("asOf", listAge.asOf).put("missText", ListAge.missText(listAge)) })
+            .put("asOf", listAge.asOf).put("missText", ListAge.missText(listAge)) }
     }
 
     private fun picked(receipt: String, last4: String) = index.filter { it.state == OrderIndex.State.COLLECTED &&
@@ -250,7 +273,7 @@ class TouchActivity : Activity() {
     private fun logFind(last4: String, results: List<Card>, extra: List<OrderIndex.Entry>) = runCatching {
         settleFinds()
         val hits = results.map { c -> val prior = picked(c.receipt, last4).size
-            FindLog.Hit(Lookup.digits(c.receipt), c.txn, if (prior > 0) FindLog.CONFLICT else if (c.ready) FindLog.READY else FindLog.NOT_READY, prior, Lookup.recorded(c.receipt)) } +
+            FindLog.Hit(Lookup.digits(c.receipt), c.txn, if (prior > 0) FindLog.CONFLICT else if (c.ready) FindLog.READY else FindLog.NOT_READY, prior, Lookup.recorded(c.receipt), c.total) } +
             extra.map { e -> FindLog.Hit(Lookup.digits(e.receipt), "", e.state.name, picked(e.receipt, last4).size, Lookup.recorded(e.receipt)) }
         findLog.add(last4, hits.ifEmpty { listOf(FindLog.Hit("", "", FindLog.NOT_FOUND)) }, listAge.level.name, listAge.asOf, offline || !indexFresh)
     }
@@ -344,7 +367,7 @@ class TouchActivity : Activity() {
     private fun overviewJson(): JSONObject {
         val zone = java.time.ZoneId.of("America/Los_Angeles"); val today = java.time.LocalDate.now(zone)
         val list = finishes.all().filter { java.time.Instant.ofEpochMilli(it.createdMs).atZone(zone).toLocalDate() == today }
-            .sortedByDescending { it.createdMs }.take(30)
+            .sortedByDescending { it.createdMs }.take(200)
         return JSONObject().put("ok", true).put("report", JSONArray(list.map { i ->
             JSONObject().put("number", i.number()).put("worker", i.worker).put("recorded", Finishes.recorded(i)).put("time", FindLog.time(i.createdMs))
                 .put("id", i.scanId).put("line", Finishes.overviewLine(i)).put("problem", Finishes.overviewProblem(i)) }))
@@ -354,7 +377,7 @@ class TouchActivity : Activity() {
     @Volatile private var findsReadAt = 0L
     @Volatile private var findsRead = false
 
-    /** Right column: open requests with their answers, re-read from the shared list every two minutes while any is waiting. */
+    /** Right column: today's searches with their answers; open ones re-read from the shared list every two minutes while any is waiting. */
     private fun findsInto(json: JSONObject) {
         val tap = { e: FindLog.Entry -> pickups.latest(e.receipt, e.txn) }
         findLog.settleTaps(tap)
@@ -363,9 +386,9 @@ class TouchActivity : Activity() {
             reads.execute { runCatching { refreshOrders(); refreshIndex(); settleFinds() }; findsRead = true }
         }
         json.put("finds", JSONArray(findLog.rows(tap).map { r -> JSONObject().put("id", r.entry.id).put("time", r.time).put("number", r.entry.number())
-            .put("last4", r.entry.last4).put("line", r.line).put("unsure", r.unsure).put("state", r.entry.state) }))
+            .put("last4", r.entry.last4).put("line", r.line).put("unsure", r.unsure).put("state", r.entry.state)
+            .put("receipt", r.entry.receipt).put("txn", r.entry.txn).put("amount", r.entry.amount).put("picked", r.entry.pickedMs != 0L) }))
         json.put("findNote", listOfNotNull(findLog.warning(), findSource().takeIf { it.isNotEmpty() }).joinToString(" · "))
-        json.put("pickedToday", findLog.pickedToday())
     }
 
     /** How current the right column is as a whole: a row keeps the state of its last good read. */

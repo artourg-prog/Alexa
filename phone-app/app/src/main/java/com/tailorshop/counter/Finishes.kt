@@ -110,11 +110,16 @@ class Finishes(
             else -> "SMS not sent: ${i.sms}"
         }
 
-        /** One line for the home Daily Report list: the Reader's saved time, or "save time not reported" — never our clock. */
+        /** One line for the home Daily Report list, by what really happened (owner 11-05): being sent, or even applied on
+         *  the tablet, is not success; only the Reader's confirmation says "In Daily Report", with its time, never our clock. */
         fun overviewLine(i: Item): String = when {
-            recorded(i) -> "Saved" + if (i.savedAt.isNotBlank()) " · ${i.savedAt}" else " · save time not reported"
-            i.scan == "REJECTED" || i.scan == "HELD" || receiptNotFound(i) -> scanText(i, false)
-            else -> "Saved on this phone · waiting for Daily Report confirmation"
+            recorded(i) -> "In Daily Report" + if (i.savedAt.isNotBlank()) " · ${i.savedAt}" else " · save time not reported"
+            i.scan == "HELD" -> "Not in Daily Report · held for owner review"
+            i.scan == "REJECTED" -> "Failed · ${scanText(i, false)}"
+            receiptNotFound(i) -> "Failed · receipt not in the master list"
+            i.scan in SCAN_APPLIED -> if (i.reportState == "UNCONFIRMED") "Applied on tablet · Daily Report not confirmed" else "Applied on tablet · waiting for Daily Report"
+            i.scan.isEmpty() -> "Scanned · not sent yet"
+            else -> "Pending · waiting for the tablet"
         } + if (i.sendSms) " · ${smsText(i, false)}" else ""
 
         /** Needs a person: refused, held, not in the master list, or an SMS that ended without being sent. */

@@ -252,18 +252,29 @@
       logo.oncontextmenu = event => event.preventDefault();
     });
   }
-  // Home, two columns that scroll on their own (owner 11-04). Left: today's Daily Report entries from this phone, with the
-  // saved time only as the Reader reports it. Right: today's Find requests and their answers, until a pickup is confirmed.
+  // Home, two columns that scroll on their own (owner 11-04, 11-05). Left: today's Daily Report entries from this phone, each
+  // real state; only the Reader's confirmation says In Daily Report. Right: today's searches, numbers, amounts and answers.
   const watched = new Set(), announced = new Set(); // entries saved from this screen; each "Recorded" is said once
   let shown = ''; // what the columns already show: an unchanged 5 s check leaves them, and a finger on them, alone
-  function row(number, time, line) {
+  function row(number, side, line) {
     const n = document.createElement('strong'); n.textContent = number;
-    const t = document.createElement('span'); t.textContent = time;
+    const t = document.createElement('span'); t.textContent = side;
     const l = document.createElement('small'); l.textContent = line;
     return [n, t, l];
   }
-  // Tapping a request looks it up again, so a worker can pick it up where they left off (Picked up stays on the order's card).
-  function reopen(last4) { ++revision; clearTimers(); state.flow = 'lookup'; state.digits = last4; find(); }
+  // Tapping a row opens that receipt's card after a fresh read of the lists: it marks nothing and sends nothing. Picked up / Not
+  // picked up stay the card's own two buttons. A search that found no receipt just searches again.
+  async function reopen(entry) {
+    clearTimers(); state.flow = 'lookup'; state.digits = entry.last4;
+    if (!entry.receipt) { find(); return; }
+    const rev = ++revision; state.spoken = ''; root.querySelector('.sf-listen').disabled = true; voiceNote(''); change('busy');
+    try {
+      const result = await call('reopen', { last4: entry.last4, receipt: entry.receipt, txn: entry.txn || '', total: entry.amount || '' });
+      if (rev !== revision) return;
+      state.matches = result.receipts; state.list = { old: !!result.listState && result.listState !== 'CURRENT', asOf: result.asOf || '' };
+      if (state.matches.length === 1) select(state.matches[0]); else change('matches');
+    } catch (error) { if (rev === revision) { home(); fail(error); } }
+  }
   function drawColumns(result) {
     const report = body.querySelector('.sf-overview-report'), finds = body.querySelector('.sf-finds-list');
     report.replaceChildren(...result.report.map(entry => {
@@ -272,14 +283,12 @@
     }));
     finds.replaceChildren(...result.finds.map(entry => {
       const li = document.createElement('li'), button = document.createElement('button'); button.type = 'button';
-      li.className = entry.unsure ? 'is-unsure' : ''; button.onclick = () => reopen(entry.last4);
-      button.append(...row(entry.number || '…' + entry.last4, entry.time, entry.line)); li.append(button); return li;
+      li.className = entry.picked ? 'is-picked' : entry.unsure ? 'is-unsure' : ''; button.onclick = () => reopen(entry);
+      button.append(...row(entry.number || '…' + entry.last4, entry.amount || '', entry.time + ' · ' + entry.line)); li.append(button); return li;
     }));
     body.querySelector('.sf-overview:not(.sf-finds) .sf-overview-empty').hidden = result.report.length > 0;
     body.querySelector('.sf-finds .sf-overview-empty').hidden = result.finds.length > 0;
     const note = body.querySelector('.sf-finds-note'); note.textContent = result.findNote; note.hidden = !result.findNote;
-    const done = body.querySelector('.sf-finds-picked'); done.hidden = !result.pickedToday;
-    done.textContent = 'Picked up today: ' + result.pickedToday + ' · Settings → Find history';
   }
   async function loadOverview() {
     const rev = revision;
