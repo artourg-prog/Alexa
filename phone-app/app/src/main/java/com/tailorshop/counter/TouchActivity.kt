@@ -490,7 +490,7 @@ class TouchActivity : Activity() {
                     4 -> chooseDueVoice()
                     5 -> AlertDialog.Builder(this).setTitle("Find history")
                         .setMessage(findLog.history().joinToString("\n\n", transform = FindLog::historyLine).ifEmpty { "No searches kept yet." })
-                        .setPositiveButton("Close", null).showDialog()
+                        .setPositiveButton("Close", null).show()
                 }
             }.setNegativeButton("Close", null).show()
     }
