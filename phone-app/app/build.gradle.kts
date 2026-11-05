@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 75 // home TODAY lists, SM-T820 line (74 is the Fold candidate)
-        versionName = "0.75"
+        versionCode = 77 // SM-T820 line: receipt-only Find list, no-access answer, own read key (76 is the Fold candidate)
+        versionName = "0.77"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

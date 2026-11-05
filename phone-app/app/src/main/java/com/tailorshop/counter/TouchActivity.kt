@@ -59,7 +59,7 @@ class TouchActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         finishes = Queues.finishes(this); pickups = Queues.pickups(this); findLog = Queues.findLog(this)
-        sheets = Sheets(File(filesDir, "sheet-key.json")); cache = OrderCache(filesDir)
+        sheets = Sheets(orderKey()); cache = OrderCache(filesDir)
         cache.load()?.let { snapshot -> runCatching { orders = snapshot.orders(); loadedAt = snapshot.at } }
         web = WebView(this)
         web.settings.apply {
@@ -185,6 +185,13 @@ class TouchActivity : Activity() {
     }
 
     @Volatile private var index: List<OrderIndex.Entry> = emptyList()
+
+    /** The SM-T820 has no sheet key: it reads the list with its own restricted account, and only if the owner gave that account
+     *  read access to the list. Until then the list answers 403 and Find says there is no access. The phone's key is never used here. */
+    private fun orderKey(): File {
+        val own = File(filesDir, "sheet-key.json"); val tablet = File(filesDir, "update-key.json")
+        return if (!own.isFile && tablet.isFile && TabletBars.applies(android.os.Build.MODEL)) tablet else own
+    }
 
     @Volatile private var denied = false
 
