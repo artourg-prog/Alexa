@@ -57,7 +57,7 @@ object SafeIntent {
     private fun confirmation(text:String,c:IntentContext):Boolean? {
         if(question(text))return null
         val n=" "+Lookup.normalize(text)+" "
-        if(numbers(text).any { it!=c.receipt })return null
+        if(numbers(text).any { it!=c.receipt?.let(Lookup::digits) })return null
         if(listOf(" bez sms "," without sms "," no sms "," just save "," prosto zapishi "," don t send "," dont send "," ne otprav "," ne otpravi ").any { it in n })return false
         val words=Lookup.normalize(text).split(' ').filter { it.isNotBlank() && !it.all(Char::isDigit) && Lookup.matchWorker(it,c.workers)==null }
         val allowed=setOf("sofia","sophia","sofiya","sofya","sofi","this","is","eto","ya","please","pozhaluysta","yes","yeah","yep","correct","right","sure","da","verno","aga","tochno","pravilno","konechno","no","nope","cancel","wrong","net","otmena","ne","neverno","otmenit","stop","send","it","sms","message","the","a","text","go","ahead","otprav","otpravi","otpravlyay","soobschenie","pozhalusta","for","receipt","resit","number","nomer")
@@ -97,8 +97,8 @@ object SafeIntent {
     fun validate(candidate:Intent,text:String,c:IntentContext):Intent {
         val spoken=numbers(text)
         return when(candidate) {
-            is Intent.Find -> if(candidate.numbers.all { it in spoken || it==c.receipt }) candidate else Intent.Need(Intent.Field.NUMBER)
-            is Intent.Report -> if(candidate.receipt==null || candidate.receipt in spoken || candidate.receipt==c.receipt) candidate else Intent.Need(Intent.Field.RECEIPT)
+            is Intent.Find -> if(candidate.numbers.all { it in spoken || Lookup.digits(it)==c.receipt?.let(Lookup::digits) }) candidate else Intent.Need(Intent.Field.NUMBER)
+            is Intent.Report -> if(candidate.receipt==null || Lookup.digits(candidate.receipt) in spoken || Lookup.digits(candidate.receipt)==c.receipt?.let(Lookup::digits)) candidate else Intent.Need(Intent.Field.RECEIPT)
             is Intent.Answer -> if(candidate.yes==confirmation(text,c))candidate else Intent.Ignore
             is Intent.Introduce -> if(candidate.worker in c.workers && candidate.worker==worker(text,c.workers))candidate else Intent.Need(Intent.Field.WORKER)
             is Intent.Finish -> {
