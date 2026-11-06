@@ -57,6 +57,8 @@
 #sofia-touch-review button,#sofia-touch-review input{font:inherit}
 #sofia-touch-review button{touch-action:manipulation}
 #sofia-touch-review button.sf-touch-pressed{filter:brightness(.86)}
+/* Fixed-place buttons: a small finger wobble must not start a scroll, which would cancel the tap. Buttons in lists keep scrolling. */
+#sofia-touch-review button.sf-action,#sofia-touch-review button.sf-wide,#sofia-touch-review button.sf-back,#sofia-touch-review button.sf-home,#sofia-touch-review button.sf-listen,#sofia-touch-review .sf-keypad button{touch-action:none}
 #sofia-touch-review [hidden]{display:none!important}
 #sofia-touch-review .sf-top{display:flex;align-items:center;gap:12px;padding:17px 13px;background:linear-gradient(#fff,#edf6ef);border-radius:28px 28px 0 0}
 #sofia-touch-review .sf-top strong{font-size:20px;letter-spacing:2px;font-weight:750}
