@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 79 // light taps on action buttons (SM-T820 line)
-        versionName = "0.79"
+        versionCode = 81 // light taps on action buttons (SM-T820 line)
+        versionName = "0.81"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
