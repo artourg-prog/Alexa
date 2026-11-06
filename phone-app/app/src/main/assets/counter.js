@@ -10,7 +10,7 @@
   let touchTap = null, suppressTouchClickUntil = 0, scrolledAt = -Infinity;
   root.addEventListener('scroll', () => { scrolledAt = performance.now(); }, true);
   root.addEventListener('pointerdown', event => {
-    if (event.pointerType !== 'touch' || !event.isPrimary) return;
+    if (event.pointerType === 'mouse' || !event.isPrimary) return; // some devices report an empty type for a finger (SM-T820)
     const button = event.target.closest('button');
     if (!button || button.disabled || button.hasAttribute('data-key') || typeof button.onclick !== 'function') return;
     if (performance.now() - scrolledAt < SETTLE_MS) return;
