@@ -2,6 +2,38 @@
   'use strict';
   const root = document.getElementById('sofia-touch-review');
   const body = root.querySelector('.sf-body'), phone = root.querySelector('.sf-phone');
+
+  // Use touch release for the action buttons, with the same small-movement tolerance as
+  // the keypad. Keep native clicks for keyboard, accessibility and mouse input.
+  let touchTap = null, suppressTouchClickUntil = 0;
+  root.addEventListener('pointerdown', event => {
+    if (event.pointerType !== 'touch' || !event.isPrimary) return;
+    const button = event.target.closest('button');
+    if (!button || button.disabled || button.hasAttribute('data-key') || typeof button.onclick !== 'function') return;
+    touchTap = { button, id: event.pointerId, x: event.clientX, y: event.clientY };
+    button.classList.add('sf-touch-pressed');
+  });
+  function endTouch(event) {
+    if (!touchTap || touchTap.id !== event.pointerId) return;
+    const { button, x, y } = touchTap;
+    touchTap = null;
+    button.classList.remove('sf-touch-pressed');
+    if (event.type === 'pointercancel') return;
+    suppressTouchClickUntil = performance.now() + 500;
+    const rect = button.getBoundingClientRect();
+    if (button.isConnected && !button.disabled && Math.hypot(event.clientX - x, event.clientY - y) <= 30 &&
+        event.clientX >= rect.left && event.clientX <= rect.right &&
+        event.clientY >= rect.top && event.clientY <= rect.bottom) button.click();
+  }
+  window.addEventListener('pointerup', endTouch);
+  window.addEventListener('pointercancel', endTouch);
+  root.addEventListener('click', event => {
+    if (event.isTrusted && event.detail > 0 && event.pointerType !== 'mouse' &&
+        performance.now() < suppressTouchClickUntil) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+  }, true);
   const pending = new Map(); let serial = 0, polling = null, returnTimer = null, revision = 0;
   // Spoken digit by digit, so a recorded 26-490 never has its dash read out.
   const spell = number => String(number || '').replace(/[^0-9]/g, '').split('').join(' ');
