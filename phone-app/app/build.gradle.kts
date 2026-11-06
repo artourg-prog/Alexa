@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 77 // SM-T820 line: receipt-only Find list, no-access answer, own read key (76 is the Fold candidate)
-        versionName = "0.77"
+        versionCode = 79 // light taps on action buttons (SM-T820 line)
+        versionName = "0.79"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
