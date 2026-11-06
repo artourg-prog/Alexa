@@ -5,25 +5,31 @@
 
   // Use touch release for the action buttons, with the same small-movement tolerance as
   // the keypad. Keep native clicks for keyboard, accessibility and mouse input.
-  let touchTap = null, suppressTouchClickUntil = 0;
+  // A finger that stops a moving list, or that rests on a button, is not a tap: neither would have been a click before.
+  const HOLD_MS = 700, SETTLE_MS = 150;
+  let touchTap = null, suppressTouchClickUntil = 0, scrolledAt = -Infinity;
+  root.addEventListener('scroll', () => { scrolledAt = performance.now(); }, true);
   root.addEventListener('pointerdown', event => {
     if (event.pointerType !== 'touch' || !event.isPrimary) return;
     const button = event.target.closest('button');
     if (!button || button.disabled || button.hasAttribute('data-key') || typeof button.onclick !== 'function') return;
-    touchTap = { button, id: event.pointerId, x: event.clientX, y: event.clientY };
+    if (performance.now() - scrolledAt < SETTLE_MS) return;
+    touchTap = { button, id: event.pointerId, x: event.clientX, y: event.clientY, at: performance.now() };
     button.classList.add('sf-touch-pressed');
   });
   function endTouch(event) {
     if (!touchTap || touchTap.id !== event.pointerId) return;
-    const { button, x, y } = touchTap;
+    const { button, x, y, at } = touchTap;
     touchTap = null;
     button.classList.remove('sf-touch-pressed');
     if (event.type === 'pointercancel') return;
     suppressTouchClickUntil = performance.now() + 500;
     const rect = button.getBoundingClientRect();
-    if (button.isConnected && !button.disabled && Math.hypot(event.clientX - x, event.clientY - y) <= 30 &&
+    if (performance.now() - at <= HOLD_MS && button.isConnected && !button.disabled && Math.hypot(event.clientX - x, event.clientY - y) <= 30 &&
         event.clientX >= rect.left && event.clientX <= rect.right &&
-        event.clientY >= rect.top && event.clientY <= rect.bottom) button.click();
+        event.clientY >= rect.top && event.clientY <= rect.bottom) {
+      button.click(); suppressTouchClickUntil = performance.now() + 500; // counted from after the new screen is drawn
+    }
   }
   window.addEventListener('pointerup', endTouch);
   window.addEventListener('pointercancel', endTouch);
