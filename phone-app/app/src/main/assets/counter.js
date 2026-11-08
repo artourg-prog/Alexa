@@ -168,7 +168,7 @@
     try {
       const result = await call(state.flow === 'report' ? 'report' : 'find', { number });
       if (rev !== revision) return;
-      state.matches = result.receipts; state.list = { old: !!result.listState && result.listState !== 'CURRENT', asOf: result.asOf || '' };
+      state.matches = result.receipts; state.list = { old: !!result.listState && result.listState !== 'CURRENT', asOf: result.asOf || '', offline: !!result.offline };
       if (!state.matches.length) { change('keypad', false); fail(new Error(result.missText || 'No matching receipt. Check the number.')); return; }
       if (state.matches.length === 1) select(state.matches[0]); else change('matches');
     } catch (error) { if (rev === revision) { change('keypad', false); fail(error); } }
@@ -311,7 +311,7 @@
     try {
       const result = await call('reopen', { last4: entry.last4, receipt: entry.receipt, txn: entry.txn || '', total: entry.amount || '', shown: entry.number || '' });
       if (rev !== revision) return;
-      state.matches = result.receipts; state.list = { old: !!result.listState && result.listState !== 'CURRENT', asOf: result.asOf || '' };
+      state.matches = result.receipts; state.list = { old: !!result.listState && result.listState !== 'CURRENT', asOf: result.asOf || '', offline: !!result.offline };
       if (state.matches.length === 1) select(state.matches[0]); else change('matches');
     } catch (error) { if (rev === revision) { home(); fail(error); } }
   }
@@ -362,7 +362,7 @@
       const line = state.selected.pickupLine || '', collected = state.selected.state === 'COLLECTED' || /^Picked up ·/.test(line), conflict = /conflicting/.test(line);
       body.querySelector('.sf-pickup').disabled = !state.selected.ready || !!state.selected.pickupNote || collected || conflict;
       if (collected || conflict) body.querySelector('.sf-readonly').textContent = collected ? 'Already picked up — pickup is not offered again.' : 'Pickup records disagree — check the tablet. Pickup is not offered here.';
-      else if (listOld()) body.querySelector('.sf-readonly').textContent = (state.list.asOf ? 'List as of ' + state.list.asOf : 'List age unknown') + ' — it may be out of date. Check the order; the tablet has the final say.';
+      else if (listOld()) body.querySelector('.sf-readonly').textContent = (state.list.offline ? 'Couldn\'t refresh — showing the list ' + (state.list.asOf ? 'as of ' + state.list.asOf : 'of unknown age') + '.' : (state.list.asOf ? 'List as of ' + state.list.asOf : 'List age unknown') + ' — it may be out of date.') + ' Check the order; the tablet has the final say.';
       body.querySelector('.sf-pickup').onclick = pickup; body.querySelector('.sf-not-picked-up').onclick = () => { const ready = state.selected.ready && !state.selected.pickupNote; home(); say(ready ? 'Not picked up. Заказ остаётся в списке готовых к выдаче.' : 'Not picked up.'); };
     } else if (step === 'workers') {
       body.replaceChildren(clone('sf-workers-screen')); body.querySelector('.sf-detail-slot').append(receipt()); body.querySelector('.sf-work-date').textContent = today();
