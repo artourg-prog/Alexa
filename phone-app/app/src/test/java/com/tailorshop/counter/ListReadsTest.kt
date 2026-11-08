@@ -27,7 +27,7 @@ class ListReadsTest {
     private var source: () -> Sheets.Lists = { ready }
     private var fetches = 0
     private val kept = mutableListOf<Long>()
-    private val reads = ListReads({ fetches++; source() }, { _, at -> kept += at }, { now })
+    private val reads = ListReads({ fetches++; source() }, { _, at -> kept += at }, { now }, { now })
 
     private fun line(r: ListReads): String {
         val inReady = r.orders.any { it.receipt == "1234" }
@@ -120,7 +120,7 @@ class ListReadsTest {
     }
 
     @Test fun aCopyThatCantBeSavedDoesNotMakeAGoodReadOffline() {
-        val r = ListReads({ ready }, { _, _ -> throw IllegalStateException("disk full") }, { now })
+        val r = ListReads({ ready }, { _, _ -> throw IllegalStateException("disk full") }, { now }, { now })
         r.refresh(now)
         assertFalse(r.offline); assertTrue(r.indexFresh); assertEquals(now, r.loadedAt)
     }
@@ -129,5 +129,27 @@ class ListReadsTest {
         reads.refresh(now)
         assertEquals(listOf(now), kept)
         assertEquals(ListAge.Level.CURRENT, reads.listAge.level)
+    }
+
+    @Test fun aPickedUpReadIsNotHeldBehindASlowReadAndTheOlderResultIsDropped() {
+        // read A starts first and is slow; read B (a Picked up) starts during it and finishes first.
+        val gate = java.util.concurrent.CountDownLatch(1); var t = 0L
+        val slow = ListReads({ if (Thread.currentThread().name == "A") { gate.await(); ready } else collected }, clock = { now }, ticks = { synchronized(this) { ++t } })
+        val a = Thread({ slow.refresh(0) }, "A"); a.start()
+        while (t < 1) Thread.sleep(1)
+        val b = Thread({ slow.refresh(0) }, "B"); b.start(); b.join(2_000)
+        assertFalse("B must not wait for A", b.isAlive)
+        assertTrue(slow.orders.isEmpty()) // B's newer answer: collected
+        gate.countDown(); a.join(2_000)
+        assertTrue(slow.orders.isEmpty()) // A started earlier, so its older answer is dropped
+        assertEquals(OrderIndex.State.COLLECTED, slow.index.single { it.receipt == "1234" && it.updatedAt.isNotEmpty() }.state)
+    }
+
+    @Test fun aClockCorrectionDoesNotShareAnOldRead() {
+        var wall = now; var mono = 1_000L
+        val r = ListReads({ fetches++; ready }, clock = { wall }, ticks = { mono })
+        r.refresh(mono); wall -= 3_600_000 // the device clock is set back an hour
+        mono += 5; r.refresh(mono)
+        assertEquals(2, fetches)
     }
 }

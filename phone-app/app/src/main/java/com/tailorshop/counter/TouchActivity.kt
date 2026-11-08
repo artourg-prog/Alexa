@@ -153,14 +153,14 @@ class TouchActivity : Activity() {
                 "settings" -> main.post { settings(); reply(id, JSONObject().put("ok", true)) }
                 "load" -> reply(id, JSONObject().put("ok", true).put("workers", JSONArray(finishes.workers()))
                     .put("finishConfigured", finishes.configured()).put("pickupConfigured", pickups.configured()))
-                "find", "report" -> { val asked = System.currentTimeMillis(); reads.execute {
+                "find", "report" -> { val asked = ListReads.monotonic(); reads.execute {
                     try { lookup(id, action, body.optString("number"), asked) }
                     catch (_: Exception) {
                         if (action == "find") logMiss(body.optString("number").trim(), FindLog.NO_ANSWER)
                         reply(id, error("Orders unavailable. Check the connection and try again."))
                     }
                 } }
-                "reopen" -> { val asked = System.currentTimeMillis(); reads.execute {
+                "reopen" -> { val asked = ListReads.monotonic(); reads.execute {
                     try { reopen(id, body.optString("last4"), body.optString("receipt"), body.optString("txn"), body.optString("total"), body.optString("shown"), asked) }
                     catch (_: Exception) { reply(id, error("Orders unavailable. Check the connection and try again.")) }
                 } }
@@ -203,7 +203,7 @@ class TouchActivity : Activity() {
 
     // Every tab (ready list, Order Index, Picked Up Orders, Sync Status) in one read; see ListReads. A failed read keeps the
     // last good copy and marks everything offline with that copy's age, so the screen never presents it as current.
-    private fun refreshLists(asked: Long = System.currentTimeMillis()) = lists.refresh(asked)
+    private fun refreshLists(asked: Long = ListReads.monotonic()) = lists.refresh(asked)
 
     private fun lookup(id: String, action: String, value: String, asked: Long) {
         val number = Lookup.plainReceipt(value)
