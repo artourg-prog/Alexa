@@ -26,8 +26,8 @@ class ListReadsTest {
     private var now = 1794168600000L
     private var source: () -> Sheets.Lists = { ready }
     private var fetches = 0
-    private val kept = mutableListOf<Long>()
-    private val reads = ListReads({ fetches++; source() }, { _, at -> kept += at }, { now }, { now })
+    private val kept = mutableListOf<Pair<Long, String>>()
+    private val reads = ListReads({ fetches++; source() }, { _, at, asOf -> kept += at to asOf }, { now }, { now })
 
     private fun line(r: ListReads): String {
         val inReady = r.orders.any { it.receipt == "1234" }
@@ -81,8 +81,23 @@ class ListReadsTest {
         source = { throw java.io.IOException("no network") }
         reads.refresh(now)
         assertTrue(reads.offline)
-        assertEquals("Nov 8, 11:00 AM", reads.listAge.asOf)
+        assertEquals("Nov 8, 11:00 AM (last read here)", reads.listAge.asOf) // the data can be older than this read; never passed off as its age
         assertEquals("Pickup status unavailable — couldn't refresh", line(reads))
+    }
+
+    @Test fun aSavedCopyKeepsTheTabletsPublishTimeAcrossARestart() {
+        reads.restore(listOf(readyHeader, readyRow), 1794164400000L, "Nov 8, 10:40 AM")
+        source = { throw java.io.IOException("no network") }
+        reads.refresh(now)
+        assertEquals("Nov 8, 10:40 AM", reads.listAge.asOf)
+    }
+
+    @Test fun anUnknownPublishTimeIsLabelledAsThisDevicesReadTime() {
+        source = { ready.copy(sync = null) }; reads.refresh(now)
+        assertEquals("", kept.single().second)
+        source = { throw java.io.IOException("no network") }; now += 1
+        reads.refresh(now)
+        assertEquals("Nov 8, 12:10 PM (last read here)", reads.listAge.asOf)
     }
 
     @Test fun noCopyAndNoNetworkIsAnErrorNotAnEmptyList() {
@@ -120,14 +135,14 @@ class ListReadsTest {
     }
 
     @Test fun aCopyThatCantBeSavedDoesNotMakeAGoodReadOffline() {
-        val r = ListReads({ ready }, { _, _ -> throw IllegalStateException("disk full") }, { now }, { now })
+        val r = ListReads({ ready }, { _, _, _ -> throw IllegalStateException("disk full") }, { now }, { now })
         r.refresh(now)
         assertFalse(r.offline); assertTrue(r.indexFresh); assertEquals(now, r.loadedAt)
     }
 
     @Test fun theCopyIsSavedWithTheTimeItWasRead() {
         reads.refresh(now)
-        assertEquals(listOf(now), kept)
+        assertEquals(listOf(now to "Nov 8, 12:00 PM"), kept) // the tablet's publish time is saved with the copy
         assertEquals(ListAge.Level.CURRENT, reads.listAge.level)
     }
 

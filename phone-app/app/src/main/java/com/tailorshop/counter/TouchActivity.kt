@@ -62,7 +62,7 @@ class TouchActivity : Activity() {
         finishes = Queues.finishes(this); pickups = Queues.pickups(this); findLog = Queues.findLog(this)
         sheets = Sheets(orderKey()); cache = OrderCache(filesDir)
         lists = ListReads(sheets::readAll, cache::save)
-        cache.load()?.let { snapshot -> runCatching { lists.restore(snapshot.rows, snapshot.at) } }
+        cache.load()?.let { snapshot -> runCatching { lists.restore(snapshot.rows, snapshot.at, snapshot.asOf) } }
         web = WebView(this)
         web.settings.apply {
             javaScriptEnabled = true
