@@ -9,13 +9,13 @@ import java.time.ZonedDateTime
  *
  * Every Find, reopened row and Picked up reads all the tabs again, in one request. Before, a Find whose number was already
  * in the copy could be answered from a copy up to a minute old. A copy is now only a fallback: when a read fails the
- * last good copy is kept, marked offline, and its age goes with it (the tablet's last publish if known, else when this
- * device last read it). Nothing waits on purpose: two requests queued together share the read that started after both,
+ * last good copy is kept, marked offline, and its age goes with it (the tablet's last publish if known, saved with the copy, else
+ * when this device last read it, labelled as such). Nothing waits on purpose: two requests queued together share the read that started after both,
  * and a Picked up never waits behind another read: reads run side by side and only the newest-started result is kept.
  */
 class ListReads(
     private val fetch: () -> Sheets.Lists,
-    private val keep: (List<List<String>>, Long) -> Unit = { _, _ -> },
+    private val keep: (List<List<String>>, Long, String) -> Unit = { _, _, _ -> }, // rows, read time, publish time
     private val clock: () -> Long = System::currentTimeMillis,
     private val ticks: () -> Long = ::monotonic, // for sharing reads; never moves back when the device clock is corrected
 ) {
@@ -34,9 +34,9 @@ class ListReads(
     private var appliedStartedAt = Long.MIN_VALUE // ticks when the read whose result is in use (good or failed) started
 
     /** The copy saved on this device, used until the first read; it is never treated as fresh. */
-    fun restore(rows: List<List<String>>, at: Long) {
+    fun restore(rows: List<List<String>>, at: Long, publishedAsOf: String = "") {
         orders = Lookup.parseOrders(rows); loadedAt = at
-        listAge = ListAge.Status(ListAge.Level.UNKNOWN, readTime(at))
+        listAge = ListAge.Status(ListAge.Level.UNKNOWN, publishedAsOf.ifEmpty { readHere(at) })
     }
 
     /**
@@ -52,11 +52,12 @@ class ListReads(
         val idx = lists.index?.let(OrderIndex::parse) ?: emptyList()
         val picked = lists.picked?.let(OrderIndex::parsePickedUp) ?: emptyList()
         val done = clock()
+        val age = ListAge.of(lists.sync, ZonedDateTime.ofInstant(Instant.ofEpochMilli(done), ZONE))
         synchronized(this) {
             if (start < appliedStartedAt) return // a read that started later already answered
-            runCatching { keep(lists.rows, done) } // a full disk never turns a good read into "offline"
+            runCatching { keep(lists.rows, done, age.asOf) } // a full disk never turns a good read into "offline"
             orders = parsed; loadedAt = done; index = OrderIndex.withHistory(idx, picked); indexFresh = true
-            listAge = ListAge.of(lists.sync, ZonedDateTime.ofInstant(Instant.ofEpochMilli(done), ZONE))
+            listAge = age
             offline = false; denied = false; goodStartedAt = start; appliedStartedAt = start
         }
     }
@@ -66,8 +67,9 @@ class ListReads(
             if (start >= appliedStartedAt) {
                 offline = true; indexFresh = false; appliedStartedAt = start
                 denied = e is Sheets.KeyMissing || e.message == "HTTP 403"
-                // The copy's own age: the tablet's last publish when the last good read knew it, else when it was read here.
-                listAge = ListAge.Status(ListAge.Level.UNKNOWN, listAge.asOf.ifEmpty { if (loadedAt == 0L) "" else readTime(loadedAt) })
+                // The copy's own age: the tablet's last publish when known, else when it was read here, saying so (the data
+                // itself can be older than that read).
+                listAge = ListAge.Status(ListAge.Level.UNKNOWN, listAge.asOf.ifEmpty { if (loadedAt == 0L) "" else readHere(loadedAt) })
             }
             if (loadedAt == 0L) throw e
         }
@@ -78,5 +80,7 @@ class ListReads(
         private val ZONE: ZoneId = ZoneId.of("America/Los_Angeles")
         fun readTime(ms: Long): String =
             OrderIndex.pretty(ZonedDateTime.ofInstant(Instant.ofEpochMilli(ms), ZONE).toLocalDateTime().toString().replace('T', ' '))
+        /** Only when the tablet's publish time is unknown: the time this device read the copy, never passed off as the data's age. */
+        fun readHere(ms: Long): String = readTime(ms) + " (last read here)"
     }
 }
