@@ -14,7 +14,6 @@ class Sheets(keyFile: File, private val reader:(()->List<List<String>>)?=null) {
         const val SPREADSHEET_ID = "14NLtaKEBKPLU-lM6SSpXuJx-Wog-qmXltMIjsimh0as" // Order Ready For Pickup
         const val RANGE = "'All Receipts'!A1:Z"
         const val INDEX = "'Order Index'!A1:Z"
-        const val PICKED = "'Picked Up Orders'!A1:F"
         const val SYNC = "'Sync Status'!A1:B30"
         private const val SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
     }
@@ -31,8 +30,6 @@ class Sheets(keyFile: File, private val reader:(()->List<List<String>>)?=null) {
      */
     fun readIndex(): List<List<String>>? = readTab(INDEX)
 
-    /** The "Picked Up Orders" history tab, read-only; null when it doesn't exist. Other failures throw. */
-    fun readPicked(): List<List<String>>? = readTab(PICKED)
 
     /** The "Sync Status" tab (Key | Value): when the tablet last published. See ListAge. Null when it doesn't exist. */
     fun readSync(): List<List<String>>? = readTab(SYNC)
@@ -48,7 +45,9 @@ class Sheets(keyFile: File, private val reader:(()->List<List<String>>)?=null) {
         return (0 until values.length()).map { i -> val row = values.getJSONArray(i); (0 until row.length()).map { j -> row.optString(j, "") } }
     }
 
-    /** Every tab Find needs, read together: the ready list plus Order Index, Picked Up Orders and Sync Status (null = no such tab). */
+    /** Every tab Find needs, read together: the ready list plus Order Index and Sync Status (null = no such tab). The
+     *  "Picked Up Orders" tab was removed on purpose (Pickups, 11-09): picked-up status is Order Index Status = COLLECTED,
+     *  so it is not read any more and [picked] is always null. */
     data class Lists(val rows: List<List<String>>, val index: List<List<String>>?, val picked: List<List<String>>?, val sync: List<List<String>>?)
 
     /**
@@ -58,12 +57,12 @@ class Sheets(keyFile: File, private val reader:(()->List<List<String>>)?=null) {
      */
     fun readAll(): Lists {
         reader?.let { return Lists(it(), null, null, null) }
-        val ranges = listOf(RANGE, INDEX, PICKED, SYNC)
+        val ranges = listOf(RANGE, INDEX, SYNC)
         val url = "https://sheets.googleapis.com/v4/spreadsheets/$SPREADSHEET_ID/values:batchGet?" +
             ranges.joinToString("&") { "ranges=" + URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
         val token = try { auth.accessToken() } catch (e: GoogleAuth.KeyMissing) { throw KeyMissing() }
         val body = try { String(GoogleAuth.http(url, null, "Bearer $token")) }
-            catch (e: Exception) { if (e.message == "HTTP 400") return Lists(readRows(), readIndex(), readPicked(), readSync()) else throw e }
+            catch (e: Exception) { if (e.message == "HTTP 400") return Lists(readRows(), readIndex(), null, readSync()) else throw e }
         val parts = JSONObject(body).optJSONArray("valueRanges") ?: throw IllegalStateException("Order lists unavailable")
         check(parts.length() == ranges.size) { "Order lists incomplete" }
         fun table(i: Int): List<List<String>> {
@@ -72,7 +71,7 @@ class Sheets(keyFile: File, private val reader:(()->List<List<String>>)?=null) {
         }
         val rows = table(0)
         require(rows.isNotEmpty()) { "Order headers unavailable" }
-        return Lists(rows, table(1), table(2), table(3))
+        return Lists(rows, table(1), null, table(2))
     }
 
     /** Header row first. Throws on any failure; the caller keeps the last good copy. */

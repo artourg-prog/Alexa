@@ -27,7 +27,7 @@ class ListReads(
     /** The last read was refused: no key, or the account has no access (HTTP 403). */
     @Volatile var denied = false; private set
     @Volatile var index: List<OrderIndex.Entry> = emptyList(); private set
-    /** Order Index and Picked Up Orders came from the last read (false after a failure or before the first read). */
+    /** Order Index came from the last read (false after a failure or before the first read). */
     @Volatile var indexFresh = false; private set
     @Volatile var listAge = ListAge.Status(ListAge.Level.UNKNOWN); private set
     private var goodStartedAt = Long.MIN_VALUE // ticks when the last good read that is in use started

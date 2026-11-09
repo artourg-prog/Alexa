@@ -14,8 +14,8 @@ android {
         ndk { abiFilters += "arm64-v8a" }
         externalNativeBuild { cmake { arguments += "-DCMAKE_BUILD_TYPE=Release" } }
         targetSdk = 36
-        versionCode = 84 // fresh order status on every Find, on 0.82
-        versionName = "0.84"
+        versionCode = 86 // reads 3 tabs: Picked Up Orders was removed, on 0.84
+        versionName = "0.86"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
