@@ -201,7 +201,7 @@ class TouchActivity : Activity() {
     private val indexFresh get() = lists.indexFresh
     private val listAge get() = lists.listAge
 
-    // Every tab (ready list, Order Index, Picked Up Orders, Sync Status) in one read; see ListReads. A failed read keeps the
+    // Every tab (ready list, Order Index, Sync Status) in one read; see ListReads. A failed read keeps the
     // last good copy and marks everything offline with that copy's age, so the screen never presents it as current.
     private fun refreshLists(asked: Long = ListReads.monotonic()) = lists.refresh(asked)
 
